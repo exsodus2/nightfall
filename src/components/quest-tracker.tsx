@@ -30,6 +30,12 @@ export function bearingTo(fromX: number, fromZ: number, yaw: number, toX: number
   return { distance: Math.hypot(dx, dz), absolute, relative: wrap(absolute - yaw) };
 }
 
+/** m:ss for timed quest stages. */
+export function formatTimeLeft(seconds: number): string {
+  const whole = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 export function formatCredits(credits: number): string {
   return Math.round(credits).toLocaleString("en-US");
 }
@@ -65,9 +71,11 @@ export function QuestTracker({ quests, x, z, yaw, onOpenLog }: QuestTrackerProps
         <span className="quest-bearing-arrow" aria-hidden="true" style={{ transform: `rotate(${(bearing.relative * 180) / Math.PI}deg)` }}>{arrived ? "◆" : "▲"}</span>
       </span>
       <span className="quest-tracker-copy">
-        <small>Tracked contract</small>
+        <small>Tracked contract{tracked.timeLeft !== undefined ? ` · ${formatTimeLeft(tracked.timeLeft)} left` : ""}</small>
         <strong>{tracked.title}</strong>
-        <span className="quest-objective">{tracked.objective}</span>
+        {tracked.objectives && tracked.objectives.length > 1
+          ? tracked.objectives.map((objective, index) => <span key={index} className="quest-objective" style={objective.done ? { opacity: 0.6 } : undefined}>{objective.done ? "[x] " : "[ ] "}{objective.text}{objective.optional ? " (optional)" : ""}</span>)
+          : <span className="quest-objective">{tracked.objective}</span>}
       </span>
       <span className="quest-distance" aria-hidden="true">
         {arrived ? "here" : formatDistance(bearing.distance)}

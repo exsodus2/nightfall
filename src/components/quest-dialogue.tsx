@@ -65,6 +65,8 @@ export function QuestDialogue({ dialogue, onChoose, onClose }: QuestDialogueProp
   const { options } = dialogue;
 
   const skip = useCallback(() => setRevealed(total), [total]);
+  // Disabled options (RPG quest engine: unmet conditions) stay focusable so the reason can be read.
+  const pick = useCallback((option: NpcDialogueOption | undefined) => { if (option && !option.disabled) onChoose(option.id); }, [onChoose]);
   const leave = useCallback(() => {
     const exit = options.find((option) => option.kind === "leave");
     if (exit) onChoose(exit.id); else onClose();
@@ -100,7 +102,7 @@ export function QuestDialogue({ dialogue, onChoose, onClose }: QuestDialogueProp
       if (event.code === "Escape") { event.preventDefault(); event.stopPropagation(); leave(); return; }
       if (digit) {
         const option = options[Number(digit[1]) - 1];
-        if (option && !event.repeat) { event.preventDefault(); onChoose(option.id); }
+        if (option && !event.repeat) { event.preventDefault(); pick(option); }
         return;
       }
       if (event.code === "ArrowDown" || event.code === "ArrowRight") { event.preventDefault(); focusOption(selected + 1); return; }
@@ -110,18 +112,18 @@ export function QuestDialogue({ dialogue, onChoose, onClose }: QuestDialogueProp
       if (event.code === "Enter" || event.code === "NumpadEnter") {
         event.preventDefault();
         if (!done) skip();
-        else if (!event.repeat) { const option = options[selected]; if (option) onChoose(option.id); }
+        else if (!event.repeat) pick(options[selected]);
         return;
       }
       if (event.code === "Space") {
         const onOption = optionRefs.current.some((button) => button === document.activeElement);
         if (!done) { event.preventDefault(); skip(); }
-        else if (!onOption && !event.repeat) { event.preventDefault(); const option = options[selected]; if (option) onChoose(option.id); }
+        else if (!onOption && !event.repeat) { event.preventDefault(); pick(options[selected]); }
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [done, focusOption, leave, onChoose, options, selected, skip]);
+  }, [done, focusOption, leave, pick, options, selected, skip]);
 
   function trapTab(event: ReactKeyboardEvent<HTMLElement>) {
     if (event.key !== "Tab") return;
@@ -160,11 +162,12 @@ export function QuestDialogue({ dialogue, onChoose, onClose }: QuestDialogueProp
         <ol className="qd-options" aria-label="Responses">
           {options.map((option, index) => <li key={option.id}>
             <button ref={(element) => { optionRefs.current[index] = element; }} type="button" className="qd-option" data-kind={option.kind} data-selected={selected === index}
-              onFocus={() => setSelected(index)} onMouseEnter={() => setSelected(index)} onClick={() => onChoose(option.id)}>
+              aria-disabled={option.disabled ? true : undefined} data-disabled={option.disabled ? true : undefined} style={option.disabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+              onFocus={() => setSelected(index)} onMouseEnter={() => setSelected(index)} onClick={() => pick(option)}>
               <span className="qd-index">{index + 1}</span>
-              <span className="qd-mark" aria-hidden="true">{KIND_MARK[option.kind]}</span>
-              <span className="qd-label">{option.label}</span>
-              <span className="qd-kind">{KIND_LABEL[option.kind]}</span>
+              <span className="qd-mark" aria-hidden="true">{option.disabled ? "-" : KIND_MARK[option.kind]}</span>
+              <span className="qd-label">{option.label}{option.disabled ? <small style={{ display: "block", opacity: 0.8 }}>{option.disabled}</small> : null}</span>
+              <span className="qd-kind">{option.disabled ? "Locked" : KIND_LABEL[option.kind]}</span>
             </button>
           </li>)}
         </ol>

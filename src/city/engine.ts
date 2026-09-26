@@ -26,7 +26,7 @@ import { SCENE_VIEWS, type InspectionCommand } from "./inspection";
 import { drawMetroScene } from "./metro-scene";
 import { STATIONS, PLATFORM_HEIGHT, TRAIN_EYE_HEIGHT, boardingTrain, doorAt, localToWorld, worldToLocal, trainAt, stationArrival, moveInTrain, type Passenger } from "./metro";
 // Quests: named NPCs, dialogue and session quest state (quests.ts, npcs.ts, npc-scene.ts).
-import { QuestBook, type NpcDialogue, type QuestSnapshot } from "./quests";
+import type { NpcDialogue, QuestSnapshot } from "./quests";
 import { nearestNpc, type NpcDefinition } from "./npcs";
 import { drawNpcs } from "./npc-scene";
 import { drawWaypointBeacons } from "./waypoint-scene"; // World map: waypoint beacons
@@ -42,6 +42,9 @@ import { drawRemoteLabels, drawRemotePlayers, type RemoteLabelFrame } from "../m
 import { localPose, mergeRemoteHeadlights } from "../multiplayer/engine-hooks";
 // RPG layer: combat, items, quests (src/rpg; the engine talks to it only through RpgSession).
 import type { RpgSnapshot, RpgUiAction } from "../rpg/types";
+import { RpgSession } from "../rpg/session";
+import { RpgInputCollector } from "../rpg/input";
+import { drawCombatEffects, drawCombatOverlay, drawEnemies, drawGroundLoot, drawInteractables, drawViewmodel, type CombatOverlayFrame } from "../rpg/scene";
 
 /** "auto" (mobile): a phone profile adjusted at runtime by the frame-time governor. */
 export type Quality = QualityPreset;
@@ -255,6 +258,11 @@ function createAmbience(): { set: (enabled: boolean) => void; duck: (level: numb
   };
 }
 
+/** localStorage, or null where it is blocked (private windows, sandboxed previews). */
+function safeStorage(): { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void } | null {
+  try { const storage = window.localStorage; storage.getItem("nightfall.probe"); return storage; } catch { return null; }
+}
+
 export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySettings, callbacks: CityCallbacks): CityController {
   const world = new CityWorld();
   let population = new CityPopulation(world);
@@ -263,7 +271,12 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   const mouse = new MouseLook(SPAWN.yaw, SPAWN.pitch);
   const keys = new Set<string>();
   const discovered = new Set<string>();
-  const quests = new QuestBook(); // Quests: session-long, like discoveries.
+  // RPG: combat, items, loot, vendors and the data-driven quest engine, persisted in localStorage.
+  // It also answers every quest/dialogue call the engine used to send to QuestBook.
+  const rpg = new RpgSession({ world, storage: safeStorage(), testContent: new URLSearchParams(location.search).get("rpgtest") === "1" });
+  const quests = rpg;
+  const rpgInput = new RpgInputCollector();
+  let hudFrame: CombatOverlayFrame | null = null; // this frame's combat HUD data, for the overlay layer
   const abort = new AbortController();
   const ambience = createAmbience();
   let settings = initialSettings;
@@ -341,6 +354,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   // A live synth broadcast is rendered once and reused by all hologram screens.
   const broadcast = t.layers.add({ opacity: 0, fontSize: 12, visible: profile.holograms });
   const weather = t.layers.add({ fontSize: 12 * pixelDensity, opacity: 0.55 });
+  const hud = t.layers.add({ fontSize: 12 * pixelDensity }); // RPG: combat HUD at full opacity
 
   /** Mobile: re-resolves the render profile; rebuilds the atlas only when the cell size changes. */
   function applyProfile(): void {
@@ -360,7 +374,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const density = Math.min(window.devicePixelRatio || 1, profile.maxDensity);
     if (density !== pixelDensity) {
       pixelDensity = density;
-      t.pixelDensity(density); weather.fontSize(12 * density); void applyAtlas();
+      t.pixelDensity(density); weather.fontSize(12 * density); hud.fontSize(12 * density); void applyAtlas();
     }
     // Render glyphs at their actual display size. Upscaling a capped buffer
     // smears the very strokes that make ASCII details recognizable in motion.
@@ -404,13 +418,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       if (distance < closest) { nearby = landmark.id; closest = distance; }
       if (running && distance < 48 && !discovered.has(landmark.id)) {
         discovered.add(landmark.id);
+        rpg.discovered = [...discovered]; rpg.bus.emit({ type: "message", text: `Discovered: ${landmark.name}`, tone: "quest" }); // RPG: saved with the game
         callbacks.onDiscovery(landmark);
       }
     }
     const train = passenger ? trainAt(metroTime, passenger.train) : null;
     const stop = platform !== null ? STATIONS[platform] : train?.station !== null && train?.station !== undefined ? STATIONS[train.station] : null;
     const destination = train ? train.station !== null ? `${STATIONS[train.station].name} · doors ${train.doors > 0.85 ? "open" : "closing"}` : `Next: ${STATIONS[train.next].name}` : platform !== null ? `${STATIONS[platform].name} · train ${stationArrival(metroTime, platform).seconds === 0 ? "at platform" : `in ${stationArrival(metroTime, platform).seconds}s`}` : journey?.destination ?? null;
-    callbacks.onSnapshot({ x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { u: passenger.u, v: passenger.v, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.snapshot(talkTarget()), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
+    callbacks.onSnapshot({ x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { u: passenger.u, v: passenger.v, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.questSnapshot(talkTarget()), rpg: rpg.snapshot(), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
   }
 
   // Quests: the NPC in talking range while on foot at street level, unless a lift is closer.
@@ -432,7 +447,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     if (!quests.dialogue) return;
     const npcId = quests.dialogue.npcId;
     const result = quests.choose(optionId);
-    if (result.message) link?.questIntent(npcId, optionId); // Multiplayer: the room validates and shares it
+    void npcId; // Multiplayer: party quest sync is paused while the RPG quest engine is the source of truth
     if (result.message) callbacks.onQuestUpdate?.(result.message);
     callbacks.onDialogue(result.dialogue); snapshot();
   }
@@ -525,6 +540,11 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     if (car) { enterCar(car); snapshot(); return; }
     const npc = talkTarget(); // Quests: talking wins only when an NPC is the nearest target.
     if (npc) { talk(npc); return; }
+    if (mode === "walk" && rpg.hasInteraction()) { // RPG: pick up loot, else use a world object
+      const opened = rpg.interactNearby();
+      if (opened) { pause(); callbacks.onDialogue(opened); snapshot(); return; }
+      rpgInput.pressInteract(); return;
+    }
     const station = nearbyLift();
     if (station !== null && mode === "walk") {
       lift = { station, from: platform !== null ? PLATFORM_HEIGHT : 0, to: platform !== null ? 0 : PLATFORM_HEIGHT, elapsed: 0 };
@@ -577,6 +597,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     touchStrafe = 0;
     touchSprint = false;
     eased.forward = eased.strafe = eased.sprint = eased.up = 0;
+    rpgInput.release(); if (ready) rpg.save({ x: player.x, z: player.z, yaw: player.yaw }); // RPG
     mouse.reset(player.yaw, player.pitch);
     drag = undefined;
     ambience.set(false);
@@ -621,10 +642,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     else if (event.code === "KeyF" && !event.repeat) { if (!drive) setMode(mode === "fly" ? "walk" : "fly"); } // Driving: no flight from the driver's seat
     else if (event.code === "KeyV" && !event.repeat && drive) saveDriveView(drive.toggleView()); // Driving: cockpit / chase camera
     else if (event.code === "KeyE" && !event.repeat) interact();
-    else if (event.code === "Space" && mode === "walk" && !event.repeat && cameraHeight <= WALK_HEIGHT + 0.01) verticalVelocity = 7;
-    else keys.add(event.code);
+    else if (event.code === "Space" && mode === "walk" && !event.repeat && cameraHeight <= WALK_HEIGHT + 0.01 && !rpg.dead) verticalVelocity = 7;
+    else { keys.add(event.code); if (mode === "walk") rpgInput.key(event.code, true, event.repeat); } // RPG: 1-4, C, X, Q, Z on foot
   }, listenerOptions);
-  window.addEventListener("keyup", (event) => keys.delete(event.code), listenerOptions);
+  window.addEventListener("keyup", (event) => { keys.delete(event.code); rpgInput.key(event.code, false); }, listenerOptions);
+  // RPG: mouse buttons fight while the pointer is captured (left attack, right block / aim).
+  document.addEventListener("mousedown", (event) => { if (running && document.pointerLockElement === canvas) rpgInput.pointer(event.button, true); }, listenerOptions);
+  document.addEventListener("mouseup", (event) => rpgInput.pointer(event.button, false), listenerOptions);
+  canvas.addEventListener("contextmenu", (event) => event.preventDefault(), listenerOptions);
   window.addEventListener("blur", () => { if (running) { pause(); callbacks.onPause(); } }, listenerOptions);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { if (running) { pause(); callbacks.onPause(); } frames.stop(); }
@@ -687,6 +712,10 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       if (disposed) return;
       broadcastFeed();
       ready = true;
+      // RPG: resume where the save left off (not in the studio, which places its own camera).
+      for (const id of rpg.discovered) discovered.add(id);
+      const saved = rpg.savedPosition;
+      if (saved && new URLSearchParams(location.search).get("studio") !== "1" && world.canOccupy(saved.x, saved.z)) { player.x = saved.x; player.z = saved.z; player.yaw = saved.yaw; mouse.reset(saved.yaw, player.pitch); }
       t.noLoop();
       if (!document.hidden && !contextLost) frames.start();
       const query = new URLSearchParams(location.search);
@@ -694,7 +723,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       if (query.get("perf") === "1") (window as Window & { __nightfallPerf?: () => object }).__nightfallPerf = () => ({ cpuMs: +cpuAverage.toFixed(2), fps: Math.round(1 / frameAverage), level: governor.level, window: governor.lastWindow, cell: profile.cell, density: pixelDensity, grid: t.grid ? `${t.grid.cols}x${t.grid.rows}` : "", lite });
       if (query.get("studio") === "1") {
         // Scene-lab only: exposes the renderer for scripted inspection.
-        (window as Window & { __nightfall?: { t: Textmodifier; inspect: typeof inspect } }).__nightfall = { t, inspect };
+        (window as Window & { __nightfall?: { t: Textmodifier; inspect: typeof inspect; rpg: RpgSession; play: () => void } }).__nightfall = { t, inspect, rpg, play: () => { running = true; frozen = false; } };
         frozen = true;
         inspect({ kind: "view", id: query.get("view") ?? "market" });
         const seconds = Number(query.get("clock") ?? "45");
@@ -731,6 +760,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       t.print(journey.mode === "taxi" ? "NIGHT CAB  /  AUTO" : "SKYLINE  /  FLIGHT CONTROL", 0, rows / 2 - 3);
     }
     if (drive) drawDriveDashboard(t, rows, drive.car, keys.has("ShiftLeft") || keys.has("ShiftRight")); // Driving
+  });
+
+  hud.draw(() => {
+    t.clear();
+    if (!ready || !hudFrame || !t.grid) return;
+    hud.ortho(); hud.resetCamera();
+    t.cellColor(0, 0, 0, 0);
+    drawCombatOverlay(t, t.grid.cols, t.grid.rows, hudFrame);
   });
 
   t.draw(() => {
@@ -817,21 +854,39 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
         player.distance += Math.hypot(player.x - oldX, player.z - oldZ);
         speed = Math.hypot(player.x - oldX, player.z - oldZ) / Math.max(dt, 0.001);
       } else {
-        easeMovement(forward, strafe, sprint, 0, dt, 9);
-        // Substep collisions; a long render frame must not slow down walking.
+        easeMovement(rpg.dead ? 0 : forward, rpg.dead ? 0 : strafe, sprint && !rpg.inCombat, 0, dt, 9);
+        // Substep collisions; a long render frame must not slow down walking. RPG: blocking, aiming and
+        // dodging scale walking (the roll itself arrives as a displacement from the combat step).
+        const pace = Math.min(1, rpg.playerView().moveScale ?? 1);
         const steps = Math.max(1, Math.ceil(dt / (1 / 60)));
-        for (let i = 0; i < steps; i++) movePlayer(world, player, eased.forward, eased.strafe, eased.sprint, dt / steps);
+        for (let i = 0; i < steps; i++) movePlayer(world, player, eased.forward * pace, eased.strafe * pace, eased.sprint, dt / steps);
         verticalVelocity -= 18 * dt;
         cameraHeight = Math.max(WALK_HEIGHT, cameraHeight + verticalVelocity * dt);
         if (cameraHeight <= WALK_HEIGHT) verticalVelocity = 0;
         speed = Math.hypot(player.x - oldX, player.z - oldZ) / Math.max(dt, 0.001);
       }
     }
+    // RPG: combat, loot and quests for this frame, on foot at street level only; the combat step's
+    // displacement (dodge, knockback, lock-on magnetism) goes through the walking collision.
+    const onFoot = mode === "walk" && !passenger && platform === null && !lift && !journey && !drive;
+    if (running && !frozen) {
+      const forwardIntent = Number(keys.has("KeyW") || keys.has("ArrowUp")) - Number(keys.has("KeyS") || keys.has("ArrowDown")) + touchForward;
+      const strafeIntent = Number(keys.has("KeyD")) - Number(keys.has("KeyA")) + touchStrafe;
+      const input = rpgInput.frame(onFoot ? forwardIntent : 0, onFoot ? strafeIntent : 0);
+      const { move } = rpg.update({ dt, time, player: { x: player.x, z: player.z, eye: cameraHeight, yaw: player.yaw, pitch: player.pitch, mode, onFoot }, input });
+      if (move && onFoot) {
+        const steps = Math.max(1, Math.ceil(Math.hypot(move.x, move.z) / 0.3));
+        for (let i = 0; i < steps; i++) {
+          if (world.canOccupy(player.x + move.x / steps, player.z)) player.x += move.x / steps;
+          if (world.canOccupy(player.x, player.z + move.z / steps)) player.z += move.z / steps;
+        }
+      }
+    }
     // Multiplayer: send our pose (throttled by the link) and adopt the party's quest state when it changes.
     if (link) {
       link.publish(localPose({ x: player.x, z: player.z, eye: cameraHeight, yaw: player.yaw, pitch: player.pitch, speed: running ? speed : 0, mode, car: drive?.car ?? null, rideHeading, inTrain: !!passenger }), performance.now() / 1000);
       const party = link.questSync();
-      if (party && party.key !== partyKey) { partyKey = party.key; quests.applyState(party.state); }
+      if (party && party.key !== partyKey) partyKey = party.key; // RPG: solo quest engine; party state not adopted yet
     }
     const baseRadius = profile.baseRadius; // Mobile: profile (desktop presets: 11 / 9 / 5)
     // The draw distance eases when altitude or quality changes; fog reaches the sky colour
@@ -936,6 +991,10 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     for (let i = 0; i < 12; i++) { const car = headlights[i]; sceneData.set(240 + i, car ? [car.x, car.z, car.yaw, car.intensity] : [0, 0, 0, 0]); }
     sceneData.upload();
     const citizens = population.nearby(player.x, player.z, view.low ? 110 : 220);
+    const rpgEnemies = rpg.enemies(player); // RPG
+    const vfxCam = { x: player.x, y: cameraHeight, z: player.z, yaw: player.yaw, pitch, fov, aspect: projectionAspect };
+    const combatView = rpg.playerView();
+    hudFrame = { cam: vfxCam, effects: rpg.effects(), enemies: rpgEnemies, lockTarget: rpg.combat.lockTarget(), player: combatView, boss: rpg.combat.boss(), prompt: null, visible: isVisible, weapon: rpg.weapon(), time };
     const parkedNearby = parked.nearby(player.x, player.z, view.low ? 90 : 140); // Driving
     const camera = (mirror: boolean) => {
       const y = mirror ? cameraHeight : eyeY;
@@ -950,6 +1009,9 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       counts = drawActivity(sink, view, vehicles, citizens);
       drawDriving(sink, view, parkedNearby, null, false, false); // Driving: kerbside cars
       drawNpcs(sink, view, quests.npcs, id => quests.marker(id), quests.dialogue?.npcId ?? null); // Quests: named NPCs + markers
+      drawEnemies(sink, view, rpgEnemies, time); // RPG: enemies, dropped loot, world objects
+      drawGroundLoot(sink, view, rpg.groundLoot(player), time);
+      drawInteractables(sink, view, rpg.interactables(), time);
       drawWaypointBeacons(sink, view, viewDistance); // World map: waypoint light beacons (waypoint-scene.ts)
       drawRemotePlayers(sink, view, remotes); // Multiplayer: other players' figures and cars (instanced with the props)
       for (const { building, distance } of visible) if (distance < (view.low ? 200 : 360)) drawShop(sink, building, distance, player, isVisible, view.low ? 200 : 360);
@@ -994,6 +1056,10 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
         for (const { building, distance } of visible) if (distance < (mirror ? 120 : view.low ? 200 : 360)) drawShop(signs, building, distance, player, isVisible, view.low ? 200 : 360);
       }
       if (drive) drawDriving(t, view, [], drive.car, drive.exterior, mirror); // Driving: player car / cockpit
+      if (!mirror) { // RPG: the weapon in hand (true camera, so it stays put through the view warp) and combat effects
+        if (onFoot && !combatView.dead) drawViewmodel(t, { x: player.x, y: cameraHeight, z: player.z, yaw: player.yaw, pitch }, combatView, rpg.weapon(), time);
+        drawCombatEffects(t, hudFrame?.effects ?? [], vfxCam, time, t.grid?.rows ?? 90);
+      }
       // Hologram screens read the synth feed's cells directly, so they share fog and lighting.
       if (broadcast.drawFramebuffer && profile.holograms) { // Mobile: profile (desktop: !low)
         t.setUniform("u_surface", 5);
@@ -1070,7 +1136,11 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     },
     pause,
     duckAmbience: (level) => ambience.duck(level), // Radio
-    rpgAction: () => undefined, // RPG: wired to RpgSession in the integration step
+    rpgAction(action) {
+      rpg.action(action);
+      if (action.kind === "respawn") { exitCar(true); journey = null; passenger = null; platform = null; lift = null; mode = "walk"; Object.assign(player, safeLanding(world, SPAWN.x, SPAWN.z)); cameraHeight = WALK_HEIGHT; }
+      snapshot();
+    },
     look,
     interact,
     chooseDialogue,
@@ -1128,6 +1198,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       snapshot();
     },
     destroy() {
+      if (ready) rpg.save({ x: player.x, z: player.z, yaw: player.yaw }); // RPG
       disposed = true;
       frames.stop();
       pause();

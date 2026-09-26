@@ -2,12 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import type { QuestLogEntry, QuestSnapshot } from "@/city/quests";
-import { formatCredits } from "./quest-tracker";
+import { formatCredits, formatTimeLeft } from "./quest-tracker";
 
 const SECTIONS: readonly { status: QuestLogEntry["status"]; title: string; mark: string }[] = [
   { status: "ready", title: "Ready to deliver", mark: "◆" },
   { status: "active", title: "In progress", mark: "▸" },
   { status: "complete", title: "Closed", mark: "✓" },
+  { status: "failed", title: "Failed", mark: "×" },
 ];
 
 /** J toggles the quest log. Ignored while typing and whenever `enabled` is false (e.g. mid-conversation). */
@@ -65,7 +66,7 @@ export function QuestLog({ quests, onClose, onResume }: QuestLogProps) {
       <dl className="quest-log-ledger">
         <div><dt>Balance</dt><dd>{formatCredits(quests.credits)}<small>CR</small></dd></div>
         <div><dt>Earned</dt><dd>{formatCredits(earned)}<small>CR</small></dd></div>
-        <div><dt>Open</dt><dd>{quests.log.filter((entry) => entry.status !== "complete").length}</dd></div>
+        <div><dt>Open</dt><dd>{quests.log.filter((entry) => entry.status === "active" || entry.status === "ready").length}</dd></div>
       </dl>
       {quests.log.length === 0 ? <p className="quest-log-empty">No contracts yet. People around the city have work that needs doing. When a name appears near you, press <kbd>E</kbd> to talk.</p> : null}
       {SECTIONS.map(({ status, title, mark }) => {
@@ -75,13 +76,21 @@ export function QuestLog({ quests, onClose, onResume }: QuestLogProps) {
           <h3 className="section-title">{title} <span>{entries.length}</span></h3>
           <ul>
             {entries.map((entry) => {
-              const tracked = quests.tracked?.title === entry.title && status !== "complete";
+              const tracked = (quests.tracked?.id ? quests.tracked.id === entry.id : quests.tracked?.title === entry.title) && (status === "active" || status === "ready");
+              const closed = status === "complete" || status === "failed";
+              const note = closed ? entry.journal?.at(-1) : undefined;
               return <li key={entry.id} className="quest-log-entry" data-status={entry.status} data-tracked={tracked}>
                 <span className="quest-log-mark" aria-hidden="true">{mark}</span>
                 <div>
                   <strong>{entry.title}{tracked ? <span className="quest-log-tracked">Tracking</span> : null}</strong>
-                  <p>{entry.objective}</p>
-                  <small><span>{entry.targetDistrict}</span><span>{status === "complete" ? "Paid" : "Reward"} {formatCredits(entry.reward)} CR</span></small>
+                  {entry.objectives?.length ? <ul aria-label="Objectives">
+                    {entry.objectives.map((objective, index) => <li key={index}><p data-done={objective.done} style={objective.done ? { opacity: 0.6 } : undefined}>
+                      <span aria-hidden="true">{objective.done ? "[x] " : "[ ] "}</span>{objective.text}{objective.optional ? " (optional)" : ""}<span className="sr-only">{objective.done ? " - done" : ""}</span>
+                    </p></li>)}
+                  </ul> : <p>{entry.objective}</p>}
+                  {note && note !== entry.objective ? <p>{note}</p> : null}
+                  {entry.timeLeft !== undefined ? <p>Time left {formatTimeLeft(entry.timeLeft)}</p> : null}
+                  <small><span>{entry.targetDistrict}</span>{status === "failed" ? null : <span>{status === "complete" ? "Paid" : "Reward"} {formatCredits(entry.reward)} CR</span>}</small>
                 </div>
               </li>;
             })}
