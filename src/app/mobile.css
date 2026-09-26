@@ -1,0 +1,106 @@
+/* ── Mobile / Safari (iPhone agent) ───────────────────────────────────────────────────────────
+   Phone layout next to the touch controls (touch-controls.tsx): safe areas (notch / Dynamic Island,
+   home indicator), dynamic toolbar, no text selection / callouts / magnifier, and compact HUD placement
+   in landscape and portrait. Everything here is scoped to coarse pointers or to Safari behaviour, so
+   the desktop layout in globals.css is untouched. Other agents' widgets are targeted through stable
+   attributes (aria-label / data-*), not their module class names. */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+html, body { overscroll-behavior: none; }
+@supports not (height: 100dvh) { .city-experience { height: var(--app-height, 100vh); } }
+.city-experience { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.city-experience :is(input, textarea) { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.city-canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+@media (pointer: coarse) {
+  /* iOS zooms into inputs under 16px; the viewport also sets maximum-scale=1. */
+  .city-experience :is(input:not([type="range"]):not([type="checkbox"]), textarea, select) { font-size: 16px; }
+  .city-experience button { min-height: 32px; }
+
+  .city-header { padding-top: calc(var(--sat) + 14px); padding-left: calc(var(--sal) + 22px); padding-right: calc(var(--sar) + 22px); }
+  .header-subtitle { display: none; }
+  .entry-panel { left: calc(var(--sal) + 26px); }
+  .side-panel { padding-top: calc(var(--sat) + 22px); padding-right: calc(var(--sar) + 22px); padding-bottom: calc(var(--sab) + 16px); }
+  .error-state { max-width: 440px; }
+  .error-state .reset-position { max-width: 260px; margin: 8px auto; }
+  .touch-settings { margin-top: 26px; padding-top: 6px; border-top: 1px solid #53786333; }
+  .touch-settings h3 { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+  .touch-settings-intro { font-size: 10px; line-height: 1.7; color: #6f9586; margin: 0 0 4px; }
+  .touch-settings .sensitivity-setting { margin: 18px 0 6px; }
+  .segmented-control button { min-height: 40px; }
+
+  /* Playing: the touch drawer replaces the header; the touch Interact button replaces the prompt. */
+  .city-experience[data-phase="playing"] :is(.city-header, .city-footer, .walking-hint, .interaction-prompt) { display: none; }
+  .city-experience[data-phase="playing"] :is(.location-strip, .crosshair, .discovery-notice, .travel-hud strong, .travel-hud small) { pointer-events: none; }
+  .city-experience[data-phase="playing"][data-mode="walk"] .travel-hud,
+  .city-experience[data-phase="playing"][data-mode="drive"] .travel-hud { display: none; }
+  .city-experience [aria-label="Driving controls"] { display: none !important; } /* keyboard hints; the touch HUD shows gear + speed */
+
+  .city-experience[data-phase="playing"] .location-strip { top: calc(var(--sat) + 12px); left: calc(var(--sal) + 16px); font-size: 10px; }
+  .city-experience[data-phase="playing"] .location-description, .city-experience[data-phase="playing"] .location-divider { display: none; }
+  .city-experience .quest-hud { top: calc(var(--sat) + 34px); left: calc(var(--sal) + 16px); width: min(250px, 38vw); gap: 6px; }
+  .city-experience .quest-tracker { grid-template-columns: 24px 1fr; gap: 9px; padding: 7px 9px; }
+  .city-experience .quest-bearing { width: 24px; height: 24px; }
+  .city-experience .quest-distance { grid-column: 2; text-align: left; font-size: 11px; }
+  .city-experience .quest-distance small { display: inline; margin-left: 5px; }
+  .city-experience .quest-objective { -webkit-line-clamp: 1; }
+  .city-experience .quest-log-key { display: none; }
+
+  /* Minimap under the pause / menu buttons, top right. */
+  .city-experience .navigation-widget { top: calc(var(--sat) + 64px); right: calc(var(--sar) + 12px); bottom: auto; width: 104px; }
+  .city-experience .map-heading { font-size: 9px; margin-bottom: 6px; }
+  .city-experience .map-caption { display: none; }
+  .city-experience[data-phase="intro"] .navigation-widget, .city-experience[data-phase="paused"] .navigation-widget { top: auto; bottom: calc(var(--sab) + 56px); }
+
+  /* Radio (opened from the touch drawer): left of the minimap. */
+  .city-experience > section[aria-label="Radio"] { top: calc(var(--sat) + 64px); right: calc(var(--sar) + 128px); bottom: auto; width: 188px; z-index: 8; }
+
+  .quest-toasts { top: calc(var(--sat) + 66px); left: 50%; right: auto; width: min(320px, 46vw); transform: translateX(-50%); }
+  .city-experience [data-waypoint-hud] { top: calc(var(--sat) + 8px); width: min(300px, 40vw); min-width: 0; }
+  .discovery-notice { top: calc(var(--sat) + 70px); max-width: min(380px, 60vw); padding: 12px 16px; }
+  .travel-hud, .city-experience[data-mode="walk"] .travel-hud { bottom: calc(var(--sab) + 12px); min-width: 0; width: min(340px, 44vw); max-width: none; gap: 10px; padding: 8px 12px; }
+  .travel-symbol { font-size: 20px; }
+  .travel-hud button { min-height: 40px; }
+
+  /* Chat (multiplayer): a narrow log on the left; while typing it moves to the top of the visible
+     viewport (--vv-top / --vvh from use-mobile-shell.ts) so the iOS keyboard never covers it. */
+  .city-experience section[aria-label="Room chat"] { left: calc(var(--sal) + 16px); top: calc(var(--sat) + 124px); bottom: auto; width: min(300px, 38vw); }
+  .city-experience section[aria-label="Room chat"] ol { max-height: 84px; }
+  .city-experience section[aria-label="Room chat"] kbd { display: none; }
+  .city-experience section[aria-label="Room chat"][data-open="true"] { z-index: 30; top: calc(var(--vv-top, 0px) + 8px); left: 50%; transform: translateX(-50%); width: min(520px, calc(100% - var(--sal) - var(--sar) - 24px)); }
+  .city-experience section[aria-label="Room chat"][data-open="true"] ol { max-height: calc(var(--vvh, 60vh) - 110px); }
+
+  .quest-dialogue { width: calc(100% - var(--sal) - var(--sar) - 24px); bottom: calc(var(--sab) + 8px); }
+  [data-world-map] { padding-top: calc(var(--sat) + 6px) !important; padding-left: calc(var(--sal) + 6px) !important; padding-right: calc(var(--sar) + 6px) !important; padding-bottom: calc(var(--sab) + 6px) !important; }
+}
+
+/* Phone landscape (short screens). */
+@media (pointer: coarse) and (max-height: 500px) {
+  .city-header { padding-top: calc(var(--sat) + 10px); padding-bottom: 10px; }
+  .wordmark { font-size: 19px; }
+  .brand-mark { font-size: 22px; width: 22px; }
+  .header-controls { gap: 16px; }
+  .header-controls kbd { display: none; }
+  .entry-panel { bottom: calc(var(--sab) + 10%); }
+  .touch-instructions { display: block; font-size: 10px; max-width: 300px; margin-top: 12px; }
+  .city-experience .quest-objective { display: none; }
+  .city-experience section[aria-label="Radio"] :is([class*="track"], [class*="meterRow"], [class*="credit"]) { display: none; }
+}
+
+/* Phone portrait. */
+@media (pointer: coarse) and (orientation: portrait) {
+  .city-experience .quest-hud { width: calc(100% - var(--sal) - var(--sar) - 150px); max-width: 280px; }
+  .city-experience > section[aria-label="Radio"] { top: calc(var(--sat) + 196px); right: calc(var(--sar) + 12px); }
+  .quest-toasts { top: calc(var(--sat) + 200px); width: calc(100% - 32px); }
+  .city-experience [data-waypoint-hud] { top: calc(var(--sat) + 150px); width: calc(100% - 150px); left: calc(var(--sal) + 16px); right: auto; margin-inline: 0; align-items: flex-start; }
+  .city-experience section[aria-label="Room chat"] { top: calc(var(--sat) + 190px); width: calc(100% - 150px); }
+  .travel-hud, .city-experience[data-mode="walk"] .travel-hud { bottom: calc(var(--sab) + 190px); width: calc(100% - 32px); }
+  .discovery-notice { top: calc(var(--sat) + 110px); max-width: calc(100% - 32px); }
+}
+
+/* Chat's tap-to-type button (chat-panel.tsx) is for touch screens; keyboards use Enter. */
+@media (pointer: fine) { [data-chat-tap] { display: none; } }

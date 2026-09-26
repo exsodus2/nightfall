@@ -1,0 +1,54 @@
+/* Multiplayer: lobby panel, chat and roster. Terminal HUD style, matching quest-dialogue / toasts. */
+
+.lobby { font-size: 12px; }
+.field { display: block; margin: 18px 0 0; }
+.field > span { display: flex; justify-content: space-between; font: 9px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: #7f9c98; margin-bottom: 8px; }
+.field input { width: 100%; padding: 12px 13px; background: #07141a; border: 1px solid #7fb3ab2e; border-radius: 3px; color: #e8eddf; font: 13px var(--font-mono); outline: none; }
+.field input:focus { border-color: #baf5d7aa; }
+.field input::placeholder { color: #56706c; }
+.code input { text-transform: uppercase; letter-spacing: .35em; font-size: 16px; }
+.hint { margin: 8px 0 0; font: 10px/1.6 var(--font-mono); color: #6f8f89; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 22px; }
+.button { padding: 13px 12px; background: #102129; border: 1px solid #50726d44; color: #cfe0d6; font-size: 12px; border-radius: 3px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.button:hover { background: #1c353a; }
+.button:disabled { cursor: default; }
+.buttonPrimary { background: #c0eed9; border-color: #c0eed9; color: #0c2828; font-weight: 600; }
+.buttonPrimary:hover { background: #e0ffe9; color: #071d1a; }
+.status { margin: 20px 0 0; padding: 11px 13px; font: 11px/1.6 var(--font-mono); border: 1px solid #7fb3ab24; border-left: 2px solid #baf5d7; background: #081418c4; color: #cfe0d6; overflow-wrap: anywhere; }
+.statusError { border-left-color: #ff6f61; color: #ffc9c2; }
+.room { margin-top: 24px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #7fb3ab1f; }
+.room small { display: block; font: 9px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: #7f9c98; margin-bottom: 6px; }
+.room strong { font: 500 30px var(--font-mono); letter-spacing: .3em; color: #f0c98d; }
+.details { margin-top: 18px; }
+.details summary { cursor: pointer; font: 10px var(--font-mono); color: #8caaa3; }
+
+/* Roster (lobby and HUD) */
+.roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.roster li { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 9px; font: 11px var(--font-mono); color: #d6e2da; }
+.dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 8px currentColor; background: currentColor; }
+.mode { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #7f9c98; }
+.you { color: #7f9c98; margin-left: 6px; font-size: 9px; }
+
+/* In-game chat + roster column, bottom left above the walking hint. */
+.chat { position: absolute; z-index: 4; left: 39px; bottom: 112px; width: min(380px, calc(100% - 78px)); display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); pointer-events: none; }
+.chatHead { display: flex; align-items: center; gap: 10px; font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: #7f9c98; }
+.chatHead strong { color: #f0c98d; font-weight: 500; letter-spacing: .3em; }
+.chatHead .rule { flex: 1; height: 1px; background: linear-gradient(90deg, #7fb3ab33, transparent); }
+.hudRoster { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: #c8d6ce; }
+.hudRoster span { display: inline-flex; align-items: center; gap: 6px; }
+.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 176px; overflow: hidden; mask-image: linear-gradient(0deg, #000 70%, transparent); }
+.chatOpen .log { max-height: 260px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; scrollbar-color: #47625e transparent; mask-image: none; background: #050d11b8; padding: 8px 10px; border: 1px solid #7fb3ab1f; }
+.line { font-size: 11px; line-height: 1.5; color: #dbe6de; text-shadow: 0 1px 2px #000c; overflow-wrap: anywhere; }
+.line b { font-weight: 600; margin-right: 7px; }
+.system { color: #8fa9a3; font-style: italic; }
+.notice { color: #f0c98d; }
+.entry { pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #050d11e6; border: 1px solid #baf5d766; border-left: 2px solid #baf5d7; }
+.entry label { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #baf5d7; }
+.entry input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #eef1e2; font: 12px var(--font-mono); }
+.entry small { font-size: 9px; color: #6f8f89; }
+.prompt { font-size: 9px; color: #7f9c98; display: flex; align-items: center; gap: 6px; }
+
+@media (max-width: 768px) {
+  .chat { left: 16px; bottom: 150px; width: calc(100% - 32px); }
+  .log { max-height: 110px; }
+}
