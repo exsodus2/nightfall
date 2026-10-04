@@ -34,13 +34,20 @@ export const PROP_STRIDE = 28;
 
 interface Style { glyph: readonly [number, number]; ink: [number, number, number, number]; paper: [number, number, number, number]; rotation: number; flip: number }
 
+function copyStyle(target: Style, source: Style): void {
+  target.glyph = source.glyph; target.rotation = source.rotation; target.flip = source.flip;
+  for (let channel = 0; channel < 4; channel++) { target.ink[channel] = source.ink[channel]; target.paper[channel] = source.paper[channel]; }
+}
+
 /** Records textmode-style prop drawing into per-mesh instance arrays for one GPU draw each. */
 export class PropRecorder implements PropCanvas {
   readonly data: Float32Array[] = [new Float32Array(4096 * PROP_STRIDE), new Float32Array(2048 * PROP_STRIDE), new Float32Array(64 * PROP_STRIDE)];
   readonly counts = [0, 0, 0];
   surface = 2;
-  private matrix: Float64Array = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  private readonly matrix = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  private readonly scratch = new Float64Array(16);
   private readonly stack: { matrix: Float64Array; style: Style }[] = [];
+  private stackDepth = 0;
   private style: Style = { glyph: [0, 0], ink: [1, 1, 1, 1], paper: [0, 0, 0, 1], rotation: 0, flip: 0 };
   private readonly glyphs = new Map<string, readonly [number, number]>();
   private readonly glyphOf: (character: string) => readonly [number, number, number];
@@ -49,15 +56,27 @@ export class PropRecorder implements PropCanvas {
   reset(): void {
     this.counts.fill(0);
     this.matrix.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-    this.stack.length = 0;
+    this.stackDepth = 0;
   }
-  push(): void { this.stack.push({ matrix: this.matrix.slice(), style: { ...this.style, ink: [...this.style.ink], paper: [...this.style.paper] } }); }
-  pop(): void { const saved = this.stack.pop(); if (saved) { this.matrix = saved.matrix; this.style = saved.style; } }
+  push(): void {
+    let saved = this.stack[this.stackDepth];
+    if (!saved) {
+      saved = { matrix: new Float64Array(16), style: { glyph: [0, 0], ink: [0, 0, 0, 0], paper: [0, 0, 0, 0], rotation: 0, flip: 0 } };
+      this.stack.push(saved);
+    }
+    saved.matrix.set(this.matrix); copyStyle(saved.style, this.style);
+    this.stackDepth++;
+  }
+  pop(): void {
+    if (this.stackDepth === 0) return;
+    const saved = this.stack[--this.stackDepth];
+    this.matrix.set(saved.matrix); copyStyle(this.style, saved.style);
+  }
   // Column-major, post-multiplied - the same convention as textmode's own matrix stack.
   private apply(m: readonly number[]): void {
-    const a = this.matrix, out = new Float64Array(16);
+    const a = this.matrix, out = this.scratch;
     for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) out[c * 4 + r] = a[r] * m[c * 4] + a[4 + r] * m[c * 4 + 1] + a[8 + r] * m[c * 4 + 2] + a[12 + r] * m[c * 4 + 3];
-    this.matrix = out;
+    this.matrix.set(out);
   }
   translate(x = 0, y = 0, z = 0): void { const m = this.matrix; for (let r = 0; r < 3; r++) m[12 + r] += m[r] * x + m[4 + r] * y + m[8 + r] * z; }
   rotateX(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); this.apply([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]); }

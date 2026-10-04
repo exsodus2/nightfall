@@ -66,13 +66,11 @@ html, body { overscroll-behavior: none; }
   .travel-symbol { font-size: 20px; }
   .travel-hud button { min-height: 40px; }
 
-  /* Chat (multiplayer): a narrow log on the left; while typing it moves to the top of the visible
-     viewport (--vv-top / --vvh from use-mobile-shell.ts) so the iOS keyboard never covers it. */
-  .city-experience section[aria-label="Room chat"] { left: calc(var(--sal) + 16px); top: calc(var(--sat) + 124px); bottom: auto; width: min(300px, 38vw); }
-  .city-experience section[aria-label="Room chat"] ol { max-height: 84px; }
+  .city-experience section[aria-label="Room chat"][data-open="false"] { z-index: 7; left: auto; right: calc(var(--sar) + 116px); top: calc(var(--sat) + 10px); bottom: auto; width: 44px; height: 44px; gap: 0; }
+  .city-experience section[aria-label="Room chat"][data-open="false"][data-enabled="false"] { display: none; }
   .city-experience section[aria-label="Room chat"] kbd { display: none; }
-  .city-experience section[aria-label="Room chat"][data-open="true"] { z-index: 30; top: calc(var(--vv-top, 0px) + 8px); left: 50%; transform: translateX(-50%); width: min(520px, calc(100% - var(--sal) - var(--sar) - 24px)); }
-  .city-experience section[aria-label="Room chat"][data-open="true"] ol { max-height: calc(var(--vvh, 60vh) - 110px); }
+  .city-experience section[aria-label="Room chat"][data-open="true"] { z-index: 30; top: calc(var(--vv-top, 0px) + max(8px, var(--sat))); left: calc((100% + var(--sal) - var(--sar)) / 2); right: auto; bottom: auto; transform: translateX(-50%); width: min(520px, calc(100% - var(--sal) - var(--sar) - 24px)); max-height: calc(var(--vvh, 60vh) - max(8px, var(--sat)) - 8px); gap: 6px; padding: 8px; background: #050d11f0; border: 1px solid #7fb3ab44; }
+  .city-experience section[aria-label="Room chat"][data-open="true"] ol { max-height: none; }
 
   .quest-dialogue { width: calc(100% - var(--sal) - var(--sar) - 24px); bottom: calc(var(--sab) + 8px); }
   [data-world-map] { padding-top: calc(var(--sat) + 6px) !important; padding-left: calc(var(--sal) + 6px) !important; padding-right: calc(var(--sar) + 6px) !important; padding-bottom: calc(var(--sab) + 6px) !important; }
@@ -97,10 +95,6 @@ html, body { overscroll-behavior: none; }
   .city-experience > section[aria-label="Radio"] { top: calc(var(--sat) + 196px); right: calc(var(--sar) + 12px); }
   .quest-toasts { top: calc(var(--sat) + 200px); width: calc(100% - 32px); }
   .city-experience [data-waypoint-hud] { top: calc(var(--sat) + 150px); width: calc(100% - 150px); left: calc(var(--sal) + 16px); right: auto; margin-inline: 0; align-items: flex-start; }
-  .city-experience section[aria-label="Room chat"] { top: calc(var(--sat) + 190px); width: calc(100% - 150px); }
   .travel-hud, .city-experience[data-mode="walk"] .travel-hud { bottom: calc(var(--sab) + 190px); width: calc(100% - 32px); }
   .discovery-notice { top: calc(var(--sat) + 110px); max-width: calc(100% - 32px); }
 }
-
-/* Chat's tap-to-type button (chat-panel.tsx) is for touch screens; keyboards use Enter. */
-@media (pointer: fine) { [data-chat-tap] { display: none; } }

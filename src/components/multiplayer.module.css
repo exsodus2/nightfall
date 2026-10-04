@@ -47,6 +47,29 @@
 .entry input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #eef1e2; font: 12px var(--font-mono); }
 .entry small { font-size: 9px; color: #6f8f89; }
 .prompt { font-size: 9px; color: #7f9c98; display: flex; align-items: center; gap: 6px; }
+.mobileSummary, .chatSend { display: none; }
+.chatLauncher { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid #a5c9bc55; border-radius: 50%; background: #07161bf2; color: #d4efe1; pointer-events: auto; touch-action: manipulation; }
+.chatLauncher:active, .chatClose:active, .chatSend:active { background: #1f4841; }
+.chatLauncher:focus-visible, .chatPreview:focus-visible, .chatClose:focus-visible, .chatSend:focus-visible { outline: 2px solid #baf5d7; outline-offset: 3px; }
+.unread { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: #f0c98d; color: #07141a; font: 600 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.chatPreview { position: absolute; top: 0; right: 52px; display: flex; flex-direction: column; justify-content: center; gap: 3px; width: min(260px, max(0px, calc(100vw - var(--sal) - var(--sar) - 184px))); height: 44px; padding: 5px 10px; border: 1px solid #7fb3ab44; border-left: 2px solid #95e0c0; background: #07141af2; color: #dbe6de; font: 11px/1.2 var(--font-mono); text-align: left; pointer-events: auto; touch-action: manipulation; animation: chat-preview-in .16s ease-out both; }
+.chatPreview b, .chatPreview span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatPreview b { font-size: 10px; font-weight: 600; }
+.announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.chatClose { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; background: #07141a; color: #cfe0d6; border: 1px solid #7fb3ab44; font: 19px/1 var(--font-mono); pointer-events: auto; touch-action: manipulation; }
+@keyframes chat-preview-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .chatPreview { animation: none; } }
+
+@media (pointer: coarse) {
+  .chat:not(.chatOpen) > :not(.mobileSummary) { display: none; }
+  .chat:not(.chatOpen) .mobileSummary { display: block; }
+  .chatOpen .chatHead { flex: none; gap: 8px; letter-spacing: .12em; }
+  .chatOpen .chatHead > span:last-of-type { white-space: nowrap; }
+  .chatOpen .hudRoster { flex: none; max-height: 32px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
+  .chatOpen .log { flex: 1 1 auto; min-height: 0; max-height: none; overscroll-behavior: contain; }
+  .chatOpen .entry { flex: none; gap: 6px; padding: 5px 8px; }
+  .chatSend { display: block; flex: none; min-height: 32px; padding: 4px 7px; background: #12332f; border: 1px solid #7fb3ab44; color: #cfe0d6; font: 11px var(--font-mono); touch-action: manipulation; }
+}
 
 @media (max-width: 768px) {
   .chat { left: 16px; bottom: 150px; width: calc(100% - 32px); }

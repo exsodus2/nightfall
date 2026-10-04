@@ -19,6 +19,7 @@ import { Radio } from "./radio"; // Radio: Nightride FM widget + hotkeys (self-c
 import { useMultiplayer } from "@/multiplayer/use-multiplayer";
 import { MultiplayerLobby } from "./multiplayer-lobby";
 import { ChatPanel } from "./chat-panel";
+import { ChatAttention } from "./chat-attention";
 // World map: WoW-style map overlay on M (city keeps running), waypoints, compass HUD, heading-up minimap.
 import { WorldMap } from "./world-map";
 import { WaypointHud } from "./waypoint-hud";
@@ -80,6 +81,7 @@ export function CityExperience() {
   const rebuildPending = useRef(false);
   // Multiplayer: lobby panel + room session (toasts reuse the quest notifications).
   const [lobby, setLobby] = useState(false);
+  const [chatAttention] = useState(() => new ChatAttention());
   const toast = useCallback((message: string) => { const item = createToast(message); setToasts((current) => enqueueToast(current, item)); }, []);
   const multiplayer = useMultiplayer(engine, toast);
   const district = DISTRICTS[snapshot.district];
@@ -334,7 +336,7 @@ export function CityExperience() {
     {questLog ? <QuestLog quests={snapshot.quests} onTrack={(quest) => controller.current?.rpgAction({ kind: "trackQuest", quest })} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
     {/* Multiplayer: Online panel, and room chat + roster while connected. */}
     {lobby ? <MultiplayerLobby view={multiplayer.view} pose={snapshot.presence ?? { x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
-    {ready && multiplayer.view.status === "connected" && !panel && !questLog && !lobby ? <ChatPanel view={multiplayer.view} enabled={phase === "playing" && !dialogue} onSend={multiplayer.sendChat} /> : null}
+    {ready && multiplayer.view.status === "connected" && !panel && !questLog && !lobby ? <ChatPanel attention={chatAttention} view={multiplayer.view} enabled={phase === "playing" && !dialogue} onSend={multiplayer.sendChat} /> : null}
     {/* World map: large overlay; the city keeps running behind it when opened while playing. */}
     {worldMap.open && world ? <WorldMap world={world} snapshot={snapshot} live={worldMap.live} onClose={worldMap.closeMap} /> : null}
     {/* Radio: mounted once the city is ready and kept mounted so audio survives pauses/panels; `visible` only hides the widget. */}

@@ -18,7 +18,7 @@ interface WaypointView { id: string; x: number; z: number; label: string; color:
 interface StateView { players?: MapView<PlayerView>; quests?: MapView<QuestView>; credits?: number; questRevision?: number; waypoints?: MapView<WaypointView>; worldTimeMs?: number }
 
 export type SessionStatus = "idle" | "connecting" | "connected" | "error";
-export interface ChatLine { id: string; kind: "chat" | "system" | "notice"; name: string; color: string; text: string; self: boolean }
+export interface ChatLine { id: string; kind: "chat" | "system" | "notice"; name: string; color: string; text: string; self: boolean; history?: boolean }
 export interface RosterEntry { id: string; name: string; color: string; mode: Mode; self: boolean; place: string }
 export interface SessionView { status: SessionStatus; error: string | null; code: string | null; serverUrl: string | null; selfId: string | null; roster: readonly RosterEntry[]; chat: readonly ChatLine[] }
 /** One-off notifications for toasts. */
@@ -124,7 +124,7 @@ export class MultiplayerSession implements MultiplayerLink {
     });
     room.onMessage("history", (messages: ChatMessage[]) => {
       if (this.room !== room || !Array.isArray(messages)) return;
-      this.update({ chat: messages.map(m => ({ id: `c${m.id}`, kind: m.kind, name: m.name, color: m.color, text: sanitizeText(m.text, CHAT_MAX), self: m.from === room.sessionId })) });
+      this.update({ chat: messages.map(m => ({ id: `c${m.id}`, kind: m.kind, name: m.name, color: m.color, text: sanitizeText(m.text, CHAT_MAX), self: m.from === room.sessionId, history: true })) });
     });
     room.onMessage("notice", (text: string) => {
       if (this.room !== room) return;

@@ -241,7 +241,7 @@ export class CityPopulation {
       if (p.timer >= 4) { p.timer = 0; p.state = p.phase === 0 ? "browsing" : "platform"; p.goal = p.phase === 0 ? "Stopping at the station market" : "Heading home on the loop"; }
     } else if (p.state === "browsing") {
       p.y = 0;
-      if (p.timer < 22 + p.id % 19) { walk(16 + p.id % 4, 10); p.timer += dt; }
+      if (p.timer < 22 + p.id % 19) { walk(16 + p.id % 4, station.x === 0 ? 14 : 10); p.timer += dt; }
       else if (walk(9, 20)) {
         p.state = "lift"; p.phase = 1; p.timer = 0; p.trips++;
         p.destination = (p.station + 1 + (p.id + p.trips) % 3) % 6;
