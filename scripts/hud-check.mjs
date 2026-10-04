@@ -103,26 +103,30 @@ try {
       const rectangle = element => { const bounds = element.getBoundingClientRect(); return { left:bounds.left, top:bounds.top, right:bounds.right, bottom:bounds.bottom }; };
       const selectors = ['.city-header','.location-strip','.city-footer','.walking-hint','.navigation-widget','.quest-hud','.quest-toast','[data-touch-action]','[class*="stickHint"]'];
       const obstacles = selectors.flatMap(selector => [...document.querySelectorAll(selector)].filter(element => { const style = getComputedStyle(element), bounds = element.getBoundingClientRect(); return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0 && bounds.width > 0 && bounds.height > 0; }).map(element => ({ selector, label:element.getAttribute('data-touch-action') ?? element.textContent.trim().slice(0,50), ...rectangle(element) })));
-      const rows = audit.rows.filter(row => row.text.startsWith('HP ') || row.text.startsWith('ST ') || row.text.includes('BRAKKA') || row.text.includes('CARET') || /^\d+ \/ \d+/.test(row.text) || /^\[#+/.test(row.text) || /^[*@o ]+$/.test(row.text)).map(row => {
+      const textBounds = row => {
         const leftColumn = row.column - (row.horizontal === 'right' ? row.text.length : row.horizontal === 'center' ? Math.floor(row.text.length / 2) : 0);
         const left = (leftColumn + Math.floor(audit.cols / 2)) * innerWidth / audit.cols;
         const top = (row.row + Math.floor(audit.lines / 2)) * innerHeight / audit.lines;
         return { ...row, left, top, right:left + row.text.length * innerWidth / audit.cols, bottom:top + innerHeight / audit.lines };
-      });
-      return { width:innerWidth, height:innerHeight, touch:matchMedia('(pointer:coarse)').matches, phase:document.querySelector('main').dataset.phase, place:window.__nightfall.interiors.active?.id ?? null, player:window.__nightfall.rpg.playerView(), boss:window.__nightfall.rpg.combat.boss(), audit, rows, obstacles, perf:window.__nightfallPerf() };
+      };
+      const rows = audit.rows.filter(row => row.vertical === 'top' && (row.text.startsWith('HP ') || row.text.startsWith('ST ') || row.text.includes('BRAKKA') || row.text.includes('CARET') || /^\d+ \/ \d+/.test(row.text) || /^\[#+/.test(row.text) || /^[*@o ]+$/.test(row.text))).map(textBounds);
+      const projected = audit.rows.filter(row => row.vertical === 'middle').map(textBounds);
+      return { width:innerWidth, height:innerHeight, touch:matchMedia('(pointer:coarse)').matches, phase:document.querySelector('main').dataset.phase, place:window.__nightfall.interiors.active?.id ?? null, player:window.__nightfall.rpg.playerView(), boss:window.__nightfall.rpg.combat.boss(), audit, rows, projected, obstacles, perf:window.__nightfallPerf() };
     })()`);
     const overlaps = (first, second) => Math.min(first.right, second.right) > Math.max(first.left, second.left) + 1 && Math.min(first.bottom, second.bottom) > Math.max(first.top, second.top) + 1;
     assert.equal(result.place, null, `${name}: HUD is measured outdoors`);
     assert.ok(result.rows.some(row => row.text.startsWith('HP ')), `${name}: HP is drawn`);
     assert.ok(result.rows.some(row => /^\d+ \/ \d+/.test(row.text)), `${name}: numeric ammo is drawn`);
     assert.ok(result.rows.some(row => row.text.includes('BRAKKA')), `${name}: boss is drawn`);
+    if (name !== "compact") assert.ok(result.projected.some(row => row.text.includes("FRESH MEAT!")), `${name}: non-conflicting native bark remains visible`);
     for (const row of result.rows) {
       if (row.left < -1 || row.top < -1 || row.right > result.width + 1 || row.bottom > result.height + 1) failures.push(`${name}: offscreen ${JSON.stringify(row)}`);
       for (const obstacle of result.obstacles) if (overlaps(row, obstacle)) failures.push(`${name}: ${row.text} overlaps ${obstacle.selector} ${obstacle.label}: ${JSON.stringify({ row, obstacle })}`);
     }
     for (let index = 0; index < result.rows.length; index++) for (const other of result.rows.slice(index + 1)) if (overlaps(result.rows[index], other)) failures.push(`${name}: native HUD rows overlap ${result.rows[index].text} and ${other.text}`);
+    for (const label of result.projected) for (const row of result.rows) if (overlaps(label, row)) failures.push(`${name}: projected ${label.text} obscures persistent ${row.text}: ${JSON.stringify({ label, row })}`);
     report.push({ name, ...result });
-    console.log(JSON.stringify({ name, grid: [result.audit.cols, result.audit.lines], rows:result.rows, failures:failures.filter(value => value.startsWith(name)) }));
+    console.log(JSON.stringify({ name, grid: [result.audit.cols, result.audit.lines], rows:result.rows, projected:result.projected, failures:failures.filter(value => value.startsWith(name)) }));
     await capture(name);
   };
   await call("Page.enable"); await call("Runtime.enable");

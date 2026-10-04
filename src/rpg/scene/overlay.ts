@@ -13,7 +13,7 @@ import { project, type ViewCamera } from "../../city/vfx.ts";
 import type { CombatEffect, EnemyView, ItemDefinition, PlayerCombatView, RpgSnapshot } from "../types.ts";
 import { NUMBER_LIFE, asciiBar, numberGain, numberGlyph, numberRise, wrapAngle } from "./anim.ts";
 import { RARITY_COLOR, clamp01, factionStyle, hash3, type Rgb } from "./palette.ts";
-import { combatHudLayout, fitHudText, hudNumber, type CombatHudLayout, type HudRegion } from "./hud-layout.ts";
+import { combatHudLayout, combatLabelRow, fitHudText, hudNumber, type CombatHudLayout, type HudRegion } from "./hud-layout.ts";
 
 /** The subset of textmode the overlay uses (a Textmodifier satisfies it; tests use a text grid). */
 export interface OverlayCanvas {
@@ -76,7 +76,7 @@ export function drawCombatOverlay(t: Textmodifier | OverlayCanvas, cols: number,
   clearPaper();
   if (!frame.player.dead) drawVignette(cols, rows, frame.player, time);
   drawHurtArcs(cols, rows, frame);
-  drawEnemyLabels(cols, rows, frame, time);
+  drawEnemyLabels(cols, rows, frame, time, safeLayout);
   drawNumbers(cols, rows, frame, safeLayout.vitals);
   if (!frame.player.dead) drawCrosshair(rows, frame);
   drawPlayerBars(frame, safeLayout.vitals);
@@ -149,7 +149,7 @@ export function showEnemyLabel(e: EnemyView, distance: number, locked: boolean):
   if (distance > 45) return false;
   return e.health < e.maxHealth || distance < 9;
 }
-function drawEnemyLabels(cols: number, rows: number, frame: CombatOverlayFrame, time: number): void {
+function drawEnemyLabels(cols: number, rows: number, frame: CombatOverlayFrame, time: number, layout: CombatHudLayout): void {
   const { cam } = frame;
   const lock = frame.lockTarget ?? frame.player.lock ?? null;
   canvas.printAlign("center", "middle");
@@ -165,17 +165,35 @@ function drawEnemyLabels(cols: number, rows: number, frame: CombatOverlayFrame, 
     const seen = distance < 10 || frame.visible(e.x, 2 * scale, e.z);
     if (!seen && !locked) continue;
     const far = distance > 25, dim = seen ? 1 : 0.5;
-    let row = head.gy;
-    if (showEnemyLabel(e, distance, locked) && !bossBarred) {
-      const bar = asciiBar(e.health, e.maxHealth, far ? 6 : 10);
-      ink(e.hostile ? RED : [196, 196, 186], (far ? 190 : 245) * dim); paper(110 * dim);
-      text(e.vulnerable ? `*${bar}*` : bar, head.gx, row);
-      ink(factionStyle(e.faction).hud, 235 * dim); paper(0);
-      row -= 1; text(e.name, head.gx, row);
+    const showHealth = showEnemyLabel(e, distance, locked) && !bossBarred;
+    let showName = showHealth, showBark = !!e.bark && distance < 25;
+    const bar = showHealth ? asciiBar(e.health, e.maxHealth, far ? 6 : 10) : "";
+    const healthText = e.vulnerable && showHealth ? `*${bar}*` : bar;
+    const barkText = showBark ? `"${e.bark}"` : "";
+    const height = (showHealth ? 2 : 0) + Number(showBark);
+    const top = showHealth ? head.gy - height + 1 : head.gy - 1;
+    let placed = combatLabelRow(head.gx, top, Math.max(healthText.length, showName ? e.name.length : 0, barkText.length), height, rows, layout, !!frame.boss);
+    if (placed === null && showBark) {
+      showBark = false;
+      if (!showHealth) continue;
+      placed = combatLabelRow(head.gx, head.gy - 1, Math.max(healthText.length, e.name.length), 2, rows, layout, !!frame.boss);
     }
-    if (e.bark && distance < 25) {
+    if (placed === null && showHealth) {
+      showName = false;
+      placed = combatLabelRow(head.gx, head.gy, healthText.length, 1, rows, layout, !!frame.boss);
+    }
+    if (placed === null) continue;
+    if (showHealth) {
+      ink(e.hostile ? RED : [196, 196, 186], (far ? 190 : 245) * dim); paper(110 * dim);
+      text(healthText, head.gx, placed + Number(showName) + Number(showBark));
+      if (showName) {
+        ink(factionStyle(e.faction).hud, 235 * dim); paper(0);
+        text(e.name, head.gx, placed + Number(showBark));
+      }
+    }
+    if (showBark) {
       ink(WHITE, 220 * dim); paper(120 * dim);
-      row -= 1; text(`"${e.bark}"`, head.gx, row);
+      text(barkText, head.gx, placed);
     }
   }
   clearPaper();

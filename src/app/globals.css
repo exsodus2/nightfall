@@ -74,10 +74,26 @@ kbd { font: 10px var(--font-mono); min-width: 21px; height: 22px; padding: 3px 5
 .walking-hint { position: absolute; left: 39px; bottom: 77px; color: #a6bbb4; font: 10px var(--font-mono); display: flex; align-items: center; gap: 8px; }
 .walking-hint > span { width: 11px; }
 .loading-state, .error-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; max-width: 400px; width: calc(100% - 48px); }
+.city-experience[data-phase="loading"] .city-canvas { visibility: hidden; }
+.city-experience:is([data-phase="loading"], [data-phase="lost"], [data-phase="error"]) .scene-studio { visibility: hidden; }
 .loading-state h1, .error-state h1 { font-size: 24px; font-weight: 400; letter-spacing: -.6px; margin: 20px 0 9px; }
 .loading-state p, .error-state p { font-size: 13px; color: #91aaab; line-height: 1.7; }
 .loading-glyph { color: #b8f8e5; font-size: 35px; }
+.loading-stages { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px 16px; margin: 24px 0 18px; font: 11px var(--font-mono); color: #718b8b; }
+.loading-stages > span { display: flex; gap: 6px; }
+.loading-stages [data-state="current"] { color: #bbf5d8; }
+.loading-stages [data-state="done"] { color: #a5bfaf; }
+.loading-state .loading-hint { max-width: 300px; margin: 0 auto; font-size: 12px; }
 .loading-line { display: block; height: 1px; width: 130px; margin: 28px auto 0; background: #b8f8e5; transform-origin: left; animation: loading 1.8s ease-in-out infinite; }
+@media (max-height: 480px) {
+  .loading-state { top: 55%; }
+  .loading-glyph { font-size: 20px; }
+  .loading-state h1 { font-size: 21px; margin: 10px 0 6px; }
+  .loading-state p { margin: 6px 0; line-height: 1.4; }
+  .loading-stages { margin: 12px 0; }
+  .loading-state .loading-hint { font-size: 11px; }
+  .loading-line { margin-top: 14px; }
+}
 @keyframes loading { 0%, 100% { transform: scaleX(.15); opacity: .3; } 50% { transform: scaleX(1); opacity: .7; } }
 .error-state details { font: 10px var(--font-mono); color: #a8b6b0; margin: 20px 0; overflow-wrap: anywhere; }
 .error-state .primary-button { margin: 20px auto; }
@@ -231,7 +247,7 @@ kbd { font: 10px var(--font-mono); min-width: 21px; height: 22px; padding: 3px 5
 .studio-body .studio-check { display: flex; gap: 8px; align-items: center; font-size: 11px; }
 .studio-body dl { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 14px 0; border-top: 1px solid #354b45; }
 .studio-body dd { color: #bfe5d0; text-align: right; }.studio-body small { display: block; margin-top: 14px; color: #8ca79c; }
-[data-scene-clean=true] .city-experience > :not(.city-canvas) { visibility: hidden !important; }
+[data-scene-clean=true] .city-experience:not([data-phase="loading"]):not([data-phase="lost"]):not([data-phase="error"]) > :not(.city-canvas) { visibility: hidden !important; }
 @media (max-width: 700px) { .scene-studio { top: 78px; right: 12px; width: 275px; } }
 
 /* ── Quest UI ─────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { CityController, CitySettings, CitySnapshot, Quality } from "@/city/engine";
+import type { CityBootStage, CityController, CitySettings, CitySnapshot, Quality } from "@/city/engine";
 import { CityWorld, DISTRICTS, LANDMARKS, SPAWN, type Landmark } from "@/city/world";
 import { CityMap } from "./city-map";
 import { MODE_NAMES, WALK_HEIGHT, type RideMode } from "@/city/locomotion";
@@ -39,6 +39,10 @@ import { TRAIN_EYE_HEIGHT } from "@/city/metro";
 
 type Phase = "loading" | "intro" | "playing" | "paused" | "error" | "lost"; // Mobile: "lost" = WebGL context lost
 type Panel = "map" | "settings" | "transit" | null;
+type BootStage = "opening" | CityBootStage;
+const BOOT_STAGES: readonly CityBootStage[] = ["materials", "scene", "glyphs"];
+const BOOT_LABELS: Record<BootStage, string> = { opening: "Opening the city.", materials: "Preparing light, glass and reflections.", scene: "Preparing streets and sheltered rooms.", glyphs: "Fitting the letters to your screen." };
+const BOOT_STEPS: Record<CityBootStage, string> = { materials: "Lights", scene: "Streets", glyphs: "Letters" };
 const DEFAULT_SETTINGS: CitySettings = { rain: true, effects: true, sound: false, motion: true, quality: "high", sensitivity: 1 };
 const INITIAL_SNAPSHOT: CitySnapshot = { ...SPAWN, sceneTime: 0, metroTime: 0, visibleBuildings: 0, district: 4, distance: 0, fps: 0, discovered: [], nearby: null, mode: "walk", altitude: WALK_HEIGHT, speed: 0, destination: null, progress: 0, cars: 0, residents: 0, interaction: null, station: null, cabin: null, population: { walking: 0, waiting: 0, visiting: 0, riding: 0, commuters: 0 }, quests: { credits: 0, log: [], nearbyNpc: null, tracked: null } };
 
@@ -58,6 +62,7 @@ export function CityExperience() {
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const movement = useRef(new Set<string>());
   const [phase, setPhase] = useState<Phase>("loading");
+  const [bootStage, setBootStage] = useState<BootStage>("opening");
   const [panel, setPanel] = useState<Panel>(null);
   const [rideMode, setRideMode] = useState<RideMode>("taxi");
   const [settings, setSettings] = useState<CitySettings>(DEFAULT_SETTINGS);
@@ -72,6 +77,7 @@ export function CityExperience() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const dialogueOpen = useRef(false);
   const recovering = useRef(false);
+  const rebuildPending = useRef(false);
   // Multiplayer: lobby panel + room session (toasts reuse the quest notifications).
   const [lobby, setLobby] = useState(false);
   const toast = useCallback((message: string) => { const item = createToast(message); setToasts((current) => enqueueToast(current, item)); }, []);
@@ -88,6 +94,14 @@ export function CityExperience() {
   useMobileShell();
   useEffect(() => { settingsRef.current = settings; poseRef.current = { ...(snapshot.interior?.entrance ?? { x: snapshot.x, z: snapshot.z, yaw: snapshot.yaw }), cabin: snapshot.cabin, metroTime: snapshot.metroTime }; }, [settings, snapshot]);
 
+  const rebuildCity = useCallback(() => {
+    if (!recovering.current || rebuildPending.current) return;
+    rebuildPending.current = true;
+    setBootStage("opening");
+    setPhase("loading");
+    setBootKey((key) => key + 1);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let city: CityController | null = null;
@@ -102,10 +116,12 @@ export function CityExperience() {
         const initial: CitySettings = settingsRef.current && bootKey > 0 ? settingsRef.current : { ...DEFAULT_SETTINGS, quality: isTouchFirst() ? "auto" : DEFAULT_SETTINGS.quality }; // Mobile: phones start on Auto
         setSettings(initial);
         city = createCity(canvas, initial, {
-          onReady: () => { if (!cancelled) { recovering.current = false; if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
+          onReady: () => { if (!cancelled) { recovering.current = false; rebuildPending.current = false; if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
+          onBootStage: (stage) => { if (!cancelled) setBootStage(stage); },
           onContextLost: () => {
             if (cancelled) return;
             recovering.current = true;
+            rebuildPending.current = false;
             dialogueOpen.current = false;
             setDialogue(null);
             setPanel(null);
@@ -113,8 +129,8 @@ export function CityExperience() {
             setLobby(false);
             setPhase("lost");
           },
-          onContextRestored: () => { if (!cancelled) setBootKey((key) => key + 1); },
-          onError: (message) => { if (!cancelled) { setError(message); setPhase("error"); } },
+          onContextRestored: () => { if (!cancelled) rebuildCity(); },
+          onError: (message) => { if (!cancelled) { rebuildPending.current = false; setError(message); setPhase("error"); } },
           onSnapshot: (next) => { if (!cancelled) setSnapshot(next); },
           onPause: () => { if (!cancelled) setPhase("paused"); },
           onMap: () => { if (!cancelled) { setPhase("paused"); setPanel("map"); } },
@@ -141,7 +157,7 @@ export function CityExperience() {
         setEngine(city);
         setWorld(city.world);
       } catch (cause) {
-        if (!cancelled) { setError(cause instanceof Error ? cause.message : "Unable to initialize WebGL2."); setPhase("error"); }
+        if (!cancelled) { rebuildPending.current = false; setError(cause instanceof Error ? cause.message : "Unable to initialize WebGL2."); setPhase("error"); }
       }
     }
     void boot();
@@ -151,7 +167,7 @@ export function CityExperience() {
       city?.destroy();
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
-  }, [bootKey]);
+  }, [bootKey, rebuildCity]);
 
   useEffect(() => { controller.current?.setSettings(settings); }, [settings]);
   useEffect(() => {
@@ -260,8 +276,18 @@ export function CityExperience() {
       <span>{snapshot.interior?.name ?? district.name}</span><span className="location-divider">/</span><span className="location-description">{snapshot.interior ? `${district.name} · Indoors` : district.description}</span>
     </div>
 
-    {phase === "loading" ? <div className="loading-state" role="status"><span className="loading-glyph">▒</span><h1>Building the skyline</h1><p>Finding a way through the rain.</p><span className="loading-line" /></div> : null}
-    {phase === "lost" ? <div className="error-state" role="alert"><h1>The city lost its graphics context.</h1><p>Your browser released the graphics context. Rebuild the city to continue from your last position.</p><button className="primary-button" onClick={() => setBootKey((key) => key + 1)}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
+    {phase === "loading" ? <div className="loading-state" role="status" aria-atomic="true" data-boot-stage={bootStage}>
+      <span className="loading-glyph" aria-hidden="true">▒</span>
+      <h1>{bootKey > 0 ? "Rebuilding the city" : "Building the skyline"}</h1>
+      <p>{BOOT_LABELS[bootStage]}</p>
+      <div className="loading-stages" aria-hidden="true">{BOOT_STAGES.map((stage, index) => {
+        const current = BOOT_STAGES.findIndex(candidate => candidate === bootStage);
+        return <span key={stage} data-state={current > index ? "done" : current === index ? "current" : "waiting"}><span>{current > index ? "[x]" : current === index ? "[>]" : "[ ]"}</span>{BOOT_STEPS[stage]}</span>;
+      })}</div>
+      <p className="loading-hint">First visits can take longer while your browser prepares the graphics.</p>
+      <span className="loading-line" aria-hidden="true" />
+    </div> : null}
+    {phase === "lost" ? <div className="error-state" role="alert"><h1>The city lost its graphics context.</h1><p>Your browser released the graphics context. Rebuild the city to continue from your last position.</p><button className="primary-button" onClick={rebuildCity}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
     {phase === "error" ? <div className="error-state" role="alert"><h1>The city couldn’t start.</h1><p>This experience needs a browser with WebGL2 and hardware acceleration enabled.</p><details><summary>Technical details</summary><p>{error}</p></details><button className="primary-button" onClick={() => location.reload()}>Try again</button></div> : null}
 
     {(phase === "intro" || phase === "paused") && !panel && !worldMap.open /* World map */ ? <section className="entry-panel" aria-label={phase === "intro" ? "Welcome to Nightfall" : "City paused"}>
@@ -296,7 +322,7 @@ export function CityExperience() {
     {ready && !panel && !worldMap.open ? <aside className="navigation-widget" aria-label="Local navigation">
       {/* World map: the north mark toggles a heading-up minimap; the minimap opens the world map and shows waypoints. */}
       <div className="map-heading"><span>{snapshot.interior ? "Room layout" : "Local streets"}</span>{!snapshot.interior ? <button type="button" className={`north-mark ${mapStyles.minimapToggle}`} aria-pressed={minimapRotate} onClick={() => setMinimapRotate((value) => !value)} title={minimapRotate ? "Heading up: click for north up" : "North up: click for heading up"}>{minimapRotate ? "▲ ahead" : "N ↑"}</button> : <span>Exit ↓</span>}</div>
-      <button className="minimap-button" onClick={worldMap.openMap} aria-label="Open city map">{snapshot.interior ? <InteriorMap place={snapshot.interior} snapshot={snapshot} /> : <CityMap world={world} snapshot={snapshot} waypoints={waypointState.waypoints} activeWaypointId={waypointState.activeId} rotate={minimapRotate} />}<span className="map-corner top-left" /><span className="map-corner bottom-right" /></button>
+      <button className="minimap-button" onClick={worldMap.openMap} aria-label="Open city map" aria-describedby={snapshot.interior ? "interior-map-description" : undefined}>{snapshot.interior ? <InteriorMap place={snapshot.interior} snapshot={snapshot} /> : <CityMap world={world} snapshot={snapshot} waypoints={waypointState.waypoints} activeWaypointId={waypointState.activeId} rotate={minimapRotate} />}<span className="map-corner top-left" /><span className="map-corner bottom-right" /></button>
       <div className="map-caption"><span className="you-dot" />You are here<span>{snapshot.interior ? "Sheltered" : `${snapshot.discovered.length} / 6 found`}</span></div>
     </aside> : null}
 
@@ -312,7 +338,7 @@ export function CityExperience() {
     {/* World map: large overlay; the city keeps running behind it when opened while playing. */}
     {worldMap.open && world ? <WorldMap world={world} snapshot={snapshot} live={worldMap.live} onClose={worldMap.closeMap} /> : null}
     {/* Radio: mounted once the city is ready and kept mounted so audio survives pauses/panels; `visible` only hides the widget. */}
-    {ready || phase === "lost" /* Mobile: a lost GPU context must not stop the music */ ? <Radio active={ready && !dialogue && !panel && !questLog && !lobby && !rpgUi.blocking /* RPG UI */} visible={ready && !panel && !questLog && !lobby && (!touchUi || radioOpen) /* Mobile: opened from the touch drawer */} driving={snapshot.mode === "drive"} onAudibleChange={duckRain} /> : null}
+    {ready || phase === "lost" || phase === "loading" && bootKey > 0 /* Mobile: a lost GPU context must not stop the music */ ? <Radio active={ready && !dialogue && !panel && !questLog && !lobby && !rpgUi.blocking /* RPG UI */} visible={ready && !panel && !questLog && !lobby && (!touchUi || radioOpen) /* Mobile: opened from the touch drawer */} driving={snapshot.mode === "drive"} onAudibleChange={duckRain} /> : null}
 
     <footer className="city-footer">
       <div className="footer-place"><span>Night cycle</span><span className="footer-dash" /><span>{snapshot.interior ? "Sheltered from the rain" : settings.rain ? "Persistent rain" : "Clear skies"}</span></div>

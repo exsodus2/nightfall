@@ -49,6 +49,7 @@ import { CONTENT_PACKS } from "../rpg/content";
 import { RpgInputCollector } from "../rpg/input";
 import { combatHudLayout, drawCombatEffects, drawCombatOverlay, drawEnemies, drawGroundLoot, drawInteractables, drawViewmodel, type CombatHudLayout, type CombatOverlayFrame, type HudViewport } from "../rpg/scene";
 import { CityInteriors, INTERIOR_HEIGHT, type InteriorPlace } from "./interiors";
+import { interiorUseMarkers, type InteriorUseMarker } from "./interior-map-markers";
 import { drawInterior, drawInteriorEntrances, drawInteriorInteractables } from "./interior-scene";
 import { INTERIOR_MATERIAL } from "./interior-material";
 import { drawCitizenLabels, type CitizenLabelFrame } from "./citizen-labels";
@@ -99,9 +100,12 @@ export interface CitySnapshot {
   /** RPG: character, combat, vendor and loot feed (src/rpg/types.ts RpgSnapshot); null before the RPG layer starts. */
   rpg?: RpgSnapshot | null;
   interior?: InteriorPlace | null;
+  interiorUseMarkers?: readonly InteriorUseMarker[];
 }
+export type CityBootStage = "materials" | "scene" | "glyphs";
 export interface CityCallbacks {
   onReady: () => void;
+  onBootStage?: (stage: CityBootStage) => void;
   onError: (message: string) => void;
   onSnapshot: (snapshot: CitySnapshot) => void;
   onPause: () => void;
@@ -334,6 +338,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   // starting and stopping dead; instant velocity changes are a classic motion-sickness trigger.
   const eased = { forward: 0, strafe: 0, sprint: 0, up: 0 };
   let contextLost = false; // Mobile: iOS drops WebGL contexts under memory pressure
+  const active = () => !disposed && !contextLost;
   let drag: { x: number; y: number; id: number } | undefined;
   let lastSnapshot = 0;
   let frameAverage = 1 / 60;
@@ -381,12 +386,13 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
 
   /** Mobile: re-resolves the render profile; rebuilds the atlas only when the cell size changes. */
   function applyProfile(): void {
+    if (!active()) return;
     const next = renderProfile(settings.quality, governor.level, portrait());
     const previous = profile;
     profile = next;
     if (next.holograms !== previous.holograms) { if (next.holograms && !interiors.active) broadcast.show(); else broadcast.hide(); }
     if (next.baseRadius !== previous.baseRadius) blockCache = "";
-    if (ready && next.cell !== previous.cell) { governor.hold(performance.now()); void applyAtlas().then(resize); }
+    if (ready && next.cell !== previous.cell) { governor.hold(performance.now()); void applyAtlas().then(resize).catch(rendererError); }
   }
 
   function resize(): void {
@@ -403,7 +409,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const density = Math.min(window.devicePixelRatio || 1, profile.maxDensity);
     if (density !== pixelDensity) {
       pixelDensity = density;
-      t.pixelDensity(density); weather.fontSize(12 * density); hud.fontSize(12 * density); void applyAtlas();
+      t.pixelDensity(density); weather.fontSize(12 * density); hud.fontSize(12 * density); void applyAtlas().catch(rendererError);
     }
     // Render glyphs at their actual display size. Upscaling a capped buffer
     // smears the very strokes that make ASCII details recognizable in motion.
@@ -415,19 +421,38 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   // The glyph atlas is generated at the exact device cell size so every stroke is pixel-perfect.
   // Rebuilt, never rescaled, when the cell size changes.
   async function applyAtlas(): Promise<void> {
+    if (!active()) return;
     const size = fontSize();
     if (size === atlasSize) return;
     atlasSize = size;
     const atlas = buildCityAtlas(size);
     t.fontSize(size);
-    await t.loadTileset({ source: atlas.canvas, columns: 16, rows: 16, count: 256, map: atlas.map, fontSize: atlas.tile });
+    const tileset = await t.loadTileset({ source: atlas.canvas, columns: 16, rows: 16, count: 256, map: atlas.map, fontSize: atlas.tile });
+    if (!active()) { if (disposed && !contextLost) tileset.dispose(); return; }
     for (let i = 0; i < ASCII_COUNT; i++) {
       const character = String.fromCharCode(FIRST_ASCII + i);
       sceneData?.set(GLYPH_TABLE + i, t.font.characterMap.get(character)?.color ?? [0, 0, 0]);
       sceneData?.set(GLYPH_TABLE + ASCII_COUNT + i, t.font.characterMap.get(thinKey(character))?.color ?? [0, 0, 0]);
     }
     // The feed layer shares the atlas so its glyph indices mean the same thing in the city material.
-    await broadcast.loadTileset(t.font as TextmodeTileset);
+    const feedTileset = await broadcast.loadTileset(t.font as TextmodeTileset);
+    if (!active() && disposed && !contextLost) feedTileset.dispose();
+  }
+
+  function rendererError(error: unknown): void {
+    if (!active()) return;
+    frames.stop();
+    pause();
+    ready = false;
+    t.noLoop();
+    callbacks.onError(error instanceof Error ? error.message : "The city renderer could not start.");
+  }
+
+  async function bootStage(stage: CityBootStage): Promise<boolean> {
+    if (!active()) return false;
+    callbacks.onBootStage?.(stage);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    return active();
   }
 
   function broadcastFeed(): void {
@@ -454,7 +479,8 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const train = passenger ? trainAt(metroTime, passenger.train) : null;
     const stop = platform !== null ? STATIONS[platform] : train?.station !== null && train?.station !== undefined ? STATIONS[train.station] : null;
     const destination = train ? train.station !== null ? `${STATIONS[train.station].name} · doors ${train.doors > 0.85 ? "open" : "closing"}` : `Next: ${STATIONS[train.next].name}` : platform !== null ? `${STATIONS[platform].name} · train ${stationArrival(metroTime, platform).seconds === 0 ? "at platform" : `in ${stationArrival(metroTime, platform).seconds}s`}` : journey?.destination ?? null;
-    callbacks.onSnapshot({ interior: interiors.active, x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - train.yaw, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.questSnapshot(talkTarget()), rpg: rpg.snapshot(), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
+    const useMarkers = interiors.active ? interiorUseMarkers(interiors.active, rpg.interactables(interiors.active.id)) : [];
+    callbacks.onSnapshot({ interior: interiors.active, interiorUseMarkers: useMarkers, x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - train.yaw, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.questSnapshot(talkTarget()), rpg: rpg.snapshot(), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
   }
 
   // Quests: the NPC in talking range while on foot at street level, unless a lift is closer.
@@ -789,6 +815,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     contextLost = true;
     if (running) pause();
     frames.stop();
+    t.noLoop();
     callbacks.onContextLost?.();
   }, listenerOptions);
   canvas.addEventListener("webglcontextrestored", () => callbacks.onContextRestored?.(), listenerOptions);
@@ -821,24 +848,30 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
 
   t.setup(async () => {
     try {
+      if (!await bootStage("materials")) return;
       // Mobile: touch-first devices compile the `lite` material variant (sin-free hash, lighter atmosphere).
       const lite = touchFirst;
       const [shader, mirrorShader, buildingShader] = await Promise.all([t.createMaterialShader(lite ? cityMaterial({ reflections: true, lite }) : CITY_MATERIAL), t.createMaterialShader(lite ? cityMaterial({ lite, ground: false }) : REFLECTION_MATERIAL), t.createShader(BUILDING_VERTEX, lite ? cityMaterial({ batch: true, opaque: true, lite, architecture: true }) : FACADE_MATERIAL), t.filters.register("neon-clarity", CLARITY_FILTER, { u_radius: ["radius", 2], u_strength: ["strength", 0.28] }), t.filters.register("view-warp", VIEW_WARP_FILTER, { u_row0: ["row0", [1, 0, 0]], u_row1: ["row1", [0, 1, 0]], u_row2: ["row2", [0, 0, 1]], u_focal: ["focal", 800], u_cell: ["cell", 8], u_origin: ["origin", [0, 0]] })]);
-      if (disposed) { shader.dispose(); mirrorShader.dispose(); buildingShader.dispose(); return; }
+      if (!active()) { if (!contextLost) { shader.dispose(); mirrorShader.dispose(); buildingShader.dispose(); } return; }
       material = shader;
       reflectionMaterial = mirrorShader;
-      interiorMaterial = await t.createMaterialShader(INTERIOR_MATERIAL);
-      if (disposed) { interiorMaterial.dispose(); return; }
+      const roomShader = await t.createMaterialShader(INTERIOR_MATERIAL);
+      if (!active()) { if (!contextLost) roomShader.dispose(); return; }
+      interiorMaterial = roomShader;
+      if (!await bootStage("scene")) return;
       reflection = t.createFramebuffer({ filter: "nearest", depth: true });
       sceneData = new SceneData(canvas);
       textData = new TextData(canvas, ASCII_BITMAPS, MESSAGES);
       buildingBatch = new BuildingBatch(canvas, buildingShader, world);
-      propBatch = new PropBatch(canvas, await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite, ground: false }) : BUILDING_MATERIAL));
+      const propShader = await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite, ground: false }) : BUILDING_MATERIAL);
+      if (!active()) { if (!contextLost) propShader.dispose(); return; }
+      propBatch = new PropBatch(canvas, propShader);
       props = new PropRecorder(character => t.font.characterMap.get(character)?.color ?? [0, 0, 0]);
       signs = new SignCanvas(t);
       resize();
+      if (!await bootStage("glyphs")) return;
       await applyAtlas();
-      if (disposed) return;
+      if (!active()) return;
       broadcastFeed();
       ready = true;
       // RPG: resume where the save left off (not in the studio, which places its own camera).
@@ -864,7 +897,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       snapshot();
       callbacks.onReady();
     } catch (error) {
-      if (!disposed) callbacks.onError(error instanceof Error ? error.message : "The city renderer could not start.");
+      rendererError(error);
     }
   });
 
@@ -1376,10 +1409,11 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     },
     setTouchMovement(forward, strafe, sprint = false) { touchForward = forward; touchStrafe = strafe; touchSprint = sprint; },
     setSettings(next) {
+      if (!active()) return;
       const changedQuality = next.quality !== settings.quality;
       const changedMotion = next.motion !== settings.motion;
       settings = next;
-      if (changedQuality) { governor.hold(performance.now()); applyProfile(); void applyAtlas().then(resize); blockCache = ""; } // Mobile: profile
+      if (changedQuality) { governor.hold(performance.now()); applyProfile(); void applyAtlas().then(resize).catch(rendererError); blockCache = ""; } // Mobile: profile
       if (changedMotion && ready) broadcastFeed();
       ambience.set(running && settings.sound && !interiors.active);
     },
@@ -1398,6 +1432,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       snapshot();
     },
     destroy() {
+      if (disposed) return;
       if (ready) rpg.save(interiors.outdoorPose(player)); // RPG
       disposed = true;
       frames.stop();

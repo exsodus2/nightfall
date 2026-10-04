@@ -76,3 +76,23 @@ export function hudNumber(value: number): string {
   if (amount < 1_000_000_000) return `${Math.floor(amount / 1_000_000)}m`;
   return `${Math.min(999, Math.floor(amount / 1_000_000_000))}b`;
 }
+
+function labelOverlap(region: HudRegion, left: number, right: number, top: number, bottom: number): boolean {
+  return region.width > 0 && region.height > 0 && left < region.left + region.width && right > region.left && top < region.top + region.height && bottom > region.top;
+}
+
+function labelBlocked(layout: CombatHudLayout, bossVisible: boolean, left: number, right: number, top: number, bottom: number): boolean {
+  return labelOverlap(layout.vitals, left, right, top, bottom) || labelOverlap(layout.weapon, left, right, top, bottom) || bossVisible && labelOverlap(layout.boss, left, right, top, bottom);
+}
+
+export function combatLabelRow(center: number, top: number, width: number, height: number, rows: number, layout: CombatHudLayout, bossVisible: boolean): number | null {
+  if (!Number.isFinite(center) || !Number.isFinite(top) || !Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(rows) || width < 1 || height < 1 || rows < 1) return null;
+  const left = center - Math.floor(width / 2), right = left + width;
+  if (!labelBlocked(layout, bossVisible, left, right, top, top + height)) return top;
+  const first = -Math.floor(rows / 2), last = Math.ceil(rows / 2);
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const candidate = top + (attempt % 2 ? -1 : 1) * Math.ceil(attempt / 2);
+    if (candidate >= first && candidate + height <= last && !labelBlocked(layout, bossVisible, left, right, candidate, candidate + height)) return candidate;
+  }
+  return null;
+}

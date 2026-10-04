@@ -13,6 +13,8 @@ npm run dev
 
 Open **http://127.0.0.1:3000**. Click **Enter the city** to capture the mouse and walk.
 
+The loading screen follows the actual lighting, scene and glyph preparation stages rather than showing an estimated percentage. A first visit can take longer while the browser prepares graphics. Rebuilding after graphics loss uses the same status screen and waits for you to resume when ready.
+
 ## Public domain hosting
 
 For `https://city.optimisticroc.com`, point the reverse proxy at this machine's HTTP port **3173**, with WebSocket upgrades enabled. This port serves both the website and multiplayer.
@@ -24,6 +26,7 @@ Set `NEXT_PUBLIC_MULTIPLAYER_URL=wss://city.optimisticroc.com` in `.env.producti
 - A deterministic 1,536 × 1,536 metre world: **576 city blocks and over 2,200 buildings**.
 - Six districts with a connected street and alley network, six discoverable landmarks, and building collision.
 - Six walkable district interiors: Kiln Nine's workshop, Undertone's listening bar, Dead Letter Exchange's relay room, The Glasshouse's conservatory, Blue Hour Tea, and Second Life Salvage. Use **T → Step inside → a venue**, then **E** at its lit doorway. Each has furniture collision, residents, a room-layout minimap, and restrained steam, drifting motes or animated equipment. Return to the lit exit and press **E** to leave.
+- Active interior stations appear as amber **USE** squares on the floorplan, with accessible labels and room-relative directions. Markers follow your quest progress; player and friend dots remain above them.
 - **Night Shift quests:** meet Mira Bell outside Blue Hour Tea. Carry a grow-light manifest through four real interiors, then choose who receives a late-night radio channel. Entries count only after accepting the job; progress, decisions and rewards persist.
 - **Kiln Nine workbench:** approach the right-hand machine's **USE** panel and press **E**. Read its calibration plate, diagnose mistakes safely and certify a Shield Cell. Leaving midway preserves progress; the reward is granted once.
 - **Last Good Signal:** take a public bulletin job at Dead Letter Exchange's back counter. Log evidence at the archive and relay, verify the latest signed notice, choose its destination and publish with or without a consented callback. Mistakes remain retryable; progress and the final receipt survive reloads, with a single payout.
@@ -217,6 +220,8 @@ With the app running, `npm run test:browser` checks rendering, populated streets
 `npm run test:dead-letter` walks the bulletin job through real movement and dialogue choices, wrong-answer retries and normal save/reload checkpoints, then checks its single reward and persistent receipt. Pass `-- --callback` for the alternative ending. Its fresh browser profile leaves your save untouched.
 
 `npm run test:hud` measures actual native text submissions against the visible controls on desktop and three phone layouts, including a boss and equipped firearm. It also checks that studio `clean=1` hides the native HUD; reports and screenshots go to `artifacts/hud/`.
+
+`npm run test:startup` checks actual loading stages, repeated rebuild clicks, context loss before startup finishes, retired shader/atlas promises, radio continuity and loading layouts. It uses an isolated browser profile, deliberately delays or rejects test-only resource requests and verifies that retired renderers cannot allocate more buffers or overwrite the recovery screen.
 
 `npm run test:rail` verifies real platform boarding against the shared timetable, a second player in the same carriage, paused riders and idle gait, renderer recovery, and joining a different room while already aboard. Like the living-city check, its server and saves are isolated; screenshots and its report go to `artifacts/shared-rail/`.
 

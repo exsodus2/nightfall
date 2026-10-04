@@ -132,6 +132,20 @@ try {
     return current;
   };
   const dialogueContains = async fragment => assert.ok((await state()).dialogue?.lines.some(line => line.includes(fragment)), `readable feedback: ${fragment}`);
+  const floorplan = async (expected, label) => {
+    await waitFor(async () => JSON.stringify(await evaluate("[...document.querySelectorAll('[data-interior-use]')].map(marker => marker.dataset.interiorUse)")) === JSON.stringify(expected), `${label}: active room markers`);
+    const markers = await evaluate("[...document.querySelectorAll('[data-interior-use]')].map(marker => ({id:marker.dataset.interiorUse,label:marker.querySelector('title')?.textContent,glyph:marker.querySelector('text')?.textContent,dotsAbove:[...document.querySelectorAll('[data-interior-player],[data-interior-friend]')].every(dot => !!(marker.compareDocumentPosition(dot) & Node.DOCUMENT_POSITION_FOLLOWING))}))");
+    const documentRoot = await call("DOM.getDocument", { depth: 0 });
+    const { nodeId } = await call("DOM.querySelector", { nodeId: documentRoot.root.nodeId, selector: ".minimap-button" });
+    const accessible = await call("Accessibility.getPartialAXTree", { nodeId, fetchRelatives: false });
+    const description = accessible.nodes.find(node => node.role?.value === "button")?.description?.value ?? "";
+    assert.ok(description.includes("The exit is at the bottom"), `${label}: map button exposes the floorplan description`);
+    for (const marker of markers) {
+      assert.ok(marker.label && description.includes(marker.label), `${label}: accessible station name and region`);
+      assert.ok(marker.glyph && marker.glyph.length === 1); assert.equal(marker.dotsAbove, true, `${label}: friend/player dots draw above stations`);
+    }
+    await checkpoint(`floorplan-${label}`, { markers, description });
+  };
   const saveReload = async label => {
     assert.equal((await state()).dialogue, null);
     await press("Escape", "Escape");
@@ -156,9 +170,17 @@ try {
   assert.equal(initial.status, "available", "fresh profile cannot import a real save");
   assert.equal(initial.ledger, null); assert.equal(initial.spool, null); assert.equal(initial.publication, null);
   await checkpoint("renderer-ready", { character: initial.character, perf: await evaluate("window.__nightfallPerf()") });
-  await visit(); await approach("counter"); await open("counter"); await capture("01-public-desk");
+  await visit(); await floorplan(["dead-letter-counter"], "offer"); await approach("counter"); await open("counter"); await capture("01-public-desk");
   await choose("accept-signal"); await choose("leave");
   assert.equal((await state()).stage, "evidence");
+  await floorplan(["dead-letter-counter", "dead-letter-archive", "dead-letter-relay"], "active-desktop");
+  await capture("07-floorplan-desktop");
+  await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await delay(500);
+  await floorplan(["dead-letter-counter", "dead-letter-archive", "dead-letter-relay"], "active-narrow");
+  await capture("08-floorplan-narrow");
+  await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });
+  await delay(500);
 
   await approach("archive"); await open("archive"); await dialogueContains("CONSENT");
   assert.equal((await state()).ledger, null, "opening the ledger is not confirmation");
@@ -208,6 +230,7 @@ try {
   await dialogueContains("SENT RECEIPT"); await dialogueContains("Home line sealed"); await capture("05-sent-receipt");
   assert.deepEqual(completed.dialogue.options, ["leave"], "receipt cannot pay twice");
   await choose("leave");
+  await floorplan(["dead-letter-counter"], "receipt");
   for (let retry = 0; retry < 2; retry++) {
     const receipt = await open("counter");
     assert.deepEqual(receipt.dialogue.options, ["leave"]); await dialogueContains("SENT RECEIPT");
@@ -215,7 +238,7 @@ try {
   }
   await saveReload("complete");
   assert.equal((await state()).status, "complete"); assert.deepEqual((await state()).character, completed.character);
-  await visit(); await approach("counter");
+  await visit(); await floorplan(["dead-letter-counter"], "restored-receipt"); await approach("counter");
   const restored = await open("counter"); await dialogueContains("SENT RECEIPT"); await dialogueContains("Home line sealed");
   assert.deepEqual(restored.dialogue.options, ["leave"]); assert.deepEqual(restored.character, completed.character);
   assert.deepEqual(await evaluate("window.__nightfall.rpg.interactables('dead-letter').map(object => object.id)"), ["dead-letter-counter"]);

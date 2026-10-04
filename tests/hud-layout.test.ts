@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combatHudLayout, drawCombatOverlay, fitHudText, hudNumber, type CombatHudLayout, type HudRegion, type HudViewport, type OverlayCanvas } from "../src/rpg/scene/index.ts";
-import type { ItemDefinition, PlayerCombatView } from "../src/rpg/types.ts";
+import { combatHudLayout, drawCombatOverlay, fitHudText, hudNumber, toCell, type CombatHudLayout, type CombatOverlayFrame, type HudRegion, type HudViewport, type OverlayCanvas } from "../src/rpg/scene/index.ts";
+import { combatLabelRow } from "../src/rpg/scene/hud-layout.ts";
+import type { EnemyView, ItemDefinition, PlayerCombatView } from "../src/rpg/types.ts";
 
 interface Box { left: number; top: number; width: number; height: number }
 const overlaps = (first: Box, second: Box): boolean => first.left < second.left + second.width && second.left < first.left + first.width && first.top < second.top + second.height && second.top < first.top + first.height;
@@ -142,4 +143,97 @@ test("empty magazines keep numeric reserves and fittings remain safe for degener
     const layout = combatHudLayout(size, size, { width: size, height: size, touch: true, insets: { top: Infinity, right: -10 } });
     assert.ok(Object.values(layout).every(region => Object.values(region).every(Number.isFinite)));
   }
+});
+
+test("projected labels keep their anchor unless a visible HUD region conflicts", () => {
+  const layout: CombatHudLayout = { vitals: { left: -8, top: 0, width: 16, height: 2 }, weapon: { left: 20, top: 5, width: 10, height: 2 }, boss: { left: -8, top: -5, width: 16, height: 3 } };
+  assert.equal(combatLabelRow(0, 3, 6, 1, 30, layout, true), 3);
+  assert.equal(combatLabelRow(0, 0, 6, 1, 30, layout, true), -1);
+  assert.equal(combatLabelRow(0, -5, 6, 1, 30, layout, false), -5);
+  assert.equal(combatLabelRow(0, -5, 6, 1, 30, layout, true), -6);
+  assert.equal(combatLabelRow(18, 0, 6, 1, 30, layout, true), 0);
+  assert.equal(combatLabelRow(0, -20, 6, 1, 30, layout, true), -20);
+  const blocked = { ...layout, vitals: { left: -20, top: -5, width: 40, height: 11 } };
+  assert.equal(combatLabelRow(0, 0, 6, 1, 30, blocked, true), null);
+  assert.equal(combatLabelRow(0, 0, 6, 1, Infinity, layout, true), null);
+  assert.equal(combatLabelRow(NaN, 0, 6, 1, 30, layout, true), null);
+});
+
+test("label placement is deterministic and only searches within four rows of its world anchor", () => {
+  for (const viewport of viewports) {
+    const { columns, rows } = grid(viewport), layout = combatHudLayout(columns, rows, viewport);
+    for (let index = 0; index < 200; index++) {
+      const center = index * 37 % columns - Math.floor(columns / 2), top = index * 17 % rows - Math.floor(rows / 2);
+      const width = 4 + index % 24, height = 1 + index % 3, bossVisible = index % 2 === 0;
+      const placed = combatLabelRow(center, top, width, height, rows, layout, bossVisible);
+      assert.equal(placed, combatLabelRow(center, top, width, height, rows, layout, bossVisible));
+      const obstacles = bossVisible ? Object.values(layout) : [layout.vitals, layout.weapon];
+      const original = { left: center - Math.floor(width / 2), top, width, height };
+      if (!obstacles.some(obstacle => overlaps(original, obstacle))) assert.equal(placed, top);
+      if (placed === null) continue;
+      assert.ok(Math.abs(placed - top) <= 4);
+      assert.ok(obstacles.every(obstacle => !overlaps({ ...original, top: placed }, obstacle)));
+      if (placed !== top) assert.ok(placed >= -Math.floor(rows / 2) && placed + height <= Math.ceil(rows / 2));
+    }
+  }
+});
+
+const labelledEnemy: EnemyView = {
+  id: "label", archetype: "guard", name: "Guard", faction: "corpsec", x: 0, z: -12, yaw: Math.PI, health: 40, maxHealth: 100, state: "alert", attack: 0, hitAge: Infinity, deathAge: -1, weaponClass: "pistol", bark: "KEEP MOVING.", hostile: true,
+  look: { coat: [50, 60, 70], trim: [20, 30, 40], skin: [160, 120, 90], light: [100, 200, 255], headwear: "cap", prop: null, idle: "scan" },
+};
+const labelFrame = (viewport: HudViewport, enemies: readonly EnemyView[] = [labelledEnemy]): CombatOverlayFrame => ({
+  cam: { x: 0, y: 2.7, z: 0, yaw: 0, pitch: 0, fov: 62, aspect: viewport.width / viewport.height }, effects: [], enemies, lockTarget: null, player, boss: null, prompt: null, visible: () => true, weapon, time: 1,
+});
+
+test("non-conflicting enemy health, name and bark retain their original desktop positions", () => {
+  const viewport = viewports[0], { columns, rows } = grid(viewport), frame = labelFrame(viewport), recorder = new TextRecorder();
+  const head = toCell(frame.cam, columns, rows, labelledEnemy.x, 3.5, labelledEnemy.z);
+  assert.ok(head);
+  drawCombatOverlay(recorder, columns, rows, frame, combatHudLayout(columns, rows, viewport));
+  const projected = recorder.prints.slice(0, -4);
+  assert.equal(projected.length, 3);
+  assert.equal(projected[0].top, head.gy);
+  assert.equal(projected[1].top, head.gy - 1);
+  assert.equal(projected[2].top, head.gy - 2);
+  for (const text of projected) assert.equal(text.left + Math.floor(text.width / 2), head.gx);
+});
+
+test("compact native labels clear all persistent panels without adding text submissions", () => {
+  const viewport = { width: 480, height: 320, touch: true }, { columns, rows } = grid(viewport), layout = combatHudLayout(columns, rows, viewport);
+  const frame = { ...labelFrame(viewport), boss: { name: "Brakka", title: "Warlord", health: 999, maxHealth: 1000, phase: 1 } };
+  const recorder = new TextRecorder();
+  drawCombatOverlay(recorder, columns, rows, frame, layout);
+  const projected = recorder.prints.slice(0, -7);
+  assert.ok(projected.length > 0 && projected.length <= 3);
+  assert.ok(projected.some(text => text.text.startsWith("[####")), "enemy health remains visible");
+  for (const text of projected) for (const region of Object.values(layout)) assert.ok(!overlaps(text, region), JSON.stringify({ text, region }));
+  const crowded = new TextRecorder();
+  drawCombatOverlay(crowded, columns, rows, { ...frame, enemies: Array.from({ length: 100 }, (_, index) => ({ ...labelledEnemy, id: `label-${index}` })) }, layout);
+  assert.ok(crowded.prints.length <= 307);
+});
+
+test("optional barks yield before enemy health and names when only a small HUD gap remains", () => {
+  const viewport = { width: 480, height: 320, touch: true }, { columns, rows } = grid(viewport), frame = labelFrame(viewport);
+  const head = toCell(frame.cam, columns, rows, labelledEnemy.x, 3.5, labelledEnemy.z);
+  assert.ok(head);
+  const obstacleTop = -Math.floor(rows / 2);
+  const layout: CombatHudLayout = {
+    vitals: { left: -20, top: obstacleTop, width: 40, height: head.gy - 1 - obstacleTop },
+    weapon: { left: -20, top: head.gy + 1, width: 40, height: Math.ceil(rows / 2) - head.gy - 1 },
+    boss: { left: 0, top: 0, width: 1, height: 0 },
+  };
+  const recorder = new TextRecorder();
+  drawCombatOverlay(recorder, columns, rows, frame, layout);
+  const projected = recorder.prints.slice(0, -4);
+  assert.equal(projected.length, 2);
+  assert.ok(projected.some(text => text.text === "Guard"));
+  assert.ok(projected.some(text => text.text.startsWith("[####")));
+  assert.ok(projected.every(text => !text.text.includes("KEEP MOVING")));
+  const healthOnly = new TextRecorder();
+  drawCombatOverlay(healthOnly, columns, rows, frame, { ...layout, vitals: { ...layout.vitals, height: layout.vitals.height + 1 } });
+  const lastCue = healthOnly.prints.slice(0, -4);
+  assert.equal(lastCue.length, 1);
+  assert.ok(lastCue[0].text.startsWith("[####"));
+  assert.equal(lastCue[0].top, head.gy);
 });
