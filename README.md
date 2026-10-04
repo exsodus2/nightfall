@@ -211,6 +211,8 @@ With the app running, `npm run test:browser` checks rendering, populated streets
 
 `npm run test:living-city` runs the Night Shift manifest and Kiln calibration through real UI interactions, checks one-time rewards, then creates an ephemeral local multiplayer server to verify shared interior avatars, floorplan dots, scope changes and WebGL recovery. It uses an isolated browser profile and never touches your real save or public server.
 
+`npm run test:rail` verifies real platform boarding against the shared timetable, a second player in the same carriage, paused riders and idle gait, renderer recovery, and joining a different room while already aboard. Like the living-city check, its server and saves are isolated; screenshots and its report go to `artifacts/shared-rail/`.
+
 ## Visual iteration
 
 Open **http://127.0.0.1:3000/?studio=1** for the opt-in scene lab. Seven camera bookmarks cover streets, facades, rooftops, a station and a carriage. Freeze the world, rebuild at a specific clock, advance time, inspect resident counts or copy a camera link. Add `&clean=1` to hide the interface.
