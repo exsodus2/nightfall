@@ -52,7 +52,7 @@ interface RpgUiOptions {
  *  - feed entries turned into toasts, once per id.
  */
 export function useRpgUi(options: RpgUiOptions) {
-  const { real, controller, dialogue, others } = options;
+  const { real, controller, dialogue, others, ready } = options;
   const opts = useRef(options);
   useEffect(() => { opts.current = options; });
 
@@ -85,19 +85,29 @@ export function useRpgUi(options: RpgUiOptions) {
   // Another panel took over (J, T, Settings, Online): close without resuming. The vendor and death
   // screens replace it too. Derived during render (no effect round trip).
   if (others !== wasOthers) { setWasOthers(others); if (others && open) setOpen(false); }
-  if (open && (vendorOpen || dead || dialogue || !rpg)) setOpen(false);
+  if (open && (vendorOpen || dead || dialogue || !rpg || !ready)) setOpen(false);
 
   const relock = useRef<AbortController | null>(null);
   useEffect(() => () => relock.current?.abort(), []);
+  useEffect(() => {
+    if (ready) return;
+    resumeOnClose.current = false;
+    relock.current?.abort();
+  }, [ready]);
   /** Resume, and if the browser refused the pointer lock (Esc is not a user activation), take it on the next click. */
   const resume = useCallback(() => {
+    if (!opts.current.ready) return;
     opts.current.resumeCity();
     relock.current?.abort();
     const target = opts.current.canvas.current;
     if (!target || !matchMedia("(pointer: fine)").matches) return;
     const abort = new AbortController();
     relock.current = abort;
-    target.addEventListener("click", () => { abort.abort(); if (!document.pointerLockElement) opts.current.controller.current?.enter(); }, { signal: abort.signal });
+    target.addEventListener("click", () => {
+      abort.abort();
+      const current = opts.current;
+      if (current.ready && current.phase === "playing" && !current.dialogue && !current.others && !document.pointerLockElement) current.controller.current?.enter();
+    }, { signal: abort.signal });
     setTimeout(() => abort.abort(), 8000);
   }, []);
 
@@ -143,16 +153,17 @@ export function useRpgUi(options: RpgUiOptions) {
   // ---- Vendor & death: pause while shown, resume afterwards ---------------------------------------
   const vendorWasOpen = useRef(false);
   useEffect(() => {
+    if (!ready) { vendorWasOpen.current = false; return; }
     if (vendorOpen) { vendorWasOpen.current = true; opts.current.pauseCity(); return; }
     if (vendorWasOpen.current) { vendorWasOpen.current = false; resume(); }
-  }, [vendorOpen, resume]);
+  }, [vendorOpen, ready, resume]);
   const closeVendor = useCallback(() => act({ kind: "closeVendor" }), [act]);
 
   const respawning = useRef(false);
   useEffect(() => {
-    if (!dead) { respawning.current = false; return; }
+    if (!dead || !ready) { respawning.current = false; return; }
     if (!respawning.current) opts.current.pauseCity();
-  }, [dead]);
+  }, [dead, ready]);
   const respawn = useCallback(() => { respawning.current = true; act({ kind: "respawn" }); resume(); }, [act, resume]);
 
   // ---- Feed -> toasts -------------------------------------------------------------------------------

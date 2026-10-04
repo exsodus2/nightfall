@@ -44,7 +44,7 @@ try {
     if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") errors.push(message.params.args.map(argument => argument.value ?? argument.description).join(" "));
   });
   const call = (method, params = {}) => new Promise((resolveCall, reject) => {
-    const id = ++requestId, timer = setTimeout(() => { pending.delete(id); reject(Error(`CDP timeout: ${method}`)); }, 60000);
+    const id = ++requestId, timer = setTimeout(() => { pending.delete(id); reject(Error(`CDP timeout: ${method}`)); }, 180000);
     pending.set(id, { resolve: resolveCall, reject, timer }); socket.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async expression => {
@@ -81,6 +81,37 @@ try {
     assert.equal(await evaluate("window.__nightfall.rpg.dialogue?.npcId"), "mira");
   };
   const visit = async name => { await press("KeyT", "t"); await click(`Visit ${name}`); await press("KeyE", "e"); };
+  const uiState = () => evaluate("(() => { const main = document.querySelector('main'), position = document.querySelector('.coordinates'); return { phase:main.dataset.phase, mode:main.dataset.mode, x:Number(position.dataset.x), z:Number(position.dataset.z), height:Number(position.dataset.y), dialogue:main.dataset.dialogue, modals:document.querySelectorAll('[role=dialog]').length }; })()");
+  const recoverOverlay = async name => {
+    const before = await uiState();
+    assert.equal(before.mode, "walk");
+    assert.ok(before.modals > 0, `${name}: opens a modal before losing graphics`);
+    console.log(`Recovering WebGL while ${name} is open.`);
+    await evaluate("window.qaPreviousRenderer=window.__nightfall.t; window.qaLoss=document.querySelector('.city-canvas').getContext('webgl2').getExtension('WEBGL_lose_context'); if (!window.qaLoss) throw Error('Missing context-loss extension'); window.qaLoss.loseContext()");
+    await waitFor(async () => (await uiState()).phase === "lost", `${name}: context loss surface`);
+    const lost = await uiState();
+    assert.equal(lost.dialogue, "false", `${name}: clears stale conversation`);
+    assert.equal(lost.modals, 0, `${name}: no stale modal covers recovery controls`);
+    assert.equal(await evaluate("(() => { const button = [...document.querySelectorAll('button')].find(element => element.textContent.startsWith('Rebuild the city')); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)); })()"), true, `${name}: rebuild button is reachable`);
+    await press("Escape", "Escape"); await press("KeyI", "i"); await press("KeyW", "w", 300);
+    assert.deepEqual(await uiState(), lost, `${name}: stale shortcuts cannot resume a lost renderer`);
+    await capture(`${name}-context-lost`);
+    await evaluate("window.qaLoss.restoreContext()");
+    await waitFor(async () => await evaluate("window.__nightfall.t !== window.qaPreviousRenderer && document.querySelector('main')?.dataset.phase === 'paused'"), `${name}: renderer rebuild`, 1200);
+    await evaluate("document.querySelector('.scene-studio').style.display='none'");
+    await delay(350);
+    const rebuilt = await uiState();
+    assert.equal(rebuilt.mode, before.mode, `${name}: preserves walking mode`);
+    assert.equal(rebuilt.phase, "paused", `${name}: rebuilt engine awaits explicit resume`);
+    assert.equal(rebuilt.dialogue, "false"); assert.equal(rebuilt.modals, 0);
+    assert.equal(await evaluate("window.__nightfall.rpg.dialogue"), null);
+    await press("KeyW", "w", 300);
+    assert.deepEqual(await uiState(), rebuilt, `${name}: paused recovery does not accept movement`);
+    await click("Keep walking");
+    assert.equal((await uiState()).phase, "playing");
+    await capture(`${name}-recovered`);
+    console.log(JSON.stringify({ name: `${name}-recovery`, before, lost, rebuilt }));
+  };
   await call("Page.enable"); await call("Runtime.enable");
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -162,8 +193,23 @@ try {
   await capture("recovered-online");
   assert.equal(await evaluate("window.__nightfall.rpg.quests.status('borrowed-light')"), "complete");
   assert.equal(await evaluate("window.__nightfall.rpg.quests.status('kiln-calibration')"), "complete");
+  await meetMira();
+  await recoverOverlay("dialogue");
+  await meetMira(); await press("Escape", "Escape");
+  assert.equal((await uiState()).dialogue, "false", "rebuilt conversation can be opened and closed normally");
+  await press("KeyI", "i");
+  assert.equal(await evaluate("document.querySelector('[data-rpg-screen]')?.dataset.rpgScreen"), "inventory");
+  assert.equal((await uiState()).phase, "paused");
+  await recoverOverlay("inventory");
+  await press("KeyI", "i");
+  assert.equal(await evaluate("document.querySelector('[data-rpg-screen]')?.dataset.rpgScreen"), "inventory");
+  await press("Escape", "Escape");
+  assert.equal((await uiState()).phase, "playing", "closing the rebuilt inventory resumes normally");
+  assert.equal((await uiState()).modals, 0);
+  await meetMira(); await press("Escape", "Escape");
+  assert.equal((await uiState()).dialogue, "false", "normal interactions resume after inventory recovery");
   assert.deepEqual(errors, [], "no browser runtime errors");
-  console.log("Online renderer recovery preserves quests, presence, remote rendering and movement. All living-city checks passed.");
+  console.log("Online renderer recovery preserves quests, presence, remote rendering and movement; dialogue/inventory loss clears stale modals and remains paused until resumed. All living-city checks passed.");
 } catch (error) {
   console.error(error); if (errors.length) console.error(errors.join("\n")); process.exitCode = 1;
 } finally {

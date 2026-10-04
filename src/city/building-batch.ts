@@ -35,9 +35,9 @@ void main() {
   v_glyphColor=a_ink; v_cellColor=a_paper; v_glyphFlags=vec4(0); v_surface=a_surfaceRange.x;
   v_center=a_center; v_dims=dims;
 }`;
-export const BUILDING_MATERIAL = cityMaterial({ batch: true });
+export const BUILDING_MATERIAL = cityMaterial({ batch: true, ground: false });
 /** Buildings never dissolve, so their program is compiled without discard: early depth rejection stays on. */
-export const FACADE_MATERIAL = cityMaterial({ batch: true, opaque: true });
+export const FACADE_MATERIAL = cityMaterial({ batch: true, opaque: true, architecture: true });
 
 const VERTICES = new Float32Array([
   -.5,-.5,.5, .5,-.5,.5, .5,.5,.5, -.5,-.5,.5, .5,.5,.5, -.5,.5,.5,

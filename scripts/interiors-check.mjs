@@ -82,6 +82,19 @@ try {
   };
   const sideOfCar = (car, position) => (position.x - car.x) * Math.cos(car.yaw) + (position.z - car.z) * Math.sin(car.yaw);
   const carClearance = (car, position) => Math.max(Math.abs(sideOfCar(car, position)) - CAR_HALF_WIDTH - PLAYER_RADIUS, Math.abs((position.x - car.x) * Math.sin(car.yaw) - (position.z - car.z) * Math.cos(car.yaw)) - CAR_HALF_LENGTH - PLAYER_RADIUS);
+  const checkRotateHint = async reducedMotion => {
+    await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: reducedMotion ? "reduce" : "no-preference" }] });
+    await press("Escape", "Escape"); await click("Keep walking");
+    await delay(500);
+    const bounds = await evaluate("(() => { const hint = document.querySelector('[aria-label=\"Dismiss: rotate to landscape for the widest view\"]'); if (!hint) throw Error('Missing fresh rotate hint'); const rect = hint.getBoundingClientRect(); return { left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom, width:rect.width, height:rect.height, viewportWidth:innerWidth, viewportHeight:innerHeight, animations:hint.getAnimations().map(animation => animation.playState), animationName:getComputedStyle(hint).animationName }; })()");
+    assert.ok(bounds.width > 0 && bounds.height >= 32, "portrait rotate hint is visible");
+    assert.ok(bounds.left >= 0 && bounds.right <= bounds.viewportWidth && bounds.top >= 0 && bounds.bottom <= bounds.viewportHeight, `rotate hint fits after animation: ${JSON.stringify(bounds)}`);
+    assert.ok(Math.abs((bounds.left + bounds.right) / 2 - bounds.viewportWidth / 2) < 2, `rotate hint stays horizontally centered: ${JSON.stringify(bounds)}`);
+    assert.ok(bounds.animations.every(state => state === "finished"), "rotate bounds are checked after the entrance animation completes");
+    if (reducedMotion) assert.equal(bounds.animationName, "none");
+    report.push({ name: reducedMotion ? "rotate-hint-reduced-motion" : "rotate-hint", ...bounds });
+    console.log(JSON.stringify(report.at(-1)));
+  };
   await call("Page.enable"); await call("Runtime.enable");
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });
   await call("Page.navigate", { url: `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?studio=1&clock=4&perf=1` });
@@ -134,7 +147,9 @@ try {
   await call("Emulation.setDeviceMetricsOverride", { width: 852, height: 393, deviceScaleFactor: 2, mobile: true });
   await delay(750); await capture("mobile-landscape");
   await call("Emulation.setDeviceMetricsOverride", { width: 393, height: 852, deviceScaleFactor: 2, mobile: true });
-  await delay(750); await capture("mobile-portrait");
+  await checkRotateHint(false); await capture("mobile-portrait");
+  await checkRotateHint(true); await capture("mobile-portrait-reduced-motion");
+  await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false, "mobile layout has no horizontal overflow");
   await call("Emulation.setTouchEmulationEnabled", { enabled: false });
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });

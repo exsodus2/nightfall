@@ -52,7 +52,7 @@ import { CityInteriors, INTERIOR_HEIGHT, type InteriorPlace } from "./interiors"
 import { drawInterior, drawInteriorEntrances, drawInteriorInteractables } from "./interior-scene";
 import { INTERIOR_MATERIAL } from "./interior-material";
 import { drawCitizenLabels, type CitizenLabelFrame } from "./citizen-labels";
-import { WalkingCollision, WALKING_CAR_QUERY_RADIUS } from "./walking-collision";
+import { WalkingCollision, WALKING_CAR_QUERY_RADIUS, WALKING_CAR_ROOF_CLEARANCE } from "./walking-collision";
 
 /** "auto" (mobile): a phone profile adjusted at runtime by the frame-time governor. */
 export type Quality = QualityPreset;
@@ -780,7 +780,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     try {
       // Mobile: touch-first devices compile the `lite` material variant (sin-free hash, lighter atmosphere).
       const lite = touchFirst;
-      const [shader, mirrorShader, buildingShader] = await Promise.all([t.createMaterialShader(lite ? cityMaterial({ reflections: true, lite }) : CITY_MATERIAL), t.createMaterialShader(lite ? cityMaterial({ lite }) : REFLECTION_MATERIAL), t.createShader(BUILDING_VERTEX, lite ? cityMaterial({ batch: true, opaque: true, lite }) : FACADE_MATERIAL), t.filters.register("neon-clarity", CLARITY_FILTER, { u_radius: ["radius", 2], u_strength: ["strength", 0.28] }), t.filters.register("view-warp", VIEW_WARP_FILTER, { u_row0: ["row0", [1, 0, 0]], u_row1: ["row1", [0, 1, 0]], u_row2: ["row2", [0, 0, 1]], u_focal: ["focal", 800], u_cell: ["cell", 8], u_origin: ["origin", [0, 0]] })]);
+      const [shader, mirrorShader, buildingShader] = await Promise.all([t.createMaterialShader(lite ? cityMaterial({ reflections: true, lite }) : CITY_MATERIAL), t.createMaterialShader(lite ? cityMaterial({ lite, ground: false }) : REFLECTION_MATERIAL), t.createShader(BUILDING_VERTEX, lite ? cityMaterial({ batch: true, opaque: true, lite, architecture: true }) : FACADE_MATERIAL), t.filters.register("neon-clarity", CLARITY_FILTER, { u_radius: ["radius", 2], u_strength: ["strength", 0.28] }), t.filters.register("view-warp", VIEW_WARP_FILTER, { u_row0: ["row0", [1, 0, 0]], u_row1: ["row1", [0, 1, 0]], u_row2: ["row2", [0, 0, 1]], u_focal: ["focal", 800], u_cell: ["cell", 8], u_origin: ["origin", [0, 0]] })]);
       if (disposed) { shader.dispose(); mirrorShader.dispose(); buildingShader.dispose(); return; }
       material = shader;
       reflectionMaterial = mirrorShader;
@@ -790,7 +790,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       sceneData = new SceneData(canvas);
       textData = new TextData(canvas, ASCII_BITMAPS, MESSAGES);
       buildingBatch = new BuildingBatch(canvas, buildingShader, world);
-      propBatch = new PropBatch(canvas, await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite }) : BUILDING_MATERIAL));
+      propBatch = new PropBatch(canvas, await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite, ground: false }) : BUILDING_MATERIAL));
       props = new PropRecorder(character => t.font.characterMap.get(character)?.color ?? [0, 0, 0]);
       signs = new SignCanvas(t);
       resize();
@@ -870,12 +870,12 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     carryPassenger();
     passengerSpeed = 0;
     const presentRemotes = (link?.remotes(now) ?? []).filter(remote => samePlace(remote.place, interiors.active?.id));
-    const nearbyPlayers = interiors.active ? [] : presentRemotes.filter(remote => remote.mode === "walk" && remote.y < 0.5).map(remote => ({ id: remote.id, x: remote.x, y: remote.y, z: remote.z, speed: remote.speed }));
-    if (!interiors.active && mode === "walk" && !passenger && platform === null && !lift && !journey && cameraHeight < WALK_HEIGHT + 0.5) nearbyPlayers.push({ id: "local", x: player.x, y: 0, z: player.z, speed });
+    const nearbyPlayers = interiors.active ? [] : presentRemotes.filter(remote => remote.mode === "walk" && remote.y < WALKING_CAR_ROOF_CLEARANCE).map(remote => ({ id: remote.id, x: remote.x, y: remote.y, z: remote.z, speed: remote.speed }));
+    if (!interiors.active && mode === "walk" && !passenger && platform === null && !lift && !journey && cameraHeight < WALK_HEIGHT + WALKING_CAR_ROOF_CLEARANCE) nearbyPlayers.push({ id: "local", x: player.x, y: Math.max(0, cameraHeight - WALK_HEIGHT), z: player.z, speed });
     frameAverage += (Math.max(rawDt, 0.001) - frameAverage) * 0.035;
     if (settings.motion && !frozen) time += dt;
     const signalTime = sharedTime ?? time;
-    if (settings.motion && !frozen) { population.update(dt, time, metroTime, player, { players: nearbyPlayers, rain: settings.rain }, signalTime); traffic.update(dt, signalTime, trafficBlockers()); }
+    if (settings.motion && !frozen) { population.update(dt, time, metroTime, player, { players: nearbyPlayers, rain: settings.rain }, signalTime); traffic.update(dt, signalTime, trafficBlockers(), { eye: player, players: nearbyPlayers, residents: population.walkers }); }
     // Ambient animation frozen but the trains still run: a zero-time update keeps seated riders
     // attached to their moving train instead of hanging where it was.
     else if (sharedTime !== null || !frozen && running) population.update(0, time, metroTime, player, undefined, signalTime);
@@ -1237,7 +1237,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   return {
     world,
     enter() {
-      if (!ready || disposed) return;
+      if (!ready || disposed || contextLost) return;
       closeDialogue(); // Quests: resuming always ends an open conversation.
       running = true;
       ambience.set(settings.sound && !interiors.active);

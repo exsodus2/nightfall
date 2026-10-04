@@ -302,9 +302,9 @@ export class DriveSession {
     // Chase camera orbits with the view yaw and pulls in rather than entering a building (tracked
     // in both views, so a switch starts from a safe distance).
     const want = CHASE_DISTANCE + pace, bx = -Math.sin(yaw), bz = Math.cos(yaw);
-    let free = 1.5;
-    for (let d = 1.5; d <= want; d += 0.5) { if (!world.canOccupy(this.car.x + bx * d, this.car.z + bz * d)) break; free = d; }
-    this.chaseDistance += (free - this.chaseDistance) * (free < this.chaseDistance ? smooth(20) : smooth(2.5));
+    let free = 0;
+    for (let distance = 0; distance <= want; distance += 0.5) { if (!world.canOccupy(this.car.x + bx * distance, this.car.z + bz * distance)) break; free = distance; }
+    this.chaseDistance = free < this.chaseDistance ? free : this.chaseDistance + (free - this.chaseDistance) * smooth(2.5);
     const chaseX = this.car.x + bx * this.chaseDistance, chaseZ = this.car.z + bz * this.chaseDistance;
     const chaseTilt = Math.atan2(CHASE_HEIGHT - CHASE_AIM_HEIGHT, this.chaseDistance + CHASE_AIM_AHEAD);
     // The switch is a straight, eased move between the two poses (both collision-safe; the line

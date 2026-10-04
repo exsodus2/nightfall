@@ -71,6 +71,7 @@ export function CityExperience() {
   const [questLog, setQuestLog] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const dialogueOpen = useRef(false);
+  const recovering = useRef(false);
   // Multiplayer: lobby panel + room session (toasts reuse the quest notifications).
   const [lobby, setLobby] = useState(false);
   const toast = useCallback((message: string) => { const item = createToast(message); setToasts((current) => enqueueToast(current, item)); }, []);
@@ -101,8 +102,17 @@ export function CityExperience() {
         const initial: CitySettings = settingsRef.current && bootKey > 0 ? settingsRef.current : { ...DEFAULT_SETTINGS, quality: isTouchFirst() ? "auto" : DEFAULT_SETTINGS.quality }; // Mobile: phones start on Auto
         setSettings(initial);
         city = createCity(canvas, initial, {
-          onReady: () => { if (!cancelled) { if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
-          onContextLost: () => { if (!cancelled) setPhase("lost"); }, // Mobile
+          onReady: () => { if (!cancelled) { recovering.current = false; if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
+          onContextLost: () => {
+            if (cancelled) return;
+            recovering.current = true;
+            dialogueOpen.current = false;
+            setDialogue(null);
+            setPanel(null);
+            setQuestLog(false);
+            setLobby(false);
+            setPhase("lost");
+          },
           onContextRestored: () => { if (!cancelled) setBootKey((key) => key + 1); },
           onError: (message) => { if (!cancelled) { setError(message); setPhase("error"); } },
           onSnapshot: (next) => { if (!cancelled) setSnapshot(next); },
@@ -111,7 +121,7 @@ export function CityExperience() {
           onTransit: () => { if (!cancelled) { setPhase("paused"); setPanel("transit"); } },
           // Quest UI: the engine has already paused and released the mouse; recapture it when the conversation ends.
           onDialogue: (next) => {
-            if (cancelled) return;
+            if (cancelled || recovering.current) return;
             setDialogue(next);
             if (next) { dialogueOpen.current = true; return; }
             if (!dialogueOpen.current) return;
@@ -152,6 +162,7 @@ export function CityExperience() {
   }, [phase]);
 
   const openPanel = useCallback((next: Panel) => {
+    if (recovering.current) return;
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(next);
@@ -159,6 +170,7 @@ export function CityExperience() {
 
   // Quest UI callbacks: stable so child effects don't re-run on every snapshot.
   const openQuestLog = useCallback(() => {
+    if (recovering.current) return;
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(null);
@@ -168,6 +180,7 @@ export function CityExperience() {
   const closeQuestLog = useCallback(() => setQuestLog(false), []);
   // Multiplayer: the Online panel pauses like the other panels.
   const openLobby = useCallback(() => {
+    if (recovering.current) return;
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(null); setQuestLog(false); setLobby(true);
@@ -188,7 +201,7 @@ export function CityExperience() {
   // Radio: duck the rain bed while the radio is audible.
   const duckRain = useCallback((audible: boolean) => { radioAudible.current = audible; controller.current?.duckAmbience(audible ? 0.4 : 1); }, []);
   // World map: M toggles it without pausing; conversations, panels, the quest log and the lobby close it.
-  const worldMap = useWorldMap({ ready, phase, blocked: !!dialogue || !!panel || questLog || lobby || rpgUi.blocking /* RPG UI */, controller, canvas: canvasRef });
+  const worldMap = useWorldMap({ ready, phase, blocked: !ready || !!dialogue || !!panel || questLog || lobby || rpgUi.blocking /* RPG UI */, controller, canvas: canvasRef });
   const waypointState = useWaypointState();
   const [minimapRotate, setMinimapRotate] = useState(false);
   const linkWaypointToast = useCallback((label: string) => toast(`Waypoint added from link: ${label}`), [toast]);
@@ -213,7 +226,7 @@ export function CityExperience() {
     return () => { window.removeEventListener("keydown", handleKey); if (previous instanceof HTMLElement && document.activeElement !== cityCanvas) previous.focus(); };
   }, [panel]);
 
-  function enter() { setPanel(null); setPhase("playing"); controller.current?.enter(); }
+  function enter() { if (!ready || recovering.current) return; setPanel(null); setPhase("playing"); controller.current?.enter(); }
   function travel(x: number, z: number, yaw?: number) { setNotice(null); controller.current?.travel(x, z, yaw); enter(); }
   function ride(destination: number) { controller.current?.ride(rideMode, destination); enter(); }
   function freeMode(mode: "walk" | "fly") { controller.current?.setMode(mode); enter(); }
@@ -248,7 +261,7 @@ export function CityExperience() {
     </div>
 
     {phase === "loading" ? <div className="loading-state" role="status"><span className="loading-glyph">▒</span><h1>Building the skyline</h1><p>Finding a way through the rain.</p><span className="loading-line" /></div> : null}
-    {phase === "lost" ? <div className="error-state" role="alert"><h1>The city lost its graphics context.</h1><p>Your phone reclaimed the GPU memory (this happens to background tabs). Rebuild the city to carry on from where you were.</p><button className="primary-button" onClick={() => setBootKey((key) => key + 1)}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
+    {phase === "lost" ? <div className="error-state" role="alert"><h1>The city lost its graphics context.</h1><p>Your browser released the graphics context. Rebuild the city to continue from your last position.</p><button className="primary-button" onClick={() => setBootKey((key) => key + 1)}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
     {phase === "error" ? <div className="error-state" role="alert"><h1>The city couldn’t start.</h1><p>This experience needs a browser with WebGL2 and hardware acceleration enabled.</p><details><summary>Technical details</summary><p>{error}</p></details><button className="primary-button" onClick={() => location.reload()}>Try again</button></div> : null}
 
     {(phase === "intro" || phase === "paused") && !panel && !worldMap.open /* World map */ ? <section className="entry-panel" aria-label={phase === "intro" ? "Welcome to Nightfall" : "City paused"}>
@@ -291,7 +304,7 @@ export function CityExperience() {
     {(phase === "playing" || phase === "paused") && !panel && !questLog && !worldMap.open ? <QuestTracker quests={snapshot.quests} x={snapshot.x} z={snapshot.z} yaw={snapshot.yaw} onOpenLog={openQuestLog} /> : null}
     {dialogue ? <QuestDialogue key={dialogueKey(dialogue)} dialogue={dialogue} onChoose={chooseDialogue} onClose={closeDialogue} /> : null}
     <ToastStack toasts={toasts} onDismiss={dismissToast} />
-    <RpgScreens ui={rpgUi} place={district.name} />{/* RPG UI: inventory / vendor / death */}
+    {ready ? <RpgScreens ui={rpgUi} place={district.name} /> : null}{/* RPG UI: inventory / vendor / death */}
     {questLog ? <QuestLog quests={snapshot.quests} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
     {/* Multiplayer: Online panel, and room chat + roster while connected. */}
     {lobby ? <MultiplayerLobby view={multiplayer.view} pose={{ x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}

@@ -1,11 +1,14 @@
 import { trafficGreen } from "./people.ts";
 import { randomFor } from "./world.ts";
 import { underPark } from "./park.ts";
+import { RoadAwareness, type RoadPerception } from "./road-awareness.ts";
 
 export interface Vehicle { id: number; x: number; z: number; yaw: number; speed: number; waiting: boolean }
 interface Driver extends Vehicle { along: number; cruise: number }
 interface Lane { axis: "x" | "z"; street: number; direction: number; cars: Driver[] }
 const LENGTH = 1472;
+const STREET_LIMIT = 11, STREET_COUNT = STREET_LIMIT * 2 + 1;
+export const MAX_TRAFFIC_STEP = 0.15;
 const wrap = (n: number, length: number): number => ((n % length) + length) % length;
 /** Where a car waits at a red: its centre this far before the cross street's centre line, so the
  * nose stops behind the painted crossing (9.5-13 m out; 19-26 m across the double-width avenue).
@@ -37,9 +40,12 @@ export const laneLine = (axis: "x" | "z", street: number, direction: number): nu
  * positions never jump when a light changes or a new block becomes visible. */
 export class CityTraffic {
   private readonly lanes: Lane[] = [];
+  private readonly roadAwareness = new RoadAwareness();
+  private readonly blockerAlong: number[] = [];
+  private readonly junctions = new Uint8Array(STREET_COUNT * STREET_COUNT);
   constructor() {
     let id = 0;
-    for (const axis of ["x", "z"] as const) for (let street = -11; street <= 11; street++) for (const direction of [-1, 1]) {
+    for (const axis of ["x", "z"] as const) for (let street = -STREET_LIMIT; street <= STREET_LIMIT; street++) for (const direction of [-1, 1]) {
       const cars: Driver[] = [];
       for (let i = 0; i < 16; i++) {
         const along = spawnAlong(axis, direction, wrap(i * LENGTH / 16 + street * 23 + (axis === "x" ? 29 : 0), LENGTH) - LENGTH / 2);
@@ -50,20 +56,39 @@ export class CityTraffic {
     }
   }
   /** `blockers` are player cars (driven or left in a lane): traffic queues behind them too. */
-  update(dt: number, time: number, blockers: readonly { x: number; z: number }[] = []): void {
+  update(dt: number, time: number, blockers: readonly { x: number; z: number }[] = [], perception?: RoadPerception): void {
+    if (!Number.isFinite(dt) || dt <= 0 || !Number.isFinite(time)) return;
+    const span = Math.min(dt, MAX_TRAFFIC_STEP);
+    this.roadAwareness.set(perception);
+    this.junctions.fill(0);
+    for (const lane of this.lanes) for (const car of lane.cars) {
+      const crossing = Math.round(car.along / 64);
+      if (Math.abs(crossing) > STREET_LIMIT || Math.abs(car.along - crossing * 64) >= (lane.axis === "x" && crossing === 0 ? AVENUE_STOP_LINE : STOP_LINE)) continue;
+      const streetX = lane.axis === "x" ? crossing : lane.street, streetZ = lane.axis === "z" ? crossing : lane.street;
+      this.junctions[(streetZ + STREET_LIMIT) * STREET_COUNT + streetX + STREET_LIMIT] |= lane.axis === "x" ? 1 : 2;
+    }
     for (const lane of this.lanes) {
-      const line = laneLine(lane.axis, lane.street, lane.direction);
-      const inLane = blockers.filter(b => Math.abs((lane.axis === "x" ? b.z : b.x) - line) < 2.6).map(b => lane.axis === "x" ? b.x : b.z);
+      const line = laneLine(lane.axis, lane.street, lane.direction), green = trafficGreen(lane.axis, time);
+      this.blockerAlong.length = 0;
+      for (const blocker of blockers) {
+        if (Number.isFinite(blocker.x) && Number.isFinite(blocker.z) && Math.abs((lane.axis === "x" ? blocker.z : blocker.x) - line) < 2.6) this.blockerAlong.push(lane.axis === "x" ? blocker.x : blocker.z);
+      }
+      this.roadAwareness.selectLane(lane.axis, line);
       for (let i = 0; i < lane.cars.length; i++) {
         const car = lane.cars[i], ahead = lane.cars[wrap(i + lane.direction, lane.cars.length)];
         let gap = wrap((ahead.along - car.along) * lane.direction, LENGTH) - 7.5;
-        for (const along of inLane) { const d = (along - car.along) * lane.direction; if (d > -2 && d < 80) gap = Math.min(gap, d - 6.5); }
+        for (const along of this.blockerAlong) { const d = (along - car.along) * lane.direction; if (d > -2 && d < 80) gap = Math.min(gap, d - 6.5); }
+        gap = Math.min(gap, this.roadAwareness.clearance(car.along, lane.direction));
         const stop = stopDistance(lane.axis, lane.direction, car.along);
+        const crossing = Math.round((car.along + stop * lane.direction) / 64);
+        const streetX = lane.axis === "x" ? crossing : lane.street, streetZ = lane.axis === "z" ? crossing : lane.street;
+        const occupied = Math.abs(crossing) <= STREET_LIMIT && (this.junctions[(streetZ + STREET_LIMIT) * STREET_COUNT + streetX + STREET_LIMIT] & (lane.axis === "x" ? 2 : 1)) !== 0;
+        const canEnter = green && !occupied;
         let target = Math.min(car.cruise, Math.sqrt(Math.max(0, gap - 1) * 5));
-        if (!trafficGreen(lane.axis, time)) target = Math.min(target, Math.sqrt(Math.max(0, stop - 0.35) * 6));
-        car.speed += Math.max(-8 * dt, Math.min(3.5 * dt, target - car.speed));
-        const clearance = trafficGreen(lane.axis, time) ? gap : Math.min(gap, stop - 0.35);
-        const step = Math.min(Math.max(0, clearance), Math.max(0, car.speed) * dt);
+        if (!canEnter) target = Math.min(target, Math.sqrt(Math.max(0, stop - 0.35) * 6));
+        car.speed += Math.max(-8 * span, Math.min(3.5 * span, target - car.speed));
+        const clearance = canEnter ? gap : Math.min(gap, stop - 0.35);
+        const step = Math.min(Math.max(0, clearance), Math.max(0, car.speed) * span);
         if (step < 0.001) car.speed = 0;
         car.along = wrap(car.along + step * lane.direction + LENGTH / 2, LENGTH) - LENGTH / 2;
         if (lane.axis === "x") car.x = car.along; else car.z = car.along;

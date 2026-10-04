@@ -30,7 +30,8 @@ const ASCII_DEFINES = Object.entries(NAMED).map(([name, c]) => `#define A_${name
  * ASCII-art letters built from characters when large. Fog fades into the sky colour of the same
  * direction and reaches it exactly at the draw distance, so nothing pops at the edge of the world.
  */
-export function cityMaterial({ reflections = false, batch = false, opaque = false, lite = false } = {}): string {
+export function cityMaterial({ reflections = false, batch = false, opaque = false, lite = false, architecture = false, ground = true } = {}): string {
+  const includesGround = ground && !architecture;
   // An opaque variant (buildings) contains no discard at all, so early depth rejection stays on.
   // Mobile (iPhone agent): `lite` is compiled on touch-first devices only (desktop output is unchanged):
   // a sin-free hash and a 6-step atmosphere integration with 2 headlight beams instead of 12 / 4.
@@ -40,6 +41,7 @@ precision highp int;
 ${reflections ? "#define REFLECTIONS" : ""}
 ${batch ? "#define BATCH" : ""}
 ${lite ? "#define LITE" : ""}
+${includesGround ? "#define GROUND" : ""}
 #ifdef LITE
 #define ATMOSPHERE_STEPS 6
 #define ATMOSPHERE_CARS 2
@@ -308,7 +310,7 @@ vec3 atmosphere(vec3 p) {
   return sum * u_atmosphere;
 }
 ${VFX_GLSL_DECLARATIONS}
-${parkGlsl()}
+${includesGround ? parkGlsl() : ""}
 void main() {
   vec3 p = v_worldPosition, eye = eyePosition();
   vec3 n = normalize(cross(dFdy(p), dFdx(p)));
@@ -332,10 +334,10 @@ void main() {
     }
   }
 
-  if (SURFACE > 7.5) {
+  if (${architecture ? "false" : "SURFACE > 7.5"}) {
     // VFX surface (vfx-shaders.ts): spinning wheels, steam volumes, searchlight beams.
 ${VFX_GLSL_BRANCH}
-  } else if (SURFACE > 6.5) {
+  } else if (${architecture ? "false" : "SURFACE > 6.5"}) {
     // Hologram: a giant translucent figure - a woman's bust that tilts and blinks, or a koi
     // swimming through the rain - rim-lit, scanlined and glitching, with a slogan crawling below.
     vec2 uv = v_uv;
@@ -411,7 +413,7 @@ ${VFX_GLSL_BRANCH}
       if (cover < 0.05) { code = A_SPACE; ink = neon * 0.2; }
     }
 #endif
-  } else if (SURFACE > 4.5) {
+  } else if (${architecture ? "false" : "SURFACE > 4.5"}) {
     // Hologram screen: the synth feed's own cells, re-lit as emissive panels.
     vec2 size = vec2(textureSize(u_feedInk, 0));
     ivec2 texel = ivec2(clamp(vec2(v_uv.x, 1.0 - v_uv.y) * size, vec2(0.0), size - 1.0));
@@ -421,7 +423,7 @@ ${VFX_GLSL_BRANCH}
     ink = feedInk * 1.35; paper = feedPaper * 1.3 + feedInk * 0.14;
     emission = feedInk * 0.6;
     if (edge > 0.5) { code = A_HASH; ink = vec3(0.1, 0.55, 0.62); paper = ink * 0.3; }
-  } else if (SURFACE > 3.5) {
+  } else if (${architecture ? "false" : "SURFACE > 3.5"}) {
     // Sky dome: smog lit from below, slow cloud banks, sparse stars through the gaps.
     isSky = true;
     vec3 direction = normalize(p - eye);
@@ -654,6 +656,7 @@ ${VFX_GLSL_BRANCH}
       ink = max(paper * 2.3, lit3 * 1.6) + vec3(0.02, 0.035, 0.04);
     }
 #endif
+#ifdef GROUND
   } else if (SURFACE < 1.5) {
     // Rootwood Park (park.ts) shades its own lawns, paths, plazas, arena and water.
     if (!parkGround(p, view, cellWorld, code, thin, paper, ink, emission, flags, reflectedGlyph)) {
@@ -698,7 +701,8 @@ ${VFX_GLSL_BRANCH}
     if (flags == 0.0 && ring * puddle * u_rain > 0.5 && cellWorld < 0.35) { code = A_O; thin = true; ink = paper * 1.8 + vec3(0.02, 0.04, 0.05); }
     #endif
     } // parkGround
-  } else if (SURFACE < 2.5) {
+#endif
+  } else if (${architecture ? "true" : "SURFACE < 2.5"}) {
     vec3 albedo = v_glyphColor.rgb;
     float emissive = smoothstep(0.64, 0.95, max(albedo.r, max(albedo.g, albedo.b)));
     vec3 lit3 = mix(lighting(p, n, albedo, 0.22), albedo, emissive * 0.9);
@@ -781,7 +785,7 @@ function withDiscard(opaque: boolean, source: string): string {
 }
 
 export const CITY_MATERIAL = cityMaterial({ reflections: true });
-export const REFLECTION_MATERIAL = cityMaterial();
+export const REFLECTION_MATERIAL = cityMaterial({ ground: false });
 
 // A tight glow on the brightest neon only: the characters underneath stay sharp.
 export const CLARITY_FILTER = `#version 300 es

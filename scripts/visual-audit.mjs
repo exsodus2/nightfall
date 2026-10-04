@@ -20,6 +20,8 @@ const cameras = {
   "glass-office": { x: -45, z: 124, height: 14, yaw: 0, pitch: 0 },
   "glass-grazing": { x: -35, z: 119, height: 14, yaw: -1.335, pitch: 0 },
   "glass-warm": { x: -45, z: 63, height: 14, yaw: 0, pitch: 0 },
+  "park-pond": { x: -437, z: 249, height: 9, yaw: 0.72, pitch: 0.22 },
+  "park-arena": { x: -527, z: 378, height: 10, yaw: 0.74, pitch: 0.24 },
 };
 try {
   let tabs;
@@ -38,7 +40,7 @@ try {
     if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") errors.push(message.params.args.map(arg => arg.value ?? arg.description).join(" "));
   });
   const call = (method, params = {}) => new Promise((resolveCall, reject) => {
-    const requestId = ++id, timer = setTimeout(() => { pending.delete(requestId); reject(Error(`Timed out: ${method}`)); }, 90000);
+    const requestId = ++id, timer = setTimeout(() => { pending.delete(requestId); reject(Error(`Timed out: ${method}`)); }, 180000);
     pending.set(requestId, { resolve: resolveCall, reject, timer }); socket.send(JSON.stringify({ id: requestId, method, params }));
   });
   const evaluate = async expression => {
@@ -55,6 +57,7 @@ try {
     const params = new URLSearchParams({ studio: "1", view, clock: args.get("clock") ?? "45", clean: "1", perf: "1" });
     if (args.has("reference")) params.set("reference", args.get("reference"));
     const url = `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?${params}`;
+    const startedAt = performance.now();
     await call("Page.navigate", { url });
     console.log(`Loading ${view}...`);
     for (let i = 0; i < 100; i++) {
@@ -64,6 +67,7 @@ try {
       await delay(200);
     }
     if (await evaluate("document.querySelector('main')?.dataset.phase") !== "intro") throw Error(`Renderer not ready: ${view}`);
+    const readyMs = Math.round(performance.now() - startedAt);
     if (cameras[view]) await evaluate(`window.__nightfall.inspect(${JSON.stringify({ kind: "camera", ...cameras[view] })})`);
     if (args.has("quality")) {
       const label = { high: "Fine", balanced: "Balanced", low: "Performance", auto: "Auto" }[args.get("quality")];
@@ -77,7 +81,7 @@ try {
     const image = await call("Page.captureScreenshot", { format: "png" });
     await writeFile(resolve(directory, `${view}.png`), Buffer.from(image.data, "base64"));
     const metrics = await evaluate("({ fps: document.querySelector('.fps-count')?.textContent, status: [...document.querySelectorAll('.studio-body dl > *')].map(el=>el.textContent).join(' | '), x: document.querySelector('.coordinates')?.dataset.x, z: document.querySelector('.coordinates')?.dataset.z, performance: window.__nightfallPerf?.() })");
-    report.push({ view, url, ...metrics }); console.log(JSON.stringify({ view, ...metrics }));
+    report.push({ view, url, readyMs, ...metrics }); console.log(JSON.stringify({ view, readyMs, ...metrics }));
   }
   if (errors.length) throw Error(errors.join("\n"));
   await writeFile(resolve(directory, "report.json"), JSON.stringify(report, null, 2));
