@@ -47,12 +47,13 @@ import type { RpgSnapshot, RpgUiAction } from "../rpg/types";
 import { RpgSession } from "../rpg/session";
 import { CONTENT_PACKS } from "../rpg/content";
 import { RpgInputCollector } from "../rpg/input";
-import { drawCombatEffects, drawCombatOverlay, drawEnemies, drawGroundLoot, drawInteractables, drawViewmodel, type CombatOverlayFrame } from "../rpg/scene";
+import { combatHudLayout, drawCombatEffects, drawCombatOverlay, drawEnemies, drawGroundLoot, drawInteractables, drawViewmodel, type CombatHudLayout, type CombatOverlayFrame, type HudViewport } from "../rpg/scene";
 import { CityInteriors, INTERIOR_HEIGHT, type InteriorPlace } from "./interiors";
 import { drawInterior, drawInteriorEntrances, drawInteriorInteractables } from "./interior-scene";
 import { INTERIOR_MATERIAL } from "./interior-material";
 import { drawCitizenLabels, type CitizenLabelFrame } from "./citizen-labels";
 import { WalkingCollision, WALKING_CAR_QUERY_RADIUS, WALKING_CAR_ROOF_CLEARANCE } from "./walking-collision";
+import { findWalkArrival, WALK_ARRIVAL_QUERY_RADIUS } from "./walk-arrival";
 
 /** "auto" (mobile): a phone profile adjusted at runtime by the frame-time governor. */
 export type Quality = QualityPreset;
@@ -370,6 +371,13 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   const broadcast = t.layers.add({ opacity: 0, fontSize: 12, visible: profile.holograms });
   const weather = t.layers.add({ fontSize: 12 * pixelDensity, opacity: 0.55 });
   const hud = t.layers.add({ fontSize: 12 * pixelDensity }); // RPG: combat HUD at full opacity
+  const hudPointer = matchMedia("(pointer: coarse)");
+  const hudQuery = new URLSearchParams(location.search);
+  const cleanHud = hudQuery.get("studio") === "1" && hudQuery.get("clean") === "1";
+  let hudViewport: HudViewport = { width: 1, height: 1, touch: hudPointer.matches };
+  let hudLayoutCache: CombatHudLayout | undefined;
+  let hudColumns = 0, hudRows = 0;
+  hudPointer.addEventListener("change", resize, { signal: abort.signal });
 
   /** Mobile: re-resolves the render profile; rebuilds the atlas only when the cell size changes. */
   function applyProfile(): void {
@@ -384,6 +392,12 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   function resize(): void {
     if (disposed || contextLost) return; // a lost context's objects belong to no context
     const rect = canvas.getBoundingClientRect();
+    const shellStyle = getComputedStyle(document.documentElement);
+    hudViewport = {
+      width: rect.width, height: rect.height, touch: hudPointer.matches,
+      insets: { top: Number.parseFloat(shellStyle.getPropertyValue("--sat")) || 0, right: Number.parseFloat(shellStyle.getPropertyValue("--sar")) || 0, bottom: Number.parseFloat(shellStyle.getPropertyValue("--sab")) || 0, left: Number.parseFloat(shellStyle.getPropertyValue("--sal")) || 0 },
+    };
+    hudLayoutCache = undefined;
     if (renderProfile(settings.quality, governor.level, rect.height > rect.width).cell !== profile.cell) applyProfile(); // Mobile: orientation
     governor.hold(performance.now(), 1.5);
     const density = Math.min(window.devicePixelRatio || 1, profile.maxDensity);
@@ -495,10 +509,31 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     if (!drive) return true;
     if (!force && Math.abs(drive.car.speed) > 4) return false;
     const car = drive.car;
-    parked.park(car); drive = null; mode = "walk";
-    Object.assign(player, exitSpot(world, car)); cameraHeight = WALK_HEIGHT; verticalVelocity = 0; speed = 0;
+    const anchor = exitSpot(world, car), arrival = walkArrival(anchor);
+    if (!arrival && !force) { blockedArrival(); return false; }
+    parked.park(car); drive = null;
+    settleArrival(anchor, arrival, !force);
     mouse.reset(mouse.yaw, Math.max(-0.2, Math.min(0.2, mouse.pitch))); player.yaw = mouse.yaw; player.pitch = mouse.pitch;
     return true;
+  }
+  function walkArrival(anchor: { x: number; z: number }): { x: number; z: number } | null {
+    const cars = [...parked.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS), ...traffic.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS)];
+    if (drive) cars.push({ ...drive.car, moved: true });
+    return findWalkArrival(world, anchor, cars);
+  }
+  function departurePosition(): { x: number; z: number } {
+    return interiors.active?.entrance ?? (drive ? exitSpot(world, drive.car) : player);
+  }
+  function blockedArrival(): void {
+    callbacks.onQuestUpdate?.("No clear footing nearby. Move a little or choose another destination.");
+  }
+  function settleArrival(anchor: { x: number; z: number }, arrival: { x: number; z: number } | null, notify = true): void {
+    Object.assign(player, arrival ?? anchor);
+    mode = arrival ? "walk" : "fly";
+    cameraHeight = arrival ? WALK_HEIGHT : WALK_HEIGHT + WALKING_CAR_ROOF_CLEARANCE + 0.5;
+    verticalVelocity = 0; speed = 0;
+    eased.forward = eased.strafe = eased.sprint = eased.up = 0;
+    if (!arrival && notify) callbacks.onQuestUpdate?.("The street is blocked. Hovering above traffic; move to a clear spot to land.");
   }
   function driveObstacles(x: number, z: number): Obstacle[] {
     return [...parked.nearby(x, z, 20).map(carObstacle), ...traffic.nearby(x, z, 20).map(carObstacle)];
@@ -566,7 +601,11 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   function interact(): void {
     if (!running || lift || rpg.dead) return;
     if (interiors.active) {
-      if (interiors.atExit(player.x, player.z)) leaveInterior();
+      if (interiors.atExit(player.x, player.z)) {
+        const arrival = walkArrival(interiors.active.entrance);
+        if (arrival) { leaveInterior(); Object.assign(player, arrival); publishPose(); }
+        else blockedArrival();
+      }
       else if (rpg.hasInteraction()) {
         const opened = rpg.interactNearby();
         if (opened) { pause(); callbacks.onDialogue(opened); }
@@ -703,16 +742,20 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     mouse.add(dx, dy, settings.sensitivity);
   }
 
-  function setMode(next: "walk" | "fly"): void {
+  function setMode(next: "walk" | "fly", mandatory = false): void {
+    if (next === "walk" && passenger) { disembark(); return; }
+    const departure = departurePosition();
+    const anchor = safeLanding(world, departure.x, departure.z);
+    const arrival = next === "walk" ? walkArrival(anchor) : null;
+    if (next === "walk" && !arrival && !mandatory) { blockedArrival(); return; }
     leaveInterior();
     if (drive) exitCar(true); // Driving: another mode parks the car where it stopped
-    if (next === "walk" && passenger) { disembark(); return; }
     journey = null;
     passenger = null; platform = null; lift = null;
     rideHeading = null;
     mode = next;
     verticalVelocity = 0;
-    if (next === "walk") { Object.assign(player, safeLanding(world, player.x, player.z)); cameraHeight = WALK_HEIGHT; }
+    if (next === "walk") settleArrival(anchor, arrival);
     snapshot();
   }
 
@@ -801,7 +844,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       // RPG: resume where the save left off (not in the studio, which places its own camera).
       for (const id of rpg.discovered) discovered.add(id);
       const saved = rpg.savedPosition;
-      if (saved && new URLSearchParams(location.search).get("studio") !== "1" && world.canOccupy(saved.x, saved.z)) { player.x = saved.x; player.z = saved.z; player.yaw = saved.yaw; mouse.reset(saved.yaw, player.pitch); }
+      if (saved && new URLSearchParams(location.search).get("studio") !== "1" && world.canOccupy(saved.x, saved.z)) { settleArrival(saved, walkArrival(saved)); player.yaw = saved.yaw; mouse.reset(saved.yaw, player.pitch); }
       t.noLoop();
       if (!document.hidden && !contextLost) frames.start();
       const query = new URLSearchParams(location.search);
@@ -851,10 +894,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
 
   hud.draw(() => {
     t.clear();
-    if (!ready || !hudFrame || !t.grid) return;
+    if (cleanHud || !ready || !hudFrame || !t.grid) return;
+    if (!hudLayoutCache || hudColumns !== t.grid.cols || hudRows !== t.grid.rows) {
+      hudColumns = t.grid.cols; hudRows = t.grid.rows;
+      hudLayoutCache = combatHudLayout(hudColumns, hudRows, hudViewport);
+    }
     hud.ortho(); hud.resetCamera();
     t.cellColor(0, 0, 0, 0);
-    drawCombatOverlay(t, t.grid.cols, t.grid.rows, hudFrame);
+    drawCombatOverlay(t, hudColumns, hudRows, hudFrame, hudLayoutCache);
   });
 
   t.draw(() => {
@@ -931,7 +978,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
           rideHeading = result.heading;
         }
         player.distance += Math.hypot(player.x - oldX, player.z - oldZ);
-        if (result.done) setMode("walk");
+        if (result.done) setMode("walk", true);
       } else if (drive) {
         // Driving: W/S (arrows) throttle, brake, reverse; A/D (arrows) steer; Space handbrake; Shift boost.
         const steer = strafe + Number(keys.has("ArrowRight")) - Number(keys.has("ArrowLeft"));
@@ -1257,7 +1304,11 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     duckAmbience: (level) => ambience.duck(level), // Radio
     rpgAction(action) {
       rpg.action(action);
-      if (action.kind === "respawn") { leaveInterior(); exitCar(true); journey = null; passenger = null; platform = null; lift = null; mode = "walk"; Object.assign(player, safeLanding(world, SPAWN.x, SPAWN.z)); cameraHeight = WALK_HEIGHT; }
+      if (action.kind === "respawn") {
+        const anchor = safeLanding(world, SPAWN.x, SPAWN.z), arrival = walkArrival(anchor);
+        leaveInterior(); exitCar(true); journey = null; passenger = null; platform = null; lift = null; rideHeading = null;
+        settleArrival(anchor, arrival);
+      }
       snapshot();
     },
     look,
@@ -1289,20 +1340,27 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       publishPose(); snapshot();
     },
     ride(next, destination) {
+      const station = STATIONS.find(candidate => candidate.id === destination) ?? STATIONS[4];
+      const departure = departurePosition();
+      const anchor = next === "metro" ? localToWorld(station, 9, 20) : safeLanding(world, departure.x, departure.z);
+      const arrival = next === "sky" ? null : walkArrival(anchor);
+      if (next !== "sky" && !arrival) { blockedArrival(); return; }
+      const plannedJourney = next === "taxi" ? createJourney(next, { ...player, ...arrival }, WALK_HEIGHT, destination, world) : null;
+      if (next === "taxi" && !plannedJourney) {
+        callbacks.onQuestUpdate?.("No clear taxi route from here. Move to a street or choose a sky taxi.");
+        return;
+      }
       leaveInterior();
       exitCar(true); // Driving: the car stays parked where it stopped
       if (next === "metro") {
-        const station = STATIONS.find(s => s.id === destination) ?? STATIONS[4];
         journey = null; passenger = null; platform = null; lift = null; mode = "walk";
-        Object.assign(player, localToWorld(station, 9, 20)); cameraHeight = WALK_HEIGHT;
+        Object.assign(player, arrival); cameraHeight = WALK_HEIGHT;
         player.yaw = station.yaw; player.pitch = -0.04; mouse.reset(player.yaw, player.pitch);
-        verticalVelocity = 0; snapshot(); return;
+        verticalVelocity = 0; speed = 0; rideHeading = null; snapshot(); return;
       }
       passenger = null; platform = null; lift = null;
-      if (mode === "fly" || cameraHeight > WALK_HEIGHT + 0.1) {
-        if (next !== "sky") { Object.assign(player, safeLanding(world, player.x, player.z)); cameraHeight = WALK_HEIGHT; }
-      }
-      journey = createJourney(next, player, cameraHeight, destination);
+      if (next === "taxi") { Object.assign(player, arrival); cameraHeight = WALK_HEIGHT; }
+      journey = next === "taxi" ? plannedJourney : createJourney(next, player, cameraHeight, destination, world);
       mode = next;
       rideHeading = null;
       verticalVelocity = 0;
@@ -1327,15 +1385,15 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     },
     travel(x, z, yaw) {
       if (!world.canOccupy(x, z)) return;
+      const arrival = walkArrival({ x, z });
+      if (!arrival) { blockedArrival(); return; }
       leaveInterior();
       exitCar(true); // Driving
-      player.x = x;
-      player.z = z;
-      passenger = null; platform = null; lift = null;
+      passenger = null; platform = null; lift = null; journey = null; rideHeading = null;
+      settleArrival({ x, z }, arrival);
       player.pitch = SPAWN.pitch;
       const nearest = LANDMARKS.reduce((closest, landmark) => Math.hypot(landmark.x - x, landmark.z - z) < Math.hypot(closest.x - x, closest.z - z) ? landmark : closest);
-      player.yaw = yaw ?? Math.atan2(nearest.x - x, z - nearest.z);
-      setMode("walk");
+      player.yaw = yaw !== undefined && Number.isFinite(yaw) ? yaw : Math.atan2(nearest.x - x, z - nearest.z);
       mouse.reset(player.yaw, player.pitch);
       snapshot();
     },

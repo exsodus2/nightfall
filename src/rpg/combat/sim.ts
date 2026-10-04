@@ -315,7 +315,6 @@ export class Sim {
   /** The whole group turns on the player (with staggered reaction delays so they don't move as one). */
   alertGroup(group: Group, spotter: Enemy | null): void {
     if (!this.playerPresent || !this.hostileOf(group.id)) return;
-    const first = !group.alerted;
     group.alerted = true; group.lastKnownX = this.px; group.lastKnownZ = this.pz; group.lastSeen = this.time;
     let barked = false;
     for (const m of group.members) {
@@ -324,10 +323,6 @@ export class Sim {
       m.reaction = m.arch.reaction + (m === spotter ? 0 : 0.25 + this.rng() * 0.5);
       m.state = "alert";
       if (!barked && (m === spotter || !spotter)) { this.bark(m, "alert", 1); barked = true; }
-    }
-    if (first) {
-      const boss = group.members.find(m => m.boss && m.deathTime < 0);
-      if (boss?.arch.barks?.alert?.length) this.emit({ type: "message", text: `${boss.arch.name}: ${pick(boss.arch.barks.alert, this.rng)}`, tone: "danger" });
     }
   }
 

@@ -424,6 +424,29 @@ test("hearing: a gunshot alerts the whole group", () => {
 
 // ---- Bosses -------------------------------------------------------------------------------------------
 
+test("boss alerts keep native barks without duplicate toasts while phase warnings remain", () => {
+  const harness = new Harness(64, 122, Math.PI, { encounters: COMBAT_TEST_ENCOUNTERS });
+  harness.character.maxHealth = 1e6;
+  harness.cw.spawnEncounter("combat-test-boss");
+  harness.step(TICK);
+  const enemy = harness.enemies().find(candidate => candidate.boss);
+  assert.ok(enemy);
+  harness.cw.damageEnemy(enemy.id, 1);
+  assert.equal(harness.enemies().find(candidate => candidate.id === enemy.id)?.bark, "FRESH MEAT!");
+  assert.ok(harness.cw.boss());
+  assert.deepEqual(harness.of("message"), []);
+  harness.cw.setHostile("combat-test-boss", false);
+  harness.run(2.6);
+  harness.cw.setHostile("combat-test-boss", true);
+  harness.cw.damageEnemy(enemy.id, 1);
+  assert.equal(harness.enemies().find(candidate => candidate.id === enemy.id)?.bark, "FRESH MEAT!");
+  assert.deepEqual(harness.of("message"), []);
+  harness.cw.damageEnemy(enemy.id, 450);
+  harness.run(0.6);
+  assert.ok(harness.of("message").some(message => message.text === BOSS.boss!.phases[1].message && message.tone === "danger"));
+  assert.equal(harness.cw.encounterActive("combat-test-adds"), true);
+});
+
 test("boss phases: health thresholds change phase, announce it and summon reinforcements", () => {
   const h = new Harness(64, 122, Math.PI, { encounters: COMBAT_TEST_ENCOUNTERS });
   h.character.maxHealth = 1e6;

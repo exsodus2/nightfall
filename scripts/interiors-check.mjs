@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { CAR_HALF_LENGTH, CAR_HALF_WIDTH } from "../src/city/driving.ts";
 import { WALK_HEIGHT } from "../src/city/locomotion.ts";
-import { PLAYER_RADIUS } from "../src/city/world.ts";
+import { CityWorld, DISTRICTS, PLAYER_RADIUS } from "../src/city/world.ts";
 
 const directory = resolve("artifacts", "interiors");
 await mkdir(directory, { recursive: true });
@@ -208,6 +208,110 @@ try {
   assert.equal(overflight.mode, "fly");
   assert.ok(overflight.height > 9.9);
   assert.ok(sideOfCar(vehicle, overflight) * approachSide < -CAR_HALF_WIDTH - PLAYER_RADIUS, "flight above a car is not clipped to its ground footprint");
+  const injectedBase = 910000;
+  const clearArrivalCars = () => evaluate(`(() => { const parked = window.__nightfall.parked; for (const car of parked.all().filter(car => car.id >= ${injectedBase})) parked.take(car); })()`);
+  const blockArrival = (anchor, dense = true) => evaluate(`(() => { const anchor = ${JSON.stringify(anchor)}, offsets = ${dense ? "[-4,-2,0,2,4]" : "[0]"}; let id = ${injectedBase}; for (const offsetX of offsets) for (const offsetZ of offsets) window.__nightfall.parked.park({ id:id++, x:anchor.x+offsetX, z:anchor.z+offsetZ, yaw:0 }); })()`);
+  const arrivals = { name: "safe-walk-arrivals" };
+  try {
+    await inspectCamera({ x: vehicle.x, z: vehicle.z, height: 10, yaw: 0, pitch: 0 });
+    await press("KeyF", "f");
+    const landed = await pose();
+    assert.equal(landed.mode, "walk");
+    assert.ok(carClearance(vehicle, landed) >= -0.035, "landing over a parked car finds clear footing");
+    assert.ok(Math.hypot(landed.x - vehicle.x, landed.z - vehicle.z) <= 4.02, "landing correction stays local");
+    arrivals.parkedCarLanding = landed;
+
+    await inspectCamera({ x: stopped.x, z: stopped.z, height: WALK_HEIGHT, yaw: vehicle.yaw, pitch: 0 });
+    await press("KeyE", "e");
+    assert.equal((await pose()).mode, "drive");
+    await blockArrival(exit);
+    await press("KeyE", "e");
+    assert.equal((await pose()).mode, "drive", "blocked door exit keeps the controllable car session");
+    assert.equal(await evaluate(`window.__nightfall.parked.all().some(car => car.id === ${vehicle.id})`), false, "blocked exit does not duplicate the driven car into parked storage");
+    await clearArrivalCars(); await press("KeyE", "e");
+    assert.equal((await pose()).mode, "walk", "the same door exit succeeds after the obstruction clears");
+
+    await inspectCamera({ x: vehicle.x, z: vehicle.z, height: 10, yaw: 0, pitch: 0 });
+    await blockArrival(vehicle);
+    const flightBefore = await pose();
+    await press("KeyF", "f");
+    const flightAfter = await pose();
+    assert.equal(flightAfter.mode, "fly", "a fully blocked landing preserves free flight");
+    assert.ok(Math.hypot(flightAfter.x - flightBefore.x, flightAfter.z - flightBefore.z) < 0.04 && Math.abs(flightAfter.height - 10) < 0.04);
+    arrivals.blockedFlight = flightAfter;
+    await clearArrivalCars();
+
+    const door = await evaluate("window.__nightfall.interiors.places.find(place => place.id === 'blue-hour').entrance");
+    await blockArrival(door);
+    await press("KeyT", "t"); await click("Visit Blue Hour Tea");
+    const rejectedTravel = await pose();
+    assert.equal(rejectedTravel.mode, "fly", "blocked map travel preserves the original mode");
+    assert.ok(Math.hypot(rejectedTravel.x - flightAfter.x, rejectedTravel.z - flightAfter.z) < 0.04, "blocked map travel does not teleport into an obstacle");
+    await clearArrivalCars();
+
+    await press("KeyT", "t"); await click("Visit Blue Hour Tea"); await press("KeyE", "e");
+    assert.equal(await evaluate("window.__nightfall.interiors.active?.id"), "blue-hour");
+    await blockArrival(door, false);
+    await press("KeyE", "e");
+    const correctedExit = await pose();
+    assert.equal(await evaluate("window.__nightfall.interiors.active"), null);
+    assert.equal(correctedExit.mode, "walk");
+    assert.ok(carClearance({ ...door, yaw: 0 }, correctedExit) >= -0.035, "venue exit avoids a car occupying the doorway");
+    assert.ok(Math.hypot(correctedExit.x - door.x, correctedExit.z - door.z) <= 4.02);
+    arrivals.correctedDoorway = correctedExit;
+    await clearArrivalCars();
+
+    await press("KeyT", "t"); await click("Visit Blue Hour Tea"); await press("KeyE", "e");
+    await blockArrival(door);
+    await press("KeyE", "e");
+    assert.equal(await evaluate("window.__nightfall.interiors.active?.id"), "blue-hour", "fully blocked street exit leaves the room intact");
+    await press("KeyF", "f");
+    assert.equal(await evaluate("window.__nightfall.interiors.active"), null, "flight remains available as an alternative to a blocked street exit");
+    assert.equal((await pose()).mode, "fly");
+    await clearArrivalCars();
+
+    const destination = DISTRICTS[4];
+    const routeWorld = new CityWorld();
+    await inspectCamera({ x: -36, z: 36, height: WALK_HEIGHT, yaw: 0, pitch: 0 });
+    await press("KeyT", "t"); await click("Ground taxi"); await click(destination.name);
+    assert.equal((await pose()).mode, "taxi");
+    const taxiSamples = [];
+    for (let sample = 0; sample < 300; sample++) {
+      const position = await pose();
+      assert.ok(routeWorld.canOccupy(position.x, position.z), `taxi pickup stays outside fixed obstacles: ${JSON.stringify(position)}`);
+      taxiSamples.push(position);
+      if (position.mode !== "taxi") break;
+      await delay(150);
+    }
+    assert.ok(taxiSamples.length > 3);
+    assert.notEqual(taxiSamples.at(-1).mode, "taxi", "safe pickup route completes");
+    assert.ok(Math.hypot(taxiSamples.at(-1).x - destination.x, taxiSamples.at(-1).z - destination.z) <= 4.02);
+    arrivals.safeTaxiPickup = { start: taxiSamples[0], end: taxiSamples.at(-1), samples: taxiSamples.length };
+
+    await inspectCamera({ x: -540, z: 212, height: WALK_HEIGHT, yaw: 0, pitch: 0 });
+    const isolatedPickup = await pose();
+    assert.ok(routeWorld.canOccupy(isolatedPickup.x, isolatedPickup.z));
+    await press("KeyT", "t"); await click("Ground taxi"); await click(destination.name);
+    const rejectedTaxi = await pose();
+    assert.equal(rejectedTaxi.mode, "walk", "a disconnected pickup does not start a broken journey");
+    assert.ok(Math.hypot(rejectedTaxi.x - isolatedPickup.x, rejectedTaxi.z - isolatedPickup.z) < 0.04);
+    arrivals.disconnectedTaxiPickup = rejectedTaxi;
+
+    await inspectCamera({ x: destination.x, z: destination.z - 30, height: WALK_HEIGHT, yaw: 0, pitch: 0 });
+    await blockArrival(destination);
+    await press("KeyT", "t"); await click("Ground taxi"); await click(destination.name);
+    assert.equal((await pose()).mode, "taxi");
+    for (let sample = 0; sample < 240 && (await pose()).mode === "taxi"; sample++) await delay(150);
+    const taxiArrival = await pose();
+    assert.equal(taxiArrival.mode, "fly", "mandatory taxi arrival becomes controllable hover, not a stuck journey");
+    assert.ok(taxiArrival.height > WALK_HEIGHT + 2.2);
+    assert.ok(Math.hypot(taxiArrival.x - destination.x, taxiArrival.z - destination.z) < 0.04, "blocked taxi arrival does not teleport to a distant street");
+    arrivals.blockedTaxiArrival = taxiArrival;
+    await clearArrivalCars(); await press("KeyF", "f");
+    assert.equal((await pose()).mode, "walk", "hover can land once the destination clears");
+    report.push(arrivals); console.log(JSON.stringify(arrivals));
+    await capture("safe-arrival");
+  } finally { await clearArrivalCars(); }
   await evaluate("window.__nightfall.inspect({kind:'view',id:'platform'})"); await delay(400);
   const platformStart = await pose();
   const platformSamples = [];
@@ -244,7 +348,7 @@ try {
   report.push(trainReport); console.log(JSON.stringify(trainReport));
   assert.deepEqual(errors, [], "no browser errors");
   await writeFile(resolve(directory, "report.json"), JSON.stringify(report, null, 2));
-  console.log("Six rooms, movement, exits, pause, mobile layout, parked-car collision, jumping, vehicle entry/exit, overflight, platform walking and paused train carrying passed; NPC and vehicle screenshots saved.");
+  console.log("Six rooms, movement, exits, pause, mobile layout, car collision, safe arrivals, blocked handoffs, jumping, vehicle entry/exit, overflight, platform walking and paused train carrying passed; NPC and vehicle screenshots saved.");
 } catch (error) {
   if (errors.length) console.error(errors.join("\n"));
   throw error;

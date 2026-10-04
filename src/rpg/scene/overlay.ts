@@ -13,6 +13,7 @@ import { project, type ViewCamera } from "../../city/vfx.ts";
 import type { CombatEffect, EnemyView, ItemDefinition, PlayerCombatView, RpgSnapshot } from "../types.ts";
 import { NUMBER_LIFE, asciiBar, numberGain, numberGlyph, numberRise, wrapAngle } from "./anim.ts";
 import { RARITY_COLOR, clamp01, factionStyle, hash3, type Rgb } from "./palette.ts";
+import { combatHudLayout, fitHudText, hudNumber, type CombatHudLayout, type HudRegion } from "./hud-layout.ts";
 
 /** The subset of textmode the overlay uses (a Textmodifier satisfies it; tests use a text grid). */
 export interface OverlayCanvas {
@@ -68,19 +69,19 @@ function cell(glyph: string, gx: number, gy: number): void {
 function text(s: string, x: number, y: number): void { canvas.print(s, x, y, NO_MARKUP); }
 
 /** Combat HUD for the overlay layer. Call after drawRain / drawRemoteLabels. */
-export function drawCombatOverlay(t: Textmodifier | OverlayCanvas, cols: number, rows: number, frame: CombatOverlayFrame): void {
+export function drawCombatOverlay(t: Textmodifier | OverlayCanvas, cols: number, rows: number, frame: CombatOverlayFrame, layout?: CombatHudLayout): void {
   canvas = t;
   const time = frame.time ?? 0;
-  const L = hudLayout(cols, rows);
+  const safeLayout = layout ?? combatHudLayout(cols, rows);
   clearPaper();
   if (!frame.player.dead) drawVignette(cols, rows, frame.player, time);
   drawHurtArcs(cols, rows, frame);
   drawEnemyLabels(cols, rows, frame, time);
-  drawNumbers(cols, rows, frame, L);
+  drawNumbers(cols, rows, frame, safeLayout.vitals);
   if (!frame.player.dead) drawCrosshair(rows, frame);
-  drawPlayerBars(frame, L);
-  drawWeaponPanel(frame, L);
-  if (frame.boss) drawBossBar(cols, frame.boss, L, frame.time);
+  drawPlayerBars(frame, safeLayout.vitals);
+  drawWeaponPanel(frame, safeLayout.weapon);
+  if (frame.boss) drawBossBar(frame.boss, safeLayout.boss, frame.time);
   if (frame.prompt) {
     canvas.printAlign("center", "middle");
     ink(PROMPT); paper(170);
@@ -109,7 +110,7 @@ export function bigDigits(value: string): { dx: number; dy: number; ch: string; 
   return out;
 }
 
-function drawNumbers(cols: number, rows: number, frame: CombatOverlayFrame, L: ReturnType<typeof hudLayout>): void {
+function drawNumbers(cols: number, rows: number, frame: CombatOverlayFrame, region: HudRegion): void {
   const { cam } = frame;
   const rx = Math.cos(cam.yaw), rz = Math.sin(cam.yaw);
   let playerSlot = 0;
@@ -120,7 +121,7 @@ function drawNumbers(cols: number, rows: number, frame: CombatOverlayFrame, L: R
     const gain = numberGain(e.age), alpha = 255 * Math.min(1, gain);
     if (e.toPlayer) {
       // Damage taken: red, rising from just above the health bar (it has no place in the world view).
-      const gx = L.left + 26 + (playerSlot++ % 3) * 6, gy = L.bottom - 3 - Math.round(numberRise(e.age, e.critical) * 3);
+      const gx = region.left + Math.min(Math.max(0, region.width - value.length - 1), Math.floor(region.width / 2) + (playerSlot++ % 3) * 6), gy = region.top - 2 - Math.round(numberRise(e.age, e.critical) * 3);
       ink(RED, alpha, e.critical ? 1.2 : 1);
       for (let i = 0; i < value.length + 1; i++) { const g = numberGlyph(e.age, i, i === 0 ? "-" : value[i - 1]); if (g) cell(g, gx + i, gy); }
       continue;
@@ -230,37 +231,55 @@ export function healthColor(fraction: number): Rgb {
 }
 /** "HP [########--] 82/100" (exported for tests). */
 export const hpLine = (health: number, max: number, width = 20): string => `HP ${asciiBar(health, max, width)} ${Math.max(0, Math.ceil(health))}/${Math.round(max)}`;
-function drawPlayerBars(frame: CombatOverlayFrame, L: ReturnType<typeof hudLayout>): void {
+function drawPlayerBars(frame: CombatOverlayFrame, region: HudRegion): void {
+  if (!region.height) return;
   const p = frame.player;
   canvas.printAlign("left", "top");
   paper(150);
   ink(healthColor(p.health / Math.max(1, p.maxHealth)));
   const shield = p.shield ?? 0;
-  text(hpLine(p.health, p.maxHealth) + (shield > 0 ? ` +${Math.round(shield)}` : ""), L.left, L.bottom - 1);
+  const health = `${hudNumber(p.health)}/${hudNumber(p.maxHealth)}`;
+  const shieldLabel = shield > 0 ? ` +${hudNumber(shield)}` : "";
+  const protection = health.length + shieldLabel.length + 3 <= region.width ? shieldLabel : "";
+  const healthWidth = Math.min(20, region.width - health.length - protection.length - 6);
+  const healthLine = healthWidth >= 4 ? `HP ${asciiBar(p.health, p.maxHealth, healthWidth)} ${health}${protection}` : `HP ${health}${protection}`;
+  text(fitHudText(healthLine, region.width), region.left, region.top);
+  if (region.height < 2) return;
   const low = p.stamina < p.maxStamina * 0.2;
   ink(low ? [230, 170, 70] : CYAN, low ? 200 : 235);
-  text(`ST ${asciiBar(p.stamina, p.maxStamina, 20, "=", ".")}`, L.left, L.bottom);
-  if (p.buffs?.length) {
-    ink([180, 255, 200], 220);
-    text(p.buffs.map(b => `[${b.effect.toUpperCase()} ${Math.ceil(b.remaining)}s]`).join(" "), L.left, L.bottom - 2);
+  let buffs = "";
+  for (let index = 0; index < Math.min(4, p.buffs?.length ?? 0); index++) {
+    const buff = p.buffs![index];
+    buffs += `${buffs ? " " : ""}${buff.effect.toUpperCase()} ${hudNumber(buff.remaining)}s`;
   }
+  const buffBudget = buffs ? Math.max(0, Math.min(32, region.width - 12)) : 0;
+  const staminaWidth = Math.max(1, Math.min(20, region.width - 5 - (buffBudget ? buffBudget + 1 : 0)));
+  text(fitHudText(`ST ${asciiBar(p.stamina, p.maxStamina, staminaWidth, "=", ".")}${buffBudget ? ` ${fitHudText(buffs, buffBudget)}` : ""}`, region.width), region.left, region.top + 1);
 }
-function drawWeaponPanel(frame: CombatOverlayFrame, L: ReturnType<typeof hudLayout>): void {
+function drawWeaponPanel(frame: CombatOverlayFrame, region: HudRegion): void {
+  if (!region.height) return;
   const p = frame.player, w = frame.weapon ?? null;
   canvas.printAlign("right", "top");
   paper(150);
-  const name = p.weaponClass === "fists" ? "FISTS" : (w?.name ?? p.weaponClass).toUpperCase();
+  const name = fitHudText(p.weaponClass === "fists" ? "FISTS" : w?.name ?? p.weaponClass, region.width).toUpperCase();
   ink(w ? RARITY_COLOR[w.rarity] ?? WHITE : WHITE, 235);
-  text(name, L.right, p.ammo ? L.bottom - 1 : L.bottom);
+  if (region.height > 1 || !p.ammo) text(name, region.left + region.width, region.top + (!p.ammo && region.height > 1 ? 1 : 0));
   if (!p.ammo) return;
   const { loaded, reserve } = p.ammo, mag = w?.weapon?.magazine ?? Math.max(loaded, 1);
+  const count = `${hudNumber(loaded)} / ${hudNumber(reserve)}`;
+  let ammo = count;
   if (p.action === "reload") {
-    ink(CYAN, 235); text(`RELOAD ${asciiBar(p.actionProgress, 1, 8, "=", ".")}`, L.right, L.bottom);
+    ink(CYAN, 235);
+    ammo += region.width >= count.length + 7 ? " RELOAD" : " R";
+    const barWidth = Math.min(8, region.width - ammo.length - 3);
+    if (barWidth >= 4) ammo += ` ${asciiBar(p.actionProgress, 1, barWidth, "=", ".")}`;
   } else if (loaded === 0) {
-    ink(RED, 245); text(`${reserve > 0 ? "[R] " : "EMPTY "}0 / ${reserve}`, L.right, L.bottom);
+    ink(RED, 245);
+    ammo = `${count} ${reserve > 0 ? "[R]" : "EMPTY"}`;
   } else {
-    ink(loaded <= Math.max(1, mag * 0.25) ? [255, 180, 70] : WHITE, 245); text(`${loaded} / ${reserve}`, L.right, L.bottom);
+    ink(loaded <= Math.max(1, mag * 0.25) ? [255, 180, 70] : WHITE, 245);
   }
+  text(fitHudText(ammo, region.width), region.left + region.width, region.top + region.height - 1);
 }
 // Chip-damage trail on the boss bar: the lost chunk stays lighter for a moment, then drains.
 const trail = { name: "", value: 0, at: 0, clock: 0 };
@@ -275,19 +294,23 @@ export function phasePips(phase: number, phases: number): string {
   for (let i = 0; i < phases; i++) s += (i ? " " : "") + (i < phase ? "*" : i === phase ? "@" : "o");
   return s;
 }
-function drawBossBar(cols: number, boss: NonNullable<RpgSnapshot["boss"]>, L: ReturnType<typeof hudLayout>, time: number | undefined): void {
+function drawBossBar(boss: NonNullable<RpgSnapshot["boss"]>, region: HudRegion, time: number | undefined): void {
+  if (!region.height) return;
   const dt = time === undefined ? 1 / 60 : Math.max(0, Math.min(0.25, time - trail.clock));
   trail.clock = time ?? trail.clock + dt;
   if (trail.name !== boss.name || boss.health > trail.value) { trail.name = boss.name; trail.value = boss.health; trail.at = trail.clock; }
   else if (trail.clock - trail.at > 0.6) trail.value += (boss.health - trail.value) * (1 - Math.exp(-dt * 5));
   else if (boss.health >= trail.value) trail.at = trail.clock;
-  const width = Math.max(10, Math.min(60, cols - 24));
+  const width = Math.max(1, Math.min(60, region.width - 2)), center = region.left + Math.floor(region.width / 2);
   canvas.printAlign("center", "top");
   paper(150);
-  ink(BOSS, 250); text(`${boss.name.toUpperCase()} - ${boss.title}`, 0, L.top);
-  ink(BOSS, 245); text(bossBarText(boss.health, trail.value, boss.maxHealth, width), 0, L.top + 1);
+  ink(BOSS, 250); text(fitHudText(`${boss.name.toUpperCase()} - ${boss.title}`, region.width), center, region.top);
+  if (region.height < 2) return;
+  ink(BOSS, 245); text(fitHudText(bossBarText(boss.health, trail.value, Math.max(1, boss.maxHealth), width), region.width), center, region.top + 1);
+  if (region.height < 3) return;
   const phases = Math.max(boss.phases ?? 3, boss.phase + 1);
-  ink([255, 190, 150], 220); paper(0); text(phasePips(boss.phase, phases), 0, L.top + 2);
+  const pips = phases <= Math.min(8, Math.floor((region.width + 1) / 2)) ? phasePips(boss.phase, phases) : `PH ${hudNumber(boss.phase + 1)}/${hudNumber(phases)}`;
+  ink([255, 190, 150], 220); paper(0); text(fitHudText(pips, region.width), center, region.top + 2);
 }
 
 // ---- Hurt direction + low-health vignette -------------------------------------------------------------------

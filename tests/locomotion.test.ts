@@ -27,8 +27,10 @@ test("camera smoothing is frame-rate independent and yaw crosses PI without wrap
 });
 
 test("both taxi modes complete actual routes to every district", () => {
+  const world = new CityWorld();
   for (const mode of ["taxi", "sky"] as Exclude<RideMode, "metro">[]) for (const destination of DISTRICTS) {
-    const journey = createJourney(mode, { ...SPAWN, distance: 0 }, WALK_HEIGHT, destination.id);
+    const journey = createJourney(mode, { ...SPAWN, distance: 0 }, WALK_HEIGHT, destination.id, world);
+    assert.ok(journey);
     const position = { x: SPAWN.x, y: WALK_HEIGHT, z: SPAWN.z };
     let done = false, highest = position.y;
     for (let frame = 0; frame < 15000 && !done; frame++) {
@@ -48,7 +50,8 @@ test("both taxi modes complete actual routes to every district", () => {
 test("taxi routes remain on connected streets between every pair of stations", () => {
   const world = new CityWorld();
   for (const start of DISTRICTS) for (const end of DISTRICTS) {
-    const points = groundRoute({ ...start, y: WALK_HEIGHT }, { ...end, y: WALK_HEIGHT });
+    const points = groundRoute({ ...start, y: WALK_HEIGHT }, { ...end, y: WALK_HEIGHT }, world);
+    assert.ok(points);
     for (let segment = 1; segment < points.length; segment++) {
       const a = points[segment - 1], b = points[segment];
       const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z));
@@ -69,4 +72,3 @@ test("ending free flight or a sky ride always finds a safe landing", () => {
   const landing = safeLanding(world, WORLD_EDGE + 100, -WORLD_EDGE - 100);
   assert.ok(world.canOccupy(landing.x, landing.z));
 });
-

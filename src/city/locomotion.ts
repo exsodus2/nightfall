@@ -47,16 +47,72 @@ function nearestStreet(point: Waypoint): Waypoint {
   return Math.abs(x - point.x) < Math.abs(z - point.z) ? { x, z: point.z, y: point.y } : { x: point.x, z, y: point.y };
 }
 
-/** Route along the connected road grid, including the initial approach to an intersection. */
-export function groundRoute(start: Waypoint, end: Waypoint): Waypoint[] {
-  const a = nearestStreet(start);
-  const b = nearestStreet(end);
-  const ai = { x: Math.round(a.x / 64) * 64, y: start.y, z: Math.round(a.z / 64) * 64 };
-  const bi = { x: Math.round(b.x / 64) * 64, y: start.y, z: Math.round(b.z / 64) * 64 };
-  return [start, a, ai, { x: bi.x, y: start.y, z: ai.z }, bi, b, { ...end, y: start.y }].filter((p, i, all) => i === 0 || Math.hypot(p.x - all[i - 1].x, p.z - all[i - 1].z) > 0.01);
+const CONNECTOR_OFFSETS = [0, -2, 2, -4, 4, -8, 8, -16, 16, -32, 32] as const;
+const GROUND_ROUTE_STEP = 0.25;
+type GroundWorld = Pick<CityWorld, "canOccupy">;
+
+function validGroundPoint(point: Waypoint): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z) && Math.abs(point.x) <= WORLD_EDGE && Math.abs(point.z) <= WORLD_EDGE;
 }
 
-export function createJourney(mode: Exclude<RideMode, "metro">, player: Player, height: number, destination: number): Journey {
+function compactRoute(points: readonly Waypoint[]): Waypoint[] {
+  return points.filter((point, index) => index === 0 || point.x !== points[index - 1].x || point.z !== points[index - 1].z).map(point => ({ ...point }));
+}
+
+function clearGroundRoute(world: GroundWorld, points: readonly Waypoint[]): boolean {
+  if (!points.every(point => validGroundPoint(point) && world.canOccupy(point.x, point.z))) return false;
+  for (let segment = 1; segment < points.length; segment++) {
+    const start = points[segment - 1], end = points[segment];
+    const steps = Math.ceil(Math.hypot(end.x - start.x, end.z - start.z) / GROUND_ROUTE_STEP);
+    for (let step = 1; step < steps; step++) {
+      const progress = step / steps;
+      if (!world.canOccupy(start.x + (end.x - start.x) * progress, start.z + (end.z - start.z) * progress)) return false;
+    }
+  }
+  return true;
+}
+
+function streetConnector(world: GroundWorld, point: Waypoint): Waypoint[] | null {
+  const candidates: { points: Waypoint[]; length: number; order: number }[] = [];
+  for (const axis of ["x", "z"] as const) for (const offset of CONNECTOR_OFFSETS) {
+    const turn = { ...point, [axis]: point[axis] + offset };
+    const crossAxis = axis === "x" ? "z" : "x";
+    const crossStreet = Math.floor(turn[crossAxis] / BLOCK_SIZE) * BLOCK_SIZE;
+    const alongStreet = Math.floor(turn[axis] / BLOCK_SIZE) * BLOCK_SIZE;
+    for (const crossOffset of [0, BLOCK_SIZE]) for (const alongOffset of [0, BLOCK_SIZE]) {
+      const street = { ...turn, [crossAxis]: crossStreet + crossOffset };
+      const intersection = { ...street, [axis]: alongStreet + alongOffset };
+      const length = Math.abs(offset) + Math.abs(street[crossAxis] - turn[crossAxis]) + Math.abs(intersection[axis] - street[axis]);
+      if (length <= BLOCK_SIZE * 2) candidates.push({ points: [point, turn, street, intersection], length, order: candidates.length });
+    }
+  }
+  candidates.sort((left, right) => left.length - right.length || left.order - right.order);
+  for (const candidate of candidates) if (clearGroundRoute(world, candidate.points)) return compactRoute(candidate.points);
+  return null;
+}
+
+/** Road-grid travel with optional static player-footprint clearance; this is not a swept taxi-body test. */
+export function groundRoute(start: Waypoint, end: Waypoint, world?: GroundWorld): Waypoint[] | null {
+  if (!validGroundPoint(start) || !validGroundPoint(end)) return null;
+  const departure = { ...start }, arrival = { ...end, y: start.y };
+  if (world && (!world.canOccupy(departure.x, departure.z) || !world.canOccupy(arrival.x, arrival.z))) return null;
+  const startStreet = nearestStreet(departure), endStreet = nearestStreet(arrival);
+  const startIntersection = { x: Math.round(startStreet.x / BLOCK_SIZE) * BLOCK_SIZE, y: start.y, z: Math.round(startStreet.z / BLOCK_SIZE) * BLOCK_SIZE };
+  const endIntersection = { x: Math.round(endStreet.x / BLOCK_SIZE) * BLOCK_SIZE, y: start.y, z: Math.round(endStreet.z / BLOCK_SIZE) * BLOCK_SIZE };
+  const direct = compactRoute([departure, startStreet, startIntersection, { x: endIntersection.x, y: start.y, z: startIntersection.z }, endIntersection, endStreet, arrival]);
+  if (!world || clearGroundRoute(world, direct)) return direct;
+  const pickup = streetConnector(world, departure), dropoff = streetConnector(world, arrival);
+  if (!pickup || !dropoff) return null;
+  const first = pickup[pickup.length - 1], last = dropoff[dropoff.length - 1];
+  for (const corner of [{ x: last.x, y: start.y, z: first.z }, { x: first.x, y: start.y, z: last.z }]) {
+    const points = compactRoute([...pickup, corner, ...dropoff.slice().reverse()]);
+    if (clearGroundRoute(world, points)) return points;
+  }
+  return null;
+}
+
+export function createJourney(mode: Exclude<RideMode, "metro">, player: Player, height: number, destination: number, world?: GroundWorld): Journey | null {
+  if (!Number.isFinite(player.x) || !Number.isFinite(player.z) || !Number.isFinite(height)) return null;
   const stop = DISTRICTS[destination] ?? DISTRICTS[4];
   const start = { x: player.x, y: height, z: player.z };
   const end = { x: stop.x, y: WALK_HEIGHT, z: stop.z };
@@ -65,7 +121,11 @@ export function createJourney(mode: Exclude<RideMode, "metro">, player: Player, 
     // A vertical departure clears every tower before the cross-city flight.
     const altitude = 230;
     points = [start, { ...start, y: altitude }, { ...end, y: altitude }, end];
-  } else points = groundRoute({ ...start, y: WALK_HEIGHT }, end);
+  } else {
+    const route = groundRoute({ ...start, y: WALK_HEIGHT }, end, world);
+    if (!route) return null;
+    points = route;
+  }
   const length = points.reduce((total, p, i) => i === 0 ? 0 : total + Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y, p.z - points[i - 1].z), 0);
   return { mode, destination: stop.name, points, segment: 1, travelled: 0, length, speed: 0 };
 }

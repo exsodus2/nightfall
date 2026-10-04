@@ -16,6 +16,7 @@ export {
   drawCombatOverlay, hudLayout, toCell, bigDigits, showEnemyLabel, enemyScreenBox, crosshairGap, hitMarker, healthColor, hpLine,
   bossBarText, phasePips, arcGlyph, vignetteStrength, type CombatOverlayFrame, type OverlayCanvas,
 } from "./overlay.ts";
+export { combatHudLayout, fitHudText, hudNumber, type CombatHudLayout, type HudInsets, type HudRegion, type HudViewport } from "./hud-layout.ts";
 /** Shared palette: rarity colours (also for React screens), faction styles, the density ramp. */
 export { RARITY_COLOR, RARITY_CSS, RARITY_ORDER, rarityTier, FACTION_STYLE, factionStyle, RAMP, type Rgb, type FactionStyle } from "./palette.ts";
 /** Timing maths: hit flash, telegraph pulse, death particles, attack phases, damage-number ramp, bars. */
