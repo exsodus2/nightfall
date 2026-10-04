@@ -25,6 +25,7 @@ export interface QuestLogEntry {
 export interface QuestSnapshot {
   credits: number; log: QuestLogEntry[]; nearbyNpc: { id: string; name: string } | null;
   tracked: { title: string; objective: string; targetX: number; targetZ: number; id?: string; objectives?: QuestObjectiveView[]; timeLeft?: number } | null;
+  markers?: readonly { id: string; name: string; x: number; z: number; state: NpcMarker }[];
 }
 
 /** One "talk to this NPC" step. Finishing the last step makes the quest ready to hand in. */

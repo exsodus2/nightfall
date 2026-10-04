@@ -208,7 +208,8 @@ export class RpgSession {
   get npcs(): readonly NpcDefinition[] { return this.quests.npcs; }
   questSnapshot(nearby: NpcDefinition | null): QuestSnapshot {
     const snapshot = this.quests.snapshot(nearby);
-    return { ...snapshot, credits: this.character.credits };
+    const markers = this.npcs.map(npc => ({ id: npc.id, name: npc.name, x: npc.x, z: npc.z, state: this.marker(npc.id) }));
+    return { ...snapshot, credits: this.character.credits, markers };
   }
   get questWaypoint(): (Point & { label: string }) | null { return this.waypoint; }
 

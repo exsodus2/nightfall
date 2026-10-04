@@ -12,9 +12,10 @@ export interface EngineState { x: number; z: number; eye: number; yaw: number; p
 /** The local player as others should see them: feet (or vehicle floor) height, body/car heading. */
 export function localPose(s: EngineState): LocalPose {
   const vehicle = s.mode === "drive" || s.mode === "taxi" || s.mode === "sky";
+  const position = s.mode === "drive" && s.car ? s.car : s;
   const y = s.mode === "drive" || s.mode === "taxi" ? 0 : s.mode === "sky" ? Math.max(0, s.eye - SKY_CABIN) : Math.max(0, s.eye - (s.inTrain ? TRAIN_EYE : WALK_EYE));
   const heading = s.car ? s.car.yaw : vehicle ? s.rideHeading ?? s.yaw : s.yaw;
-  return { x: s.x, y, z: s.z, yaw: s.yaw, pitch: s.pitch, heading, speed: s.car ? s.car.speed : s.speed, mode: s.mode, car: s.car?.id ?? 0, place: s.place ?? "", carrier: s.carrier ?? null };
+  return { x: position.x, y, z: position.z, yaw: s.yaw, pitch: s.pitch, heading, speed: s.car ? s.car.speed : s.speed, mode: s.mode, car: s.car?.id ?? 0, place: s.place ?? "", carrier: s.carrier ?? null };
 }
 
 interface Headlight { x: number; z: number; yaw: number; intensity: number }

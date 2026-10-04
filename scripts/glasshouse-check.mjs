@@ -141,7 +141,7 @@ try {
   console.log("Loading isolated Glasshouse care run; shader startup is not an FPS measurement.");
   await ready();
   const initial = await state(); assert.equal(initial.status, "available"); assert.equal(initial.tended, null);
-  await visit(); await markers(["board"]); await approach("board"); await open("board"); await capture("01-growing-board");
+  await visit(); await markers(["board"]); await approach("board"); await capture("00-growing-board-day"); await open("board"); await capture("01-growing-board");
   await choose("accept-care"); await choose("leave"); await markers(["board", "left", "right"]);
   assert.equal((await state()).stage, "trays");
   await approach("left"); await capture("02-left-planter-approach"); await open("left");
@@ -149,6 +149,7 @@ try {
   await saveReload("untended-left"); assert.equal((await state()).left, null); assert.equal((await state()).right, null);
   await visit(); await approach("left"); await open("left"); await choose("drain-left"); await linesContain("LEFT TRAY SETTLED"); await choose("leave");
   assert.equal((await state()).left, "drain-left"); assert.equal((await state()).right, null);
+  await capture("02b-left-tray-settled");
   await saveReload("left-settled"); assert.equal((await state()).left, "drain-left"); assert.equal((await state()).right, null);
   await visit(); await approach("left");
   assert.deepEqual((await open("left")).dialogue.options, ["leave"]); await choose("leave");
@@ -172,6 +173,9 @@ try {
   await visit(); await markers(["board"]); await approach("board");
   const restored = await open("board"); await linesContain("CARE LOG");
   assert.deepEqual(restored.dialogue.options, ["leave"]); assert.deepEqual(restored.character, completed.character); await capture("06-restored-receipt"); await choose("leave");
+  await capture("07-restored-nursery-cycle");
+  await approach("left"); await capture("08-restored-left-tray");
+  await approach("right"); await capture("09-restored-right-tray");
   assert.deepEqual(errors, [], "no browser runtime errors");
   report.passed = true;
   await checkpoint("all-glasshouse-checks-passed", { reward: { credits: 60, xp: 100 }, character: restored.character, perf: await evaluate("window.__nightfallPerf()") });

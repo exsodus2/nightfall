@@ -31,15 +31,16 @@ import { nearestNpc, type NpcDefinition } from "./npcs";
 import { drawNpcs } from "./npc-scene";
 import { drawWaypointBeacons } from "./waypoint-scene"; // World map: waypoint beacons
 // Driving: kerbside cars, the player's car and its camera (driving.ts, driving-scene.ts).
-import { DriveSession, ParkedCars, carObstacle, distanceToCar, exitSpot, type Obstacle, type ParkedCar } from "./driving";
+import { DriveSession, ParkedCars, carObstacle, distanceToCar, exitSpot, type CarPose, type Obstacle, type ParkedCar } from "./driving";
 import { drawDriveDashboard, drawDriving } from "./driving-scene";
 import { loadDriveView, saveDriveView } from "./drive-view"; // Driving: remembered cockpit / chase view
 // VFX: wheels, rain, steam, sparks, searchlights, sky trails (vfx.ts, vfx-scene.ts, vfx-shaders.ts).
 import { beginVfxFrame, drawRain, flushVfx } from "./vfx-scene";
 // Multiplayer: remote players, their cars and party quests (src/multiplayer; optional, solo by default).
-import type { FriendPosition, MultiplayerLink } from "../multiplayer/types";
+import type { FriendPosition, LocalPose, MultiplayerLink } from "../multiplayer/types";
 import { drawInteriorPlayers, drawRemoteLabels, drawRemotePlayers, type RemoteLabelFrame } from "../multiplayer/remote-scene";
 import { localPose, mergeRemoteHeadlights } from "../multiplayer/engine-hooks";
+import { nearbyRemoteCars } from "../multiplayer/remote-vehicles";
 import { samePlace } from "../multiplayer/presence";
 import { METRO_TIME_OFFSET, parseTrainCarrier, type TrainCarrier } from "../multiplayer/rail";
 // RPG layer: combat, items, quests (src/rpg; the engine talks to it only through RpgSession).
@@ -50,6 +51,7 @@ import { RpgInputCollector } from "../rpg/input";
 import { combatHudLayout, drawCombatEffects, drawCombatOverlay, drawEnemies, drawGroundLoot, drawInteractables, drawViewmodel, type CombatHudLayout, type CombatOverlayFrame, type HudViewport } from "../rpg/scene";
 import { CityInteriors, INTERIOR_HEIGHT, type InteriorPlace } from "./interiors";
 import { interiorUseMarkers, type InteriorUseMarker } from "./interior-map-markers";
+import { interiorWorkState, type InteriorWorkState } from "./interior-work-state";
 import { drawInterior, drawInteriorEntrances, drawInteriorInteractables } from "./interior-scene";
 import { INTERIOR_MATERIAL } from "./interior-material";
 import { drawCitizenLabels, type CitizenLabelFrame } from "./citizen-labels";
@@ -101,6 +103,7 @@ export interface CitySnapshot {
   rpg?: RpgSnapshot | null;
   interior?: InteriorPlace | null;
   interiorUseMarkers?: readonly InteriorUseMarker[];
+  presence?: LocalPose;
 }
 export type CityBootStage = "materials" | "scene" | "glyphs";
 export interface CityCallbacks {
@@ -293,6 +296,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   const quests = rpg;
   const rpgInput = new RpgInputCollector();
   const interiors = new CityInteriors(world);
+  let roomWork: InteriorWorkState | null = null;
   let hudFrame: CombatOverlayFrame | null = null; // this frame's combat HUD data, for the overlay layer
   const abort = new AbortController();
   const ambience = createAmbience();
@@ -480,7 +484,8 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const stop = platform !== null ? STATIONS[platform] : train?.station !== null && train?.station !== undefined ? STATIONS[train.station] : null;
     const destination = train ? train.station !== null ? `${STATIONS[train.station].name} · doors ${train.doors > 0.85 ? "open" : "closing"}` : `Next: ${STATIONS[train.next].name}` : platform !== null ? `${STATIONS[platform].name} · train ${stationArrival(metroTime, platform).seconds === 0 ? "at platform" : `in ${stationArrival(metroTime, platform).seconds}s`}` : journey?.destination ?? null;
     const useMarkers = interiors.active ? interiorUseMarkers(interiors.active, rpg.interactables(interiors.active.id)) : [];
-    callbacks.onSnapshot({ interior: interiors.active, interiorUseMarkers: useMarkers, x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - train.yaw, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.questSnapshot(talkTarget()), rpg: rpg.snapshot(), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
+    roomWork = interiorWorkState(interiors.active?.id, rpg.quests);
+    callbacks.onSnapshot({ presence: currentPose(), interior: interiors.active, interiorUseMarkers: useMarkers, x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch, sceneTime: time, metroTime, visibleBuildings, distance: player.distance, district: districtAt(player.x, player.z).id, fps: Math.round(1 / frameAverage), discovered: [...discovered], nearby, mode, altitude: cameraHeight, speed, destination, progress: train?.progress ?? (journey ? journey.travelled / Math.max(1, journey.length) : 0), interaction: interaction(), station: stop?.name ?? null, cabin: passenger && train ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - train.yaw, doors: train.doors } : null, population: population.stats(player.x, player.z), ...counts, quests: quests.questSnapshot(talkTarget()), rpg: rpg.snapshot(), drive: drive ? { gear: drive.car.speed < -0.3 ? "R" : Math.abs(drive.car.speed) < 0.3 ? "N" : "D", view: drive.chase ? "chase" : "cockpit", boost: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchSprint } : null, friends: link?.friends() ?? [] /* Multiplayer */, render: { level: governor.level, cell: profile.cell, auto: settings.quality === "auto" } /* Mobile */ });
   }
 
   // Quests: the NPC in talking range while on foot at street level, unless a lift is closer.
@@ -543,8 +548,9 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     return true;
   }
   function walkArrival(anchor: { x: number; z: number }): { x: number; z: number } | null {
-    const cars = [...parked.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS), ...traffic.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS)];
-    if (drive) cars.push({ ...drive.car, moved: true });
+    const remotes = link?.remotes(performance.now() / 1000) ?? [];
+    const cars = [...parked.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS), ...traffic.nearby(anchor.x, anchor.z, WALK_ARRIVAL_QUERY_RADIUS), ...nearbyRemoteCars(remotes, anchor, WALK_ARRIVAL_QUERY_RADIUS)];
+    if (drive) cars.push(drive.car);
     return findWalkArrival(world, anchor, cars);
   }
   function departurePosition(): { x: number; z: number } {
@@ -561,12 +567,12 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     eased.forward = eased.strafe = eased.sprint = eased.up = 0;
     if (!arrival && notify) callbacks.onQuestUpdate?.("The street is blocked. Hovering above traffic; move to a clear spot to land.");
   }
-  function driveObstacles(x: number, z: number): Obstacle[] {
-    return [...parked.nearby(x, z, 20).map(carObstacle), ...traffic.nearby(x, z, 20).map(carObstacle)];
+  function driveObstacles(x: number, z: number, remoteCars: readonly CarPose[]): Obstacle[] {
+    return [...parked.nearby(x, z, 20).map(carObstacle), ...traffic.nearby(x, z, 20).map(carObstacle), ...remoteCars.map(carObstacle)];
   }
   // Traffic queues behind the driven car and behind cars the player left in a lane nearby.
-  function trafficBlockers(): { x: number; z: number }[] {
-    const list: { x: number; z: number }[] = parked.nearby(player.x, player.z, 260).filter(car => car.moved);
+  function trafficBlockers(remoteCars: readonly CarPose[]): { x: number; z: number }[] {
+    const list: { x: number; z: number }[] = [...parked.nearby(player.x, player.z, 260).filter(car => car.moved), ...remoteCars];
     if (drive) list.push(drive.car);
     return list;
   }
@@ -696,11 +702,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     publishPose();
   }
 
-  function publishPose(): void {
-    if (!link) return;
+  function currentPose(): LocalPose {
     const pose = localPose({ x: player.x, z: player.z, eye: cameraHeight, yaw: player.yaw, pitch: player.pitch, speed: passenger ? passengerSpeed : speed, mode, car: drive?.car ?? null, rideHeading, inTrain: !!passenger, place: interiors.active?.id ?? "", carrier: passenger ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - passenger.yaw } : null });
     if (!running) pose.speed = 0;
-    link.publish(pose, performance.now() / 1000);
+    return pose;
+  }
+
+  function publishPose(): void {
+    link?.publish(currentPose(), performance.now() / 1000);
   }
 
   function inspect(command: InspectionCommand): void {
@@ -750,6 +759,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     drag = undefined;
     ambience.set(false);
     if (document.pointerLockElement === canvas) document.exitPointerLock();
+    if (ready && active()) snapshot();
   }
 
   /** Exponential approach of the movement input toward the keys/joystick; `rate` per second. */
@@ -949,17 +959,19 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     else if (!frozen && (running || (settings.motion && !lift))) metroTime += dt;
     carryPassenger();
     passengerSpeed = 0;
-    const presentRemotes = (link?.remotes(now) ?? []).filter(remote => samePlace(remote.place, interiors.active?.id));
+    const allRemotes = link?.remotes(now) ?? [];
+    const presentRemotes = allRemotes.filter(remote => samePlace(remote.place, interiors.active?.id));
+    const remoteCars = nearbyRemoteCars(allRemotes, player, 260);
     const nearbyPlayers = interiors.active ? [] : presentRemotes.filter(remote => remote.mode === "walk" && remote.y < WALKING_CAR_ROOF_CLEARANCE).map(remote => ({ id: remote.id, x: remote.x, y: remote.y, z: remote.z, speed: remote.speed }));
     if (!interiors.active && mode === "walk" && !passenger && platform === null && !lift && !journey && cameraHeight < WALK_HEIGHT + WALKING_CAR_ROOF_CLEARANCE) nearbyPlayers.push({ id: "local", x: player.x, y: Math.max(0, cameraHeight - WALK_HEIGHT), z: player.z, speed });
     frameAverage += (Math.max(rawDt, 0.001) - frameAverage) * 0.035;
     if (settings.motion && !frozen) time += dt;
     const signalTime = sharedTime ?? time;
-    if (settings.motion && !frozen) { population.update(dt, time, metroTime, player, { players: nearbyPlayers, rain: settings.rain }, signalTime); traffic.update(dt, signalTime, trafficBlockers(), { eye: player, players: nearbyPlayers, residents: population.walkers }); }
+    if (settings.motion && !frozen) { population.update(dt, time, metroTime, player, { players: nearbyPlayers, rain: settings.rain }, signalTime); traffic.update(dt, signalTime, trafficBlockers(remoteCars), { eye: player, players: nearbyPlayers, residents: population.walkers }); }
     // Ambient animation frozen but the trains still run: a zero-time update keeps seated riders
     // attached to their moving train instead of hanging where it was.
     else if (sharedTime !== null || !frozen && running) population.update(0, time, metroTime, player, undefined, signalTime);
-    if (mode === "walk" && !interiors.active && !passenger && platform === null && !lift && !journey) streetCollision.setCars([...parked.nearby(player.x, player.z, WALKING_CAR_QUERY_RADIUS), ...traffic.nearby(player.x, player.z, WALKING_CAR_QUERY_RADIUS)], Math.max(0, cameraHeight - WALK_HEIGHT));
+    if (mode === "walk" && !interiors.active && !passenger && platform === null && !lift && !journey) streetCollision.setCars([...parked.nearby(player.x, player.z, WALKING_CAR_QUERY_RADIUS), ...traffic.nearby(player.x, player.z, WALKING_CAR_QUERY_RADIUS), ...remoteCars], Math.max(0, cameraHeight - WALK_HEIGHT));
     if (running) {
       if (keys.has("ArrowLeft") && !drive) mouse.turn(-dt * 1.35); // Driving: arrows steer instead
       if (keys.has("ArrowRight") && !drive) mouse.turn(dt * 1.35);
@@ -1015,7 +1027,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       } else if (drive) {
         // Driving: W/S (arrows) throttle, brake, reverse; A/D (arrows) steer; Space handbrake; Shift boost.
         const steer = strafe + Number(keys.has("ArrowRight")) - Number(keys.has("ArrowLeft"));
-        const view = drive.update(world, { throttle: Math.max(-1, Math.min(1, forward)), steer: Math.max(-1, Math.min(1, steer)), handbrake: keys.has("Space"), boost: sprint }, dt, mouse, driveObstacles(drive.car.x, drive.car.z));
+        const view = drive.update(world, { throttle: Math.max(-1, Math.min(1, forward)), steer: Math.max(-1, Math.min(1, steer)), handbrake: keys.has("Space"), boost: sprint }, dt, mouse, driveObstacles(drive.car.x, drive.car.z, remoteCars));
         player.x = view.x; player.z = view.z; cameraHeight = view.height; player.yaw = view.yaw; player.pitch = view.pitch;
         speed = Math.abs(drive.car.speed);
         player.distance += view.moved;
@@ -1076,7 +1088,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       t.camera(player.x, -cameraHeight, player.z, player.x + Math.sin(player.yaw) * Math.cos(player.pitch), -cameraHeight + Math.sin(player.pitch), player.z - Math.cos(player.yaw) * Math.cos(player.pitch), 0, 1, 0);
       t.shader(interiorMaterial);
       t.setUniforms({ u_eye: [player.x, -cameraHeight, player.z], u_room: [place.x, 0, place.z], u_tint: place.color.map(channel => channel / 255) });
-      drawInterior(t, place, interiors.fixtures, time, profile.low, settings.effects);
+      drawInterior(t, place, interiors.fixtures, time, profile.low, settings.effects, roomWork);
       drawInteriorInteractables(t, place, rpg.interactables(place.id));
       drawInteriorPlayers(t, presentRemotes, time);
       t.resetShader();

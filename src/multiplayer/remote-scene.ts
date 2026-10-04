@@ -11,7 +11,8 @@ import { drawHuman, type HumanPaint } from "../city/human-model";
 
 const DEG = 180 / Math.PI;
 const PANTS: RGB = [44, 50, 60];
-const SKIN: RGB = [176, 140, 112];
+const SKINS: readonly RGB[] = [[179, 143, 115], [111, 85, 69], [189, 174, 141], [144, 112, 88]];
+const HEADWEAR = ["visor", "cap", "hood", "bare"] as const;
 /** Bodies dissolve near this distance (m); tags stay readable further out. */
 const BODY_RANGE = 420;
 const TAG_RANGE = 360;
@@ -42,14 +43,11 @@ function drawRunner(t: PropCanvas, r: RemoteAvatar, time: number, detail: boolea
   const flying = r.mode === "fly" && r.y > 0.6;
   const moving = Math.abs(r.speed) > 0.4;
   const bob = !flying && moving ? Math.abs(Math.cos(r.stride)) * 0.06 : 0;
-  const jacket = dim(r.color, 0.42), trim = r.color;
+  const seed = hash(r.id), jacket = dim(r.color, 0.42), trim = r.color;
   t.push(); t.translate(r.x, -(r.y + bob), r.z); t.rotateY(-r.heading * DEG);
   // Flight: lean into the direction of travel, legs trailing, a hover ring and thruster glow.
   if (flying) { t.translate(0, -1.2, 0); t.rotateX(-Math.min(1, Math.abs(r.speed) / 60) * 38 - 6); t.translate(0, 1.2, 0); }
-  drawHuman(t, { coat: jacket, trim: PANTS, skin: SKIN, light: trim, headwear: "visor", idle: "breathe", prop: null }, { time, seed: hash(r.id), stride: r.stride, moving: moving && !flying, detail, distant: !detail }, paint);
-  paint(t, trim, "|", 1.15);
-  for (const side of [-1, 1]) box(t, side * 0.34, 1.45, -0.2, 0.06, 0.7, 0.05);
-  box(t, 0, 2.02, 0, 0.5, 0.07, 0.34);
+  drawHuman(t, { coat: jacket, trim: PANTS, skin: SKINS[(seed >>> 8) % SKINS.length], light: trim, headwear: HEADWEAR[(seed >>> 4) % HEADWEAR.length], idle: "breathe", prop: null }, { time, seed, stride: r.stride, moving: moving && !flying, detail, distant: !detail }, paint);
   if (detail) {
     const outer = propRange(150);
     paint(t, trim, "-", 0.8 + Math.sin(time * 2.4 + r.stride * 0.1) * 0.12);

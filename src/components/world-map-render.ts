@@ -4,6 +4,8 @@ import { EW_STREETS, NS_STREETS } from "@/city/streets";
 import { formatMetres, type Waypoint } from "@/city/waypoints";
 import type { QuestSnapshot } from "@/city/quests";
 import { drawQuestLayer } from "./quest-map-layer";
+import type { InteriorPlace } from "@/city/interiors";
+import { drawVenueLayer } from "./venue-map-layer";
 
 /**
  * The world map, drawn as a terminal: the terrain is a grid of ASCII cells anchored to world
@@ -274,6 +276,7 @@ export interface OverlayData {
   player: { x: number; z: number; yaw: number };
   metroTime: number;
   quests: QuestSnapshot;
+  venues: readonly InteriorPlace[];
   discovered: readonly string[];
   waypoints: readonly Waypoint[];
   activeId: string | null;
@@ -491,6 +494,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, view: MapView, data: 
   }
   ctx.restore();
 
+  drawVenueLayer(ctx, { px, pz, size: Math.max(width, height), extent: Math.max(width, height) / 2 / scale, centerX: view.cx, centerZ: view.cz, full: true }, data.venues, scale > 0.85, data.waypoints);
+
   // Named NPCs, quest givers and the tracked quest target (shared with the minimap).
   drawQuestLayer(ctx, { px, pz, size: Math.max(width, height), extent: Math.max(width, height) / 2 / scale, centerX: view.cx, centerZ: view.cz, full: true }, data.quests);
 
@@ -551,4 +556,3 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, view: MapView, data: 
   ctx.restore();
   if (!inside(playerX, playerY, 0)) edgeChevron(ctx, view, playerX, playerY, "#b8f8e5", "You");
 }
-

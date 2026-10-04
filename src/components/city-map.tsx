@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import type { CitySnapshot } from "@/city/engine";
 import { CityWorld, DISTRICTS, LANDMARKS, WORLD_EDGE } from "@/city/world";
 import { STATIONS, TRACK_LENGTH, trackPose } from "@/city/metro";
+import { interiorPlaces } from "@/city/interiors";
+import { drawVenueLayer } from "./venue-map-layer";
 import { drawQuestLayer } from "./quest-map-layer"; // Quest UI
 import { drawFriendsLayer } from "./friends-map-layer"; // Multiplayer
 import { drawWaypointLayer } from "./waypoint-map-layer"; // World map: waypoints + rotating minimap
@@ -76,6 +78,7 @@ export function CityMap({ world, snapshot, full = false, waypoints, activeWaypoi
       ctx.beginPath(); ctx.arc(px(station.x), pz(station.z), full ? 4 : 2.5, 0, Math.PI * 2); ctx.fill();
     }
     const spin = rotate && !full; // World map: heading-up minimap draws its own circle-edge chevrons
+    drawVenueLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, interiorPlaces(world));
     drawQuestLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, spin ? { ...snapshot.quests, tracked: null } : snapshot.quests); // Quest UI: NPCs + tracked target
     drawFriendsLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, snapshot.friends); // Multiplayer: friends' positions
     drawWaypointLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, { waypoints: waypoints ?? [], activeId: activeWaypointId, round: spin, tracked: spin ? snapshot.quests.tracked : null }); // World map
@@ -105,5 +108,5 @@ export function CityMap({ world, snapshot, full = false, waypoints, activeWaypoi
     ctx.restore();
   }, [world, snapshot, full, waypoints, activeWaypointId, rotate]);
 
-  return <canvas ref={canvasRef} className={full ? "atlas-canvas" : "minimap-canvas"} role="img" aria-label={full ? "City atlas showing six districts, landmarks, and your position" : rotate ? "Nearby streets and your position; your heading is up" : "Nearby streets and your position; north is up"} />;
+  return <canvas ref={canvasRef} className={full ? "atlas-canvas" : "minimap-canvas"} role="img" aria-label={full ? "City atlas showing six districts, venue entrances, quest markers, landmarks, and your position" : rotate ? "Nearby streets, venue entrances and your position; your heading is up" : "Nearby streets, venue entrances and your position; north is up"} />;
 }

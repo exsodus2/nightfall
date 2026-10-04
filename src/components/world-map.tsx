@@ -5,6 +5,8 @@ import type { CitySnapshot } from "@/city/engine";
 import { DISTRICTS, WORLD_EDGE, districtAt, type CityWorld } from "@/city/world";
 import { placeName, streetNameAt } from "@/city/streets";
 import { WAYPOINT_COLORS, cityWaypoints, formatMetres, waypointBearing, waypointLink, type Waypoint } from "@/city/waypoints";
+import { interiorPlaces, type InteriorPlace } from "@/city/interiors";
+import { trackVenueEntrance, waypointAtEntrance } from "@/city/venue-navigation";
 import { MAX_SCALE, TerrainLayer, drawOverlay, minScale, toWorld, waypointAt, type MapFriend, type MapView } from "./world-map-render";
 import { useWaypointState } from "./use-waypoints";
 import styles from "./world-map.module.css";
@@ -34,6 +36,7 @@ const ownerName = (snapshot: CitySnapshot, owner: string): string => snapshot.fr
 const memory = { scale: 1.3, follow: true, cx: 0, cz: 0 };
 
 export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
+  const venues = interiorPlaces(world);
   const areaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const snapshotRef = useRef(snapshot);
@@ -131,7 +134,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const state = cityWaypoints.getState();
       drawOverlay(ctx, mapView, {
-        player, metroTime: metro, quests: snap.quests, discovered: snap.discovered,
+        player, metroTime: metro, quests: snap.quests, venues, discovered: snap.discovered,
         waypoints: state.waypoints, activeId: state.activeId, selectedId: selectedRef.current, hoverId: hoverRef.current,
         friends: friendsOf(snap), time: now / 1000,
       }, terrain);
@@ -154,7 +157,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     };
     area.addEventListener("wheel", onWheel, { passive: false });
     return () => { cancelAnimationFrame(frame); observer.disconnect(); area.removeEventListener("wheel", onWheel); };
-  }, [world, clampView, zoomBy]);
+  }, [world, venues, clampView, zoomBy]);
 
   // Map-local keys (only while the map is open). M / Esc are handled by useWorldMap.
   useEffect(() => {
@@ -281,6 +284,16 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     else done(false);
   }
 
+  function trackEntrance(place: InteriorPlace) {
+    const waypoint = trackVenueEntrance(cityWaypoints, place);
+    if (waypoint) setSelected(waypoint.id);
+    const current = view.current;
+    current.follow = false; current.anchor = null;
+    current.cx = place.entrance.x; current.cz = place.entrance.z;
+    current.target = Math.max(current.target, 1.3);
+    setFollow(false);
+  }
+
   const district = DISTRICTS[snapshot.district];
   const activeWaypoint = activeId ? waypoints.find((waypoint) => waypoint.id === activeId) ?? null : null;
 
@@ -308,7 +321,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
           onPointerLeave={() => { hoverRef.current = null; setHover(null); }}
           onContextMenu={onContextMenu}
         >
-          <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label="City map: districts, streets, the elevated rail loop, stations, landmarks, quest markers, waypoints and your position. Click to drop a waypoint." />
+          <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label="City map: districts, streets, the elevated rail loop, stations, landmarks, venue entrances, quest markers, waypoints and your position. Click to drop a waypoint." />
           <span className={`${styles.corner} ${styles.cornerTL}`} /><span className={`${styles.corner} ${styles.cornerTR}`} />
           <span className={`${styles.corner} ${styles.cornerBL}`} /><span className={`${styles.corner} ${styles.cornerBR}`} />
           <div className={styles.north} aria-hidden="true">N</div>
@@ -331,8 +344,19 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
           </div>
         </div>
 
-        <aside className={styles.panel} aria-label="Waypoints and legend">
+        <aside className={styles.panel} aria-label="Places, waypoints and legend">
           <div className={styles.panelScroll}>
+            <h3 className={styles.sectionTitle}>Places to go <small>{venues.length} interiors</small></h3>
+            <p className={styles.venueHint}>Track a doorway, then press E there to enter.</p>
+            <ul className={styles.list} aria-label="Walkable venues">
+              {venues.map(place => <li key={place.id}>
+                <button type="button" className={`${styles.row} ${styles.venueRow}`} data-venue={place.id} style={{ "--wp": "#4de8e0" } as CSSProperties} aria-label={`Track entrance to ${place.name}`} aria-pressed={waypointAtEntrance(activeWaypoint, place)} onClick={() => trackEntrance(place)}>
+                  <span className={styles.rowGlyph} aria-hidden="true">⌂</span>
+                  <span className={styles.rowLabel}>{place.name}<small>{DISTRICTS[place.district].name}</small></span>
+                  <span className={styles.rowMeta}>{waypointAtEntrance(activeWaypoint, place) ? <em>Tracking</em> : null}{formatMetres(Math.hypot(place.entrance.x - snapshot.x, place.entrance.z - snapshot.z))}</span>
+                </button>
+              </li>)}
+            </ul>
             <h3 className={styles.sectionTitle}>Waypoints <small>{waypoints.length ? `${waypoints.length} set` : "none"}</small></h3>
             {waypoints.length === 0 ? <p className={styles.empty}>Click anywhere on the map to drop a waypoint. It lights a beacon in the city and a heading on your compass.</p> : null}
             {waypoints.length ? <ul className={styles.list}>
@@ -377,6 +401,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
               <li><b style={{ color: "#e9fff6" }}>━</b>Train</li>
               <li><b style={{ color: "#42dfe3" }}>▣</b>Station</li>
               <li><b style={{ color: "#ff4794" }}>◇</b>Landmark</li>
+              <li><b style={{ color: "#4de8e0" }}>⌂</b>Venue entrance</li>
               <li><b style={{ color: "#e6ad62" }}>◆</b>Quest</li>
               <li><b style={{ color: "#9d8cff" }}>○</b>Friend</li>
               <li><b style={{ color: "#ff8f4d" }}>#</b>Tower</li>

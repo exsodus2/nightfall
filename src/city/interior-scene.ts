@@ -4,12 +4,14 @@ import { INTERIOR_HEIGHT, interiorLocal, type InteriorFixture, type InteriorPlac
 import { drawHuman } from "./human-model.ts";
 import { miniFontBytes } from "./mini-font.ts";
 import type { InteractableDefinition } from "../rpg/types.ts";
+import type { InteriorWorkState, InteriorWorkTag } from "./interior-work-state.ts";
 
 const WALL: RGB = [72, 84, 98];
 const METAL: RGB = [108, 129, 141];
 const WOOD: RGB = [151, 110, 78];
 const WARM: RGB = [255, 206, 138];
 const DARK: RGB = [26, 36, 48];
+const SETTLED: RGB = [143, 231, 179];
 const LETTERS = miniFontBytes();
 
 function style(canvas: PropCanvas, color: RGB, glyph: string, emissive = false): void {
@@ -94,7 +96,7 @@ function fixture(canvas: PropCanvas, item: InteriorFixture, place: InteriorPlace
   }
 }
 
-export function drawInterior(canvas: PropCanvas, place: InteriorPlace, fixtures: readonly InteriorFixture[], time: number, low: boolean, effects = true): void {
+export function drawInterior(canvas: PropCanvas, place: InteriorPlace, fixtures: readonly InteriorFixture[], time: number, low: boolean, effects = true, work: InteriorWorkState | null = null): void {
   const halfWidth = place.width / 2, halfDepth = place.depth / 2;
   canvas.push(); canvas.translate(place.x, 0, place.z); canvas.rotateY(place.yaw * 180 / Math.PI);
   style(canvas, [95, 101, 109], "."); block(canvas, 0, -0.15, 0, place.width, 0.3, place.depth);
@@ -143,6 +145,45 @@ export function drawInterior(canvas: PropCanvas, place: InteriorPlace, fixtures:
       const gain = Math.sin(phase * Math.PI) * 0.6 + 0.12;
       style(canvas, [tint[0] * gain, tint[1] * gain, tint[2] * gain], steam ? ":" : ".", true);
       block(canvas, x, 1.8 + phase * 2.9, z, steam ? 0.18 + phase * 0.3 : 0.09, 0.15, 0.08);
+    }
+  }
+  canvas.pop();
+  drawInteriorWork(canvas, place, fixtures, work, low);
+}
+
+function workFixture(fixtures: readonly InteriorFixture[], target: InteriorWorkTag["fixture"]): InteriorFixture | null {
+  for (const item of fixtures) {
+    if (target === "counter" && item.kind === "counter") return item;
+    if (target === "left-planter" && item.kind === "planter" && item.x < 0) return item;
+    if (target === "right-planter" && item.kind === "planter" && item.x > 0) return item;
+    if (target === "right-machine" && item.kind === "machine" && item.x > 0) return item;
+  }
+  return null;
+}
+
+function workPanel(canvas: PropCanvas, x: number, height: number, z: number, width: number, tall: number): void {
+  canvas.translate(x, -height, z); canvas.rect(width, tall); canvas.translate(-x, height, -z);
+}
+
+export function drawInteriorWork(canvas: PropCanvas, place: InteriorPlace, fixtures: readonly InteriorFixture[], work: InteriorWorkState | null, low: boolean): void {
+  if (!work || work.place !== place.id) return;
+  canvas.push(); canvas.translate(place.x, 0, place.z); canvas.rotateY(place.yaw * 180 / Math.PI);
+  for (const mark of work.tags) {
+    const item = workFixture(fixtures, mark.fixture);
+    if (!item) continue;
+    const text = low ? mark.compact : mark.text, size = item.kind === "machine" || mark.detail ? 0.12 : 0.14;
+    const width = Math.max(0.75, (text.length + (mark.detail ? mark.detail.length + 0.5 : 0)) * size + 0.24);
+    const bottom = item.kind === "machine" ? 2.91 : 2.73, tall = item.kind === "machine" ? 0.24 : 0.28;
+    const height = bottom + tall / 2, front = item.z + item.depth / 2;
+    const horizontal = item.x + (mark.fixture === "left-planter" ? 0.65 : 0);
+    style(canvas, METAL, "|"); workPanel(canvas, horizontal, (item.height + bottom) / 2, front - 0.18, 0.07, bottom - item.height);
+    style(canvas, DARK, " "); workPanel(canvas, horizontal, height, front - 0.06, width, tall);
+    style(canvas, mark.settled ? SETTLED : WARM, "=", true);
+    lettering(canvas, text, horizontal - (mark.detail ? (mark.detail.length + 0.5) * size / 2 : 0), height, front - 0.025, size);
+    if (mark.detail) lettering(canvas, mark.detail, horizontal + (text.length + 0.5) * size / 2, height, front - 0.025, size);
+    if (!low) {
+      style(canvas, mark.settled ? SETTLED : WARM, "=", true);
+      workPanel(canvas, horizontal, bottom + 0.0075, front - 0.025, width - 0.16, 0.015);
     }
   }
   canvas.pop();
