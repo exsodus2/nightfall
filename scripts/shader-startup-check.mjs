@@ -17,10 +17,13 @@ const directory = resolve(root, "artifacts", args.get("out") ?? "shader-startup"
 const digest = source => createHash("sha256").update(source).digest("hex");
 const materialsPath = resolve(root, "src/city/materials.ts");
 const currentSource = readFileSync(materialsPath, "utf8");
+const compareSpecialization = args.has("compare-specialization");
+const compare = args.has("compare") || compareSpecialization;
+assert.ok(!compareSpecialization || !args.has("baseline"), "--compare-specialization uses the same current source for both versions; omit --baseline");
 const baselineRef = args.get("baseline") ?? "HEAD";
-const headSource = execFileSync("git", ["show", `${baselineRef}:src/city/materials.ts`], { cwd: root, encoding: "utf8" });
+const headSource = compareSpecialization ? currentSource : execFileSync("git", ["show", `${baselineRef}:src/city/materials.ts`], { cwd: root, encoding: "utf8" });
 const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-const baseline = execFileSync("git", ["rev-parse", baselineRef], { cwd: root, encoding: "utf8" }).trim();
+const baseline = compareSpecialization ? "working-tree" : execFileSync("git", ["rev-parse", baselineRef], { cwd: root, encoding: "utf8" }).trim();
 const dependencySources = new Map();
 
 function loadTypeScript(entry, replacement) {
@@ -95,8 +98,8 @@ function oldWindows(source) {
 }
 
 const sourceVersions = {
-  baseline: { source: headSource, description: `${baselineRef} materials.ts with the same current dependency files` },
-  current: { source: currentSource, description: "Current materials.ts, unchanged" },
+  baseline: { source: headSource, description: compareSpecialization ? "Current materials.ts with all surface families enabled" : `${baselineRef} materials.ts with the same current dependency files` },
+  current: { source: currentSource, description: compareSpecialization ? "Current materials.ts with production shader specialization" : "Current materials.ts, unchanged" },
   "baseline-windows": { source: oldWindows(currentSource), description: `Current material with ${baselineRef} near-window branch; removes both newer room details and glass, not a glass-only baseline` },
   "no-park": { source: replaceExactly(currentSource, currentSource.includes("${parkGlsl()}") ? "${parkGlsl()}" : '${includesGround ? parkGlsl() : ""}', "bool parkGround(vec3 p, vec3 view, float cellWorld, inout int code, inout bool thin, inout vec3 paper, inout vec3 ink, inout vec3 emission, inout float flags, inout vec3 reflectedGlyph) { return false; }"), description: "Diagnostic ablation: current shader with parkGround returning false" },
 };
@@ -105,7 +108,7 @@ const variants = (args.get("variants") ?? "main,reflection,batched,opaque").spli
 const qualities = (args.get("qualities") ?? "full,lite").split(",");
 const repeat = Number(args.get("repeat") ?? 2);
 assert.ok(Number.isInteger(repeat) && repeat >= 1 && repeat <= 5);
-if (args.has("compare")) assert.ok(versions.indexOf("baseline") >= 0 && versions.indexOf("current") > versions.indexOf("baseline"), "--compare requires baseline before current in --versions");
+if (compare) assert.ok(versions.indexOf("baseline") >= 0 && versions.indexOf("current") > versions.indexOf("baseline"), "Comparison requires baseline before current in --versions");
 const options = {
   main: { reflections: true }, reflection: {}, batched: { batch: true }, opaque: { batch: true, opaque: true }, architecture: { batch: true, opaque: true },
 };
@@ -126,19 +129,20 @@ const cases = [];
 for (let round = 0; round < repeat; round++) for (const quality of qualities) for (const variant of variants) for (const version of versions) {
   assert.ok(Object.hasOwn(options, variant), `Unknown variant: ${variant}`);
   assert.ok(quality === "full" || quality === "lite", `Unknown quality: ${quality}`);
-  const specialization = args.has("specialized") ? variant === "opaque" ? { architecture: true } : variant === "reflection" || variant === "batched" ? { ground: false } : {} : {};
+  const specialized = compareSpecialization ? version === "current" : args.has("specialized");
+  const specialization = specialized ? variant === "opaque" ? { architecture: true } : variant === "reflection" || variant === "batched" ? { ground: false } : {} : {};
   let fragment = factories.get(version)({ ...options[variant], ...specialization, lite: quality === "lite" });
   if (variant === "architecture") fragment = architectureOnly(fragment);
   const vertex = variant === "batched" ? propVertex : options[variant].batch ? buildingVertex : nativeVertex;
-  cases.push({ id: `${round + 1}-${version}-${quality}-${variant}`, round: round + 1, version, quality, variant, compare: args.has("compare"), vertex, fragment, vertexSha256: digest(vertex), fragmentSha256: digest(fragment), fragmentBytes: Buffer.byteLength(fragment) });
+  cases.push({ id: `${round + 1}-${version}-${quality}-${variant}`, round: round + 1, version, quality, variant, compare, vertex, fragment, vertexSha256: digest(vertex), fragmentSha256: digest(fragment), fragmentBytes: Buffer.byteLength(fragment) });
 }
 
 const metadata = {
-  generated: new Date().toISOString(), head, baseline, specialized: args.has("specialized"), compare: args.has("compare"), textmode: JSON.parse(readFileSync(resolve(root, "node_modules/textmode.js/package.json"), "utf8")).version,
+  generated: new Date().toISOString(), head, baseline, specialized: args.has("specialized") || compareSpecialization, compare, compareSpecialization, textmode: JSON.parse(readFileSync(resolve(root, "node_modules/textmode.js/package.json"), "utf8")).version,
   method: "Raw WebGL2 with installed textmode material vertex or production batch vertex. Synchronous compile status, link status and uniform discovery match installed textmode. --compare adds deterministic MRT fixtures and first-draw timing; this does not measure game boot or FPS.",
   cache: "Fresh isolated Chromium profile per run; OS/driver caches are not cleared. Subsequent rounds reuse the same WebGL context.",
   descriptions: Object.fromEntries(versions.map(version => [version, sourceVersions[version].description])),
-  architecture: "The optional architecture variant is a manual 0/2/6 ablation. --specialized instead supplies production architecture/ground flags to the standard variants.",
+  architecture: "The optional architecture variant is a manual 0/2/6 ablation. --specialized supplies production architecture/ground flags. --compare-specialization keeps the same material source and enables those flags only for current, leaving baseline unspecialized.",
   materialSha256: Object.fromEntries(versions.map(version => [version, digest(sourceVersions[version].source)])),
   dependencies: Object.fromEntries(dependencySources),
 };

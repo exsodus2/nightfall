@@ -28,12 +28,13 @@ export function useQuestLogHotkey(enabled: boolean, open: boolean, onOpen: () =>
 
 interface QuestLogProps {
   quests: QuestSnapshot;
+  onTrack: (questId: string) => void;
   onClose: () => void;
   onResume: () => void;
 }
 
 /** Contract ledger overlay: same side-panel frame as the atlas, terminal-styled entries. */
-export function QuestLog({ quests, onClose, onResume }: QuestLogProps) {
+export function QuestLog({ quests, onTrack, onClose, onResume }: QuestLogProps) {
   const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export function QuestLog({ quests, onClose, onResume }: QuestLogProps) {
               const tracked = (quests.tracked?.id ? quests.tracked.id === entry.id : quests.tracked?.title === entry.title) && (status === "active" || status === "ready");
               const closed = status === "complete" || status === "failed";
               const note = closed ? entry.journal?.at(-1) : undefined;
-              return <li key={entry.id} className="quest-log-entry" data-status={entry.status} data-tracked={tracked}>
+              return <li key={entry.id} className="quest-log-entry" data-quest={entry.id} data-status={entry.status} data-tracked={tracked}>
                 <span className="quest-log-mark" aria-hidden="true">{mark}</span>
                 <div>
                   <strong>{entry.title}{tracked ? <span className="quest-log-tracked">Tracking</span> : null}</strong>
@@ -91,6 +92,7 @@ export function QuestLog({ quests, onClose, onResume }: QuestLogProps) {
                   {note && note !== entry.objective ? <p>{note}</p> : null}
                   {entry.timeLeft !== undefined ? <p>Time left {formatTimeLeft(entry.timeLeft)}</p> : null}
                   <small><span>{entry.targetDistrict}</span>{status === "failed" ? null : <span>{status === "complete" ? "Paid" : "Reward"} {formatCredits(entry.reward)} CR</span>}</small>
+                  {!closed ? <button type="button" className="quest-track-button" aria-pressed={tracked} aria-label={`Track ${entry.title}`} onClick={() => onTrack(entry.id)}><span aria-hidden="true">{tracked ? "[x]" : "[ ]"}</span> {tracked ? "Tracking" : "Track contract"}</button> : null}
                 </div>
               </li>;
             })}

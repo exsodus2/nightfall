@@ -244,6 +244,7 @@ export class RpgSession {
   action(action: RpgUiAction): void {
     const c = this.character;
     switch (action.kind) {
+      case "trackQuest": this.quests.track(action.quest); break;
       case "equip": c.equip(action.item); break;
       case "unequip": c.unequip(action.slot); break;
       case "use": c.use(action.item); break;

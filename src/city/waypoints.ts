@@ -134,12 +134,13 @@ export class WaypointStore {
   private remote: readonly Waypoint[] = [];
   private readonly hidden = new Set<string>();
   private readonly listeners = new Set<() => void>();
-  private readonly localSync: WaypointSync;
+  private localSync: WaypointSync;
   private readonly now: () => number;
   private readonly createId: () => string;
   private readonly limit: number;
   private sync: WaypointSync;
   private unsubscribe: () => void = () => undefined;
+  private syncVersion = 0;
   private currentOwner: string;
   private active: string | null = null;
   private state: WaypointState = { waypoints: [], activeId: null, version: 0 };
@@ -174,13 +175,20 @@ export class WaypointStore {
   /** Switches transport (e.g. to a multiplayer room) and republishes this player's shared waypoints.
    * Pass nothing to fall back to solo. Returns a disconnect function. */
   connect(sync: WaypointSync = this.localSync): () => void {
+    const version = ++this.syncVersion;
     this.unsubscribe();
+    if (sync === this.localSync && this.sync !== this.localSync) this.localSync = sync = createLocalWaypointSync();
     this.sync = sync;
     this.remote = [];
-    this.unsubscribe = sync.subscribe((all) => this.receive(all));
-    for (const waypoint of this.mine.values()) if (waypoint.shared) sync.publish(waypoint);
-    this.commit();
-    return () => { if (this.sync === sync) this.connect(this.localSync); };
+    const unsubscribe = sync.subscribe((all) => { if (version === this.syncVersion) this.receive(all); });
+    if (version !== this.syncVersion) { unsubscribe(); return () => undefined; }
+    this.unsubscribe = unsubscribe;
+    for (const waypoint of this.mine.values()) {
+      if (version !== this.syncVersion) break;
+      if (waypoint.shared) sync.publish(waypoint);
+    }
+    if (version === this.syncVersion) this.commit();
+    return () => { if (version === this.syncVersion) this.connect(this.localSync); };
   }
 
   /** Multiplayer identity (e.g. session id or player name). Re-publishes shared waypoints under it. */

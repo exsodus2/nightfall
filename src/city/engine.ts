@@ -1337,6 +1337,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     duckAmbience: (level) => ambience.duck(level), // Radio
     rpgAction(action) {
       rpg.action(action);
+      if (action.kind === "trackQuest") rpg.save(interiors.outdoorPose(player));
       if (action.kind === "respawn") {
         const anchor = safeLanding(world, SPAWN.x, SPAWN.z), arrival = walkArrival(anchor);
         leaveInterior(); exitCar(true); journey = null; passenger = null; platform = null; lift = null; rideHeading = null;

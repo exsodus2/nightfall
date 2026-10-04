@@ -166,9 +166,11 @@ export function drawInteriorInteractables(canvas: PropCanvas, place: InteriorPla
   canvas.push(); canvas.translate(place.x, 0, place.z); canvas.rotateY(place.yaw * 180 / Math.PI);
   for (const item of items) {
     const local = interiorLocal(place, item.x, item.z), height = item.y ?? 2.4;
+    const glyph = item.glyph ?? "", glyphIndex = (glyph.charCodeAt(0) - 32) * 2;
+    const supported = glyph.length === 1 && glyphIndex >= 0 && glyphIndex < LETTERS.length && (LETTERS[glyphIndex] | (LETTERS[glyphIndex + 1] << 8)) !== 0;
     style(canvas, DARK, " "); block(canvas, local.x, height, local.z, 1.65, 0.95, 0.15);
     style(canvas, WARM, ">", true);
-    lettering(canvas, item.glyph === ">" ? "USE" : item.glyph ?? "USE", local.x, height + 0.06, local.z + 0.09, 0.31);
+    lettering(canvas, supported && glyph !== ">" ? glyph : "USE", local.x, height + 0.06, local.z + 0.09, 0.31);
     block(canvas, local.x, height - 0.36, local.z + 0.09, 1.3, 0.04, 0.04);
   }
   canvas.pop();

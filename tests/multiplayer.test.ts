@@ -138,7 +138,7 @@ test("quest intents and waypoints are validated", () => {
   assert.equal(parseWaypoint({ id: "wp-1", x: 800, z: 0 }), null, "outside the city");
   assert.equal(parseWaypoint({ id: "../../x", x: 0, z: 0 }), null, "unsafe id");
   const waypoint = parseWaypoint({ id: "wp-1", x: 10, z: -20, label: "L".repeat(80), color: "red" })!;
-  assert.equal([...waypoint.label].length, 32);
+  assert.equal([...waypoint.label].length, 40);
   assert.equal(waypoint.color, "#6ff0d0");
 });
 
@@ -299,7 +299,7 @@ test("two clients: join by code, see each other move, chat, share quest progress
     host.addWaypoint({ id: "wp-a", x: 100, z: -50, label: "Noodles <b>", color: "#ffb347", shared: true });
     host.addWaypoint({ id: "wp-b", x: 5000, z: 0, label: "Nowhere", color: "#ffb347", shared: true });
     await wait(() => guest.sharedWaypoints().length === 1, "waypoint shared");
-    assert.deepEqual({ ...guest.sharedWaypoints()[0], owner: "", createdAt: 0 }, { id: "wp-a", x: 100, z: -50, label: "Noodles <b>", color: "#ffb347", owner: "", ownerName: "Kai", mine: false, createdAt: 0 });
+    assert.deepEqual({ ...guest.sharedWaypoints()[0], owner: "", createdAt: 0 }, { id: `${host.getView().selfId}:wp-a`, x: 100, z: -50, label: "Noodles <b>", color: "#ffb347", owner: "", ownerName: "Kai", mine: false, createdAt: 0 });
     guest.removeWaypoint("wp-a");
     await new Promise(r => setTimeout(r, 200));
     assert.equal(host.sharedWaypoints().length, 1, "not the guest's to remove");

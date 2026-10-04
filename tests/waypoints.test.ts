@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   WaypointStore, createLocalWaypointSync, encodeWaypointParam, normalizeWaypoint, parseWaypointParam, sanitizeLabel,
-  stripWaypointParams, waypointBearing, waypointLink, waypointsFromSearch, WAYPOINT_COLORS, LABEL_LIMIT,
+  stripWaypointParams, waypointBearing, waypointLink, waypointsFromSearch, WAYPOINT_COLORS, LABEL_LIMIT, LOCAL_OWNER,
   type Waypoint, type WaypointSync,
 } from "../src/city/waypoints.ts";
 import { WORLD_EDGE } from "../src/city/world.ts";
@@ -159,6 +159,45 @@ test("local sync echoes to every subscriber", () => {
   sync.remove("a");
   off();
   assert.deepEqual(seen, [0, 1, 0]);
+});
+
+test("leaving a room does not resurrect shared pins deleted or unshared online", () => {
+  const store = new WaypointStore({ createId: counterIds() });
+  const removed = store.add({ x: 1, z: 1, label: "Removed", shared: true })!;
+  const unshared = store.add({ x: 2, z: 2, label: "Private", shared: true })!;
+  store.setOwner("session-a");
+  const disconnect = store.connect(createLocalWaypointSync());
+  store.remove(removed.id);
+  store.setShared(unshared.id, false);
+  disconnect();
+  store.setOwner(LOCAL_OWNER);
+  store.add({ x: 3, z: 3, label: "Solo", shared: true });
+  assert.deepEqual(store.list().map(waypoint => waypoint.label), ["Private", "Solo"]);
+  assert.ok(store.list().every(waypoint => waypoint.owner === LOCAL_OWNER && store.isMine(waypoint.id)));
+  assert.equal(store.get(unshared.id)?.shared, false);
+});
+
+test("retired transport callbacks and cleanup cannot change the current room", () => {
+  const listeners: Array<(all: readonly Waypoint[]) => void> = [];
+  const transport: WaypointSync = {
+    publish() {},
+    remove() {},
+    subscribe(listener) { listeners.push(listener); return () => undefined; },
+  };
+  const store = new WaypointStore();
+  const firstDisconnect = store.connect(transport);
+  const secondDisconnect = store.connect(transport);
+  const pin: Waypoint = { id: "old-session:pin", x: 1, z: 2, label: "Retired room", color: "#ffb347", owner: "old-session", shared: true, createdAt: 0 };
+  listeners[0]([pin]);
+  assert.deepEqual(store.list(), []);
+  firstDisconnect();
+  assert.equal(store.networked, true, "cleanup belongs to one connection, not a reused transport object");
+  listeners[1]([{ ...pin, id: "new-session:pin", owner: "new-session", label: "Current room" }]);
+  assert.equal(store.list()[0]?.label, "Current room");
+  secondDisconnect();
+  listeners[1]([pin]);
+  assert.equal(store.networked, false);
+  assert.deepEqual(store.list(), []);
 });
 
 test("serialize / restore round-trips own waypoints and ignores junk", () => {

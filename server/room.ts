@@ -5,15 +5,15 @@ import { QuestBook } from "../src/city/quests.ts";
 import { npcById } from "../src/city/npcs.ts";
 import {
   CHAT_HISTORY, CHAT_MAX, MAX_PLAYERS, PLAYER_COLORS, QUEST_REACH, WAYPOINTS_PER_PLAYER, RateLimiter,
-  checkMove, generateCode, parsePose, parseQuestIntent, parseWaypoint, sanitizeName, sanitizeText, uniqueName,
-  type ChatMessage, type PoseMessage, type QuestEventMessage,
+  checkMove, generateCode, parsePose, parseQuestIntent, parseWaypoint, parseWaypointId, sanitizeName, sanitizeText, uniqueName, waypointKey,
+  type ChatMessage, type PoseMessage, type QuestEventMessage, type WaypointMessage,
 } from "../src/multiplayer/protocol.ts";
 import { NightfallState, PlayerState, QuestProgressState, WaypointState } from "./state.ts";
 import { EXTERIOR_PLACE, STREET_INTERACTION_HEIGHT, samePlace, validPresence, validPresenceTransition } from "../src/multiplayer/presence.ts";
 import { railPose, validRailPresence, validRailTransition } from "../src/multiplayer/rail.ts";
 
 interface JoinOptions { name?: unknown; pose?: unknown }
-interface PlayerMeta { pose: PoseMessage | null; poseTime: number; teleportTime: number; poses: RateLimiter; chat: RateLimiter; actions: RateLimiter; waypoints: RateLimiter }
+interface PlayerMeta { pose: PoseMessage | null; poseTime: number; teleportTime: number; poses: RateLimiter; chat: RateLimiter; actions: RateLimiter; waypoints: RateLimiter; waypointNotices: RateLimiter; pendingWaypoints: Map<string, WaypointMessage> }
 
 const CODES_KEY = "$nightfall-room-codes";
 const SPAWN_POSE: PoseMessage = { x: 0, y: 0, z: 78, yaw: 0.12, pitch: -0.13, heading: 0.12, speed: 0, mode: "walk", car: 0 };
@@ -41,7 +41,11 @@ export class NightfallRoom extends Room<NightfallState> {
     this.state.credits = 0;
     this.state.questRevision = 0;
     this.state.worldTimeMs = this.now();
-    this.clock.setInterval(() => { this.state.worldTimeMs = this.now(); }, 250);
+    this.clock.setInterval(() => {
+      this.state.worldTimeMs = this.now();
+      const now = this.state.worldTimeMs / 1000;
+      for (const [owner, meta] of this.meta) this.flushWaypoints(owner, meta, now);
+    }, 250);
 
     this.onMessage("pose", (client, message: unknown) => this.handlePose(client, message));
     this.onMessage("chat", (client, message: unknown) => this.handleChat(client, message));
@@ -63,7 +67,7 @@ export class NightfallRoom extends Room<NightfallState> {
     this.state.players.set(client.sessionId, player);
     this.meta.set(client.sessionId, { pose, poseTime: this.now(), teleportTime: -Infinity, poses: new RateLimiter(30, 1 / 40), chat: new RateLimiter(), actions: new RateLimiter(10, 0.5),
       // Joining republishes every shared waypoint at once: the burst must hold a full set.
-      waypoints: new RateLimiter(WAYPOINTS_PER_PLAYER, 0.5) });
+      waypoints: new RateLimiter(WAYPOINTS_PER_PLAYER, 0.5), waypointNotices: new RateLimiter(1, 2), pendingWaypoints: new Map() });
     client.send("history", this.history);
     this.system(`${player.name} joined the room`);
   }
@@ -142,23 +146,44 @@ export class NightfallRoom extends Room<NightfallState> {
   }
 
   private handleWaypointAdd(client: Client, message: unknown): void {
-    const meta = this.meta.get(client.sessionId), waypoint = parseWaypoint(message);
-    if (!meta || !waypoint || !waypoint.shared || !meta.waypoints.take(this.now() / 1000)) return;
-    const existing = this.state.waypoints.get(waypoint.id);
-    if (existing && existing.owner !== client.sessionId) return;
-    if (!existing) {
-      let count = 0;
-      this.state.waypoints.forEach(w => { if (w.owner === client.sessionId) count++; });
-      if (count >= WAYPOINTS_PER_PLAYER) { client.send("notice", `You can share up to ${WAYPOINTS_PER_PLAYER} waypoints.`); return; }
+    const meta = this.meta.get(client.sessionId);
+    if (!meta) return;
+    const waypoint = parseWaypoint(message, client.sessionId);
+    if (!waypoint) { this.waypointNotice(client, meta, "That waypoint could not be shared. Check its position and identifier."); return; }
+    if (!waypoint.shared) return;
+    const key = waypointKey(client.sessionId, waypoint.id);
+    if (!this.state.waypoints.has(key) && !meta.pendingWaypoints.has(key)) {
+      const reserved = new Set(meta.pendingWaypoints.keys());
+      this.state.waypoints.forEach((state, id) => { if (state.owner === client.sessionId) reserved.add(id); });
+      if (reserved.size >= WAYPOINTS_PER_PLAYER) { this.waypointNotice(client, meta, `You can share up to ${WAYPOINTS_PER_PLAYER} waypoints.`); return; }
     }
-    const state = existing ?? new WaypointState();
-    Object.assign(state, { id: waypoint.id, x: waypoint.x, z: waypoint.z, label: waypoint.label, color: waypoint.color, owner: client.sessionId, shared: true, createdAt: existing?.createdAt ?? Date.now() });
-    if (!existing) this.state.waypoints.set(waypoint.id, state);
+    meta.pendingWaypoints.set(key, waypoint);
+    this.flushWaypoints(client.sessionId, meta, this.now() / 1000);
   }
 
   private handleWaypointRemove(client: Client, message: unknown): void {
-    if (typeof message !== "string") return;
-    if (this.state.waypoints.get(message)?.owner === client.sessionId) this.state.waypoints.delete(message);
+    const meta = this.meta.get(client.sessionId);
+    if (!meta) return;
+    const id = parseWaypointId(message, client.sessionId);
+    if (!id) { this.waypointNotice(client, meta, "Only your own waypoints can be removed."); return; }
+    const key = waypointKey(client.sessionId, id);
+    meta.pendingWaypoints.delete(key);
+    if (this.state.waypoints.get(key)?.owner === client.sessionId) this.state.waypoints.delete(key);
+  }
+
+  private flushWaypoints(owner: string, meta: PlayerMeta, now: number): void {
+    for (const [key, waypoint] of meta.pendingWaypoints) {
+      if (!meta.waypoints.take(now)) break;
+      meta.pendingWaypoints.delete(key);
+      const existing = this.state.waypoints.get(key);
+      const state = existing ?? new WaypointState();
+      Object.assign(state, { id: key, x: waypoint.x, z: waypoint.z, label: waypoint.label, color: waypoint.color, owner, shared: true, createdAt: existing?.createdAt ?? Date.now() });
+      if (!existing) this.state.waypoints.set(key, state);
+    }
+  }
+
+  private waypointNotice(client: Client, meta: PlayerMeta, text: string): void {
+    if (meta.waypointNotices.take(this.now() / 1000)) client.send("notice", text);
   }
 
   private system(text: string): void {

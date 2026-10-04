@@ -101,10 +101,13 @@ float noise2(vec2 p) {
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 float street(float p) { return abs(mod(p + 32.0, 64.0) - 32.0); }
 float integral(float x, float a, float b) { return floor(x) * (b - a) + clamp(fract(x) - a, 0.0, b - a); }
+float prefilteredBand(float coordinate, float lower, float upper, float footprint) {
+  float width = max(footprint, 0.003);
+  return clamp((integral(coordinate + width * 0.5, lower, upper) - integral(coordinate - width * 0.5, lower, upper)) / width, 0.0, 1.0);
+}
 // Coverage of the periodic band [a,b) over this cell's footprint: stable under motion.
 float band(float x, float a, float b) {
-  float w = max(fwidth(x), 0.003);
-  return clamp((integral(x + w * 0.5, a, b) - integral(x - w * 0.5, a, b)) / w, 0.0, 1.0);
+  return prefilteredBand(x, a, b, fwidth(x));
 }
 // Ordered dither threshold of this cell, for dissolves that do not shimmer.
 float bayer(vec2 cell) {
@@ -474,7 +477,8 @@ ${VFX_GLSL_BRANCH}
     vec2 spacing = style == 1 ? vec2(4.8, 6.4) : style == 2 ? vec2(2.4, 3.6) : style == 3 ? vec2(7.0, 8.8) : style == 4 ? vec2(3.4, 4.8) : style == 5 ? vec2(5.2, 5.5) : style == 7 ? vec2(2.1, 6.7) : vec2(2.8, 4.2);
     vec2 tile = vec2(horizontal, heightCoord) / spacing;
     float windowCells = min(spacing.x, spacing.y) / max(cellWorld, 0.001);
-    vec2 windowId = floor(tile) + floor(p.xz / 64.0) * 13.7;
+    float facadePlane = floor((abs(n.x) > 0.5 ? p.x : p.z) * 4.0 + 0.5) * 0.25;
+    vec2 windowId = floor(tile) + floor(p.xz / 64.0) * 13.7 + vec2(facadePlane * 0.73, abs(n.x) > 0.5 ? 19.17 : 0.0);
     float seed = hash(windowId), seed2 = hash(windowId + 41.3);
     vec2 winX = style == 1 ? vec2(0.42, 0.64) : style == 2 ? vec2(0.06, 0.94) : vec2(0.18, 0.78);
     vec2 winY = style == 2 ? vec2(0.12, 0.92) : style == 3 ? vec2(0.55, 0.73) : vec2(0.22, 0.73);
@@ -545,8 +549,10 @@ ${VFX_GLSL_BRANCH}
           vec3 tint = windowColor;
 #ifdef LITE
           bool rich = false;
+          float slatCount = 4.0;
 #else
           bool rich = paneResolution > 8.0;
+          float slatCount = 7.0;
 #endif
           if (kind < 0.16) {
             tint = vec3(0.35, 0.55, 0.95);
@@ -558,7 +564,7 @@ ${VFX_GLSL_BRANCH}
           ink = mix(ink, tint * (0.55 + 1.1 * b) * flicker, roomDetail);
           paper = mix(paper, tint * (0.08 + 0.34 * b) * flicker, roomDetail);
           if (kind >= 0.16 && kind < 0.36) {
-            float slat = band(paneUv.y * (rich ? 7.0 : 4.0), 0.0, 0.45);
+            float slat = prefilteredBand(paneUv.y * slatCount, 0.0, 0.45, paneFootprint.y * slatCount);
             code = slat > 0.5 ? A_EQ : A_DASH; thin = slat <= 0.5;
             ink = mix(ink, tint * (0.4 + 0.9 * b), roomDetail); paper = mix(paper, tint * (0.05 + 0.2 * b), roomDetail);
           } else if (rich && kind >= 0.36 && kind < 0.54 && (paneUv.x < 0.24 || paneUv.x > 0.76)) {

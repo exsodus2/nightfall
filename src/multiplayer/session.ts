@@ -80,21 +80,24 @@ export class MultiplayerSession implements MultiplayerLink {
   // ---- Connection ---------------------------------------------------------------------------
   /** Creates a room (no code) or joins one by code. Never throws: failures land in the view. */
   async connect(request: ConnectRequest): Promise<boolean> {
-    await this.leave();
     const attempt = ++this.attempt;
+    await this.closeRoom(attempt);
+    if (attempt !== this.attempt) return false;
     const joining = !!request.code;
     this.update({ status: "connecting", error: null, serverUrl: request.serverUrl, chat: [] });
+    if (attempt !== this.attempt) return false;
     try {
       const { Client } = await import("colyseus.js");
+      if (attempt !== this.attempt) return false;
       // ngrok's free tier shows a browser warning page unless this header is sent (the server allows it).
       const headers: Record<string, string> = /ngrok/i.test(request.serverUrl) ? { "ngrok-skip-browser-warning": "1" } : {};
       const client = new Client(request.serverUrl, { headers });
       const options = { name: request.name, pose: request.pose };
       const room = joining ? await client.joinById<StateView>(normalizeCode(request.code ?? ""), options) : await client.create<StateView>(ROOM_NAME, options);
-      if (attempt !== this.attempt) { void room.leave(true); return false; }
+      if (attempt !== this.attempt) { void room.leave(true).catch(() => undefined); return false; }
       this.attach(room);
       this.update({ status: "connected", code: room.roomId, selfId: room.sessionId, error: null });
-      return true;
+      return attempt === this.attempt && this.room === room;
     } catch (error) {
       if (attempt === this.attempt) this.update({ status: "error", error: describeError(error, request.serverUrl, joining) });
       return false;
@@ -103,36 +106,53 @@ export class MultiplayerSession implements MultiplayerLink {
 
   async leave(): Promise<void> {
     // Also cancels a connect still in flight: its room is left as soon as it arrives.
-    this.attempt++;
+    await this.closeRoom(++this.attempt);
+  }
+
+  private async closeRoom(attempt: number): Promise<void> {
     const room = this.room;
     this.detach();
-    this.update({ status: "idle", code: null, selfId: null, roster: [], error: null });
+    if (attempt === this.attempt) this.update({ status: "idle", code: null, selfId: null, roster: [], error: null });
     if (room) await room.leave(true).catch(() => undefined);
   }
 
   private attach(room: Room<StateView>): void {
     this.room = room;
-    room.onStateChange((state) => this.onState(state));
-    room.onMessage("chat", (message: ChatMessage) => this.addChat({ id: `c${message.id}`, kind: message.kind, name: message.name, color: message.color, text: sanitizeText(message.text, CHAT_MAX), self: message.from === room.sessionId }));
+    room.onStateChange((state) => { if (this.room === room) this.onState(state); });
+    room.onMessage("chat", (message: ChatMessage) => {
+      if (this.room === room) this.addChat({ id: `c${message.id}`, kind: message.kind, name: message.name, color: message.color, text: sanitizeText(message.text, CHAT_MAX), self: message.from === room.sessionId });
+    });
     room.onMessage("history", (messages: ChatMessage[]) => {
-      if (!Array.isArray(messages)) return;
+      if (this.room !== room || !Array.isArray(messages)) return;
       this.update({ chat: messages.map(m => ({ id: `c${m.id}`, kind: m.kind, name: m.name, color: m.color, text: sanitizeText(m.text, CHAT_MAX), self: m.from === room.sessionId })) });
     });
-    room.onMessage("notice", (text: string) => { this.addChat({ id: `n${performance.now()}`, kind: "notice", name: "", color: "", text: sanitizeText(text, CHAT_MAX), self: false }); });
-    room.onMessage("quest", (event: QuestEventMessage) => this.emit({ kind: "quest", text: `${sanitizeText(event.name, 24)} · ${sanitizeText(event.message, 120)}` }));
+    room.onMessage("notice", (text: string) => {
+      if (this.room !== room) return;
+      const clean = sanitizeText(text, CHAT_MAX);
+      this.addChat({ id: `n${performance.now()}`, kind: "notice", name: "", color: "", text: clean, self: false });
+      if (this.room === room) this.emit({ kind: "notice", text: clean });
+    });
+    room.onMessage("quest", (event: QuestEventMessage) => {
+      if (this.room === room) this.emit({ kind: "quest", text: `${sanitizeText(event.name, 24)} · ${sanitizeText(event.message, 120)}` });
+    });
     room.onMessage("questRejected", (message: { reason?: string }) => {
+      if (this.room !== room) return;
       // Re-adopt the authoritative state: the optimistic local change was refused.
       if (this.quest) this.quest = { key: this.quest.key + 1, state: this.quest.state };
       this.emit({ kind: "notice", text: sanitizeText(message?.reason ?? "The party's quest state changed.", 120) });
     });
     room.onLeave((code) => {
       if (this.room !== room) return;
+      const attempt = ++this.attempt;
       this.detach();
+      if (attempt !== this.attempt) return;
       const consented = code === 4000;
       this.update({ status: consented ? "idle" : "error", code: null, selfId: null, roster: [], error: consented ? null : "Disconnected from the room. The server may have stopped; you can rejoin with the same code." });
-      if (!consented) this.emit({ kind: "disconnected", text: "Multiplayer disconnected. Still exploring solo." });
+      if (!consented && attempt === this.attempt) this.emit({ kind: "disconnected", text: "Multiplayer disconnected. Still exploring solo." });
     });
-    room.onError((_code, message) => this.emit({ kind: "notice", text: `Multiplayer error: ${sanitizeText(message ?? "unknown", 120)}` }));
+    room.onError((_code, message) => {
+      if (this.room === room) this.emit({ kind: "notice", text: `Multiplayer error: ${sanitizeText(message ?? "unknown", 120)}` });
+    });
   }
 
   private detach(): void {
@@ -175,6 +195,7 @@ export class MultiplayerSession implements MultiplayerLink {
     this.friendList = friends;
     const signature = roster.map(r => `${r.id}|${r.name}|${r.color}|${r.mode}|${r.place}`).join(";");
     if (signature !== this.rosterSignature) { this.rosterSignature = signature; this.update({ roster }); }
+    if (this.room !== room) return;
 
     // Party quests: adopt on every accepted transition.
     const revision = state.questRevision ?? 0;
@@ -190,7 +211,7 @@ export class MultiplayerSession implements MultiplayerLink {
     if (state.waypoints) {
       const list: SharedWaypoint[] = [];
       state.waypoints.forEach((w) => list.push({ id: w.id, x: w.x, z: w.z, label: w.label, color: w.color, owner: w.owner, ownerName: state.players?.get(w.owner)?.name ?? "", mine: w.owner === selfId, createdAt: w.createdAt }));
-      const signature = list.map(w => `${w.id}|${w.x}|${w.z}|${w.label}|${w.color}|${w.ownerName}`).join(";");
+      const signature = JSON.stringify(list);
       if (signature !== this.waypointSignature) { this.waypointSignature = signature; this.waypointList = list; this.notifyWaypoints(); }
     }
   }

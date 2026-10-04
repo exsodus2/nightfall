@@ -20,8 +20,8 @@ export const CHAT_HISTORY = 30;
 /** Chat: bursts of 5, then one message every 1.5 s. */
 export const CHAT_BURST = 5;
 export const CHAT_REFILL_SECONDS = 1.5;
-export const WAYPOINT_LABEL_MAX = 32;
-export const WAYPOINTS_PER_PLAYER = 20;
+export const WAYPOINT_LABEL_MAX = 40;
+export const WAYPOINTS_PER_PLAYER = 24;
 /** How close (m) a player's last reported position must be to an NPC for a quest action to count. */
 export const QUEST_REACH = 14;
 export const CODE_LENGTH = 5;
@@ -156,12 +156,22 @@ export function parseQuestIntent(raw: unknown): QuestIntentMessage | null {
 }
 
 /** Waypoints: ids are client-made, so they are restricted to a safe alphabet. */
-export function parseWaypoint(raw: unknown): WaypointMessage | null {
+export function parseWaypointId(value: unknown, owner?: string): string | null {
+  if (typeof value !== "string" || value.length > 80) return null;
+  const prefix = owner ? `${owner}:` : "";
+  const id = prefix && value.startsWith(prefix) ? value.slice(prefix.length) : value;
+  return /^[A-Za-z0-9_-]{1,40}$/.test(id) ? id : null;
+}
+
+export function waypointKey(owner: string, id: string): string { return `${owner}:${id}`; }
+
+export function parseWaypoint(raw: unknown, owner?: string): WaypointMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const m = raw as Record<string, unknown>;
-  if (typeof m.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(m.id) || !finite(m.x) || !finite(m.z)) return null;
+  const id = parseWaypointId(m.id, owner);
+  if (!id || !finite(m.x) || !finite(m.z)) return null;
   if (Math.abs(m.x) > WORLD_EDGE || Math.abs(m.z) > WORLD_EDGE) return null;
-  return { id: m.id, x: m.x, z: m.z, label: sanitizeText(m.label, WAYPOINT_LABEL_MAX) || "Waypoint", color: isHexColor(m.color) ? m.color.toLowerCase() : "#6ff0d0", shared: m.shared !== false };
+  return { id, x: m.x, z: m.z, label: sanitizeText(m.label, WAYPOINT_LABEL_MAX) || "Waypoint", color: isHexColor(m.color) ? m.color.toLowerCase() : "#6ff0d0", shared: m.shared !== false };
 }
 
 // ---------------------------------------------------------------------------------------------

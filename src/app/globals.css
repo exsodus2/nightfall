@@ -347,6 +347,9 @@ kbd { font: 10px var(--font-mono); min-width: 21px; height: 22px; padding: 3px 5
 .quest-log-tracked { padding: 2px 5px; border: 1px solid #e6ad6266; font: 8px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: #e6ad62; }
 .quest-log-entry p { margin: 5px 0 8px; font-size: 11px; line-height: 1.6; color: #8caaa3; }
 .quest-log-entry small { display: flex; justify-content: space-between; gap: 12px; font: 9px var(--font-mono); color: #6d928b; }
+.quest-track-button { min-height: 44px; margin-top: 10px; padding: 8px 12px; border: 1px solid #7fb3ab33; background: transparent; color: #9cb9af; font: 11px var(--font-mono); }
+.quest-track-button:hover { border-color: #e6ad6280; color: #eadfc8; }
+.quest-track-button[aria-pressed="true"] { border-color: #e6ad6266; background: #e6ad6210; color: #e6ad62; }
 .atlas-quest-key { color: #e6ad62; }
 @media (max-width: 560px) { .header-quests { display: none; } }
 

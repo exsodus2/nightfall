@@ -494,6 +494,7 @@ export interface RpgSnapshot {
   feed: readonly { id: number; text: string; tone: "info" | "quest" | "loot" | "danger" }[];
 }
 export type RpgUiAction =
+  | { kind: "trackQuest"; quest: string }
   | { kind: "equip"; item: string }
   | { kind: "unequip"; slot: EquipSlot }
   | { kind: "use"; item: string }

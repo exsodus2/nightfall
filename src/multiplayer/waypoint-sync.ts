@@ -8,12 +8,17 @@ import type { MultiplayerSession, SharedWaypoint } from "./session";
 const toWaypoint = (w: SharedWaypoint): Waypoint => ({ id: w.id, x: w.x, z: w.z, label: w.label, color: w.color, owner: w.owner, shared: true, createdAt: w.createdAt });
 
 export function createRoomWaypointSync(session: MultiplayerSession): WaypointSync {
+  const { serverUrl, code, selfId } = session.getView();
+  const current = () => {
+    const view = session.getView();
+    return !!selfId && view.status === "connected" && view.serverUrl === serverUrl && view.code === code && view.selfId === selfId;
+  };
   return {
-    publish(waypoint) { if (waypoint.shared) session.addWaypoint({ id: waypoint.id, x: waypoint.x, z: waypoint.z, label: waypoint.label, color: waypoint.color, shared: true }); },
-    remove(id) { session.removeWaypoint(id); },
+    publish(waypoint) { if (current() && waypoint.shared && waypoint.owner === selfId) session.addWaypoint({ id: waypoint.id, x: waypoint.x, z: waypoint.z, label: waypoint.label, color: waypoint.color, shared: true }); },
+    remove(id) { if (current()) session.removeWaypoint(id); },
     subscribe(onChange) {
-      onChange(session.sharedWaypoints().map(toWaypoint));
-      return session.onWaypoints(all => onChange(all.map(toWaypoint)));
+      onChange(current() ? session.sharedWaypoints().map(toWaypoint) : []);
+      return session.onWaypoints(all => onChange(current() ? all.map(toWaypoint) : []));
     },
   };
 }

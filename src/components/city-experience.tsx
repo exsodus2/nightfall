@@ -331,7 +331,7 @@ export function CityExperience() {
     {dialogue ? <QuestDialogue key={dialogueKey(dialogue)} dialogue={dialogue} onChoose={chooseDialogue} onClose={closeDialogue} /> : null}
     <ToastStack toasts={toasts} onDismiss={dismissToast} />
     {ready ? <RpgScreens ui={rpgUi} place={district.name} /> : null}{/* RPG UI: inventory / vendor / death */}
-    {questLog ? <QuestLog quests={snapshot.quests} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
+    {questLog ? <QuestLog quests={snapshot.quests} onTrack={(quest) => controller.current?.rpgAction({ kind: "trackQuest", quest })} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
     {/* Multiplayer: Online panel, and room chat + roster while connected. */}
     {lobby ? <MultiplayerLobby view={multiplayer.view} pose={{ x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
     {ready && multiplayer.view.status === "connected" && !panel && !questLog && !lobby ? <ChatPanel view={multiplayer.view} enabled={phase === "playing" && !dialogue} onSend={multiplayer.sendChat} /> : null}
