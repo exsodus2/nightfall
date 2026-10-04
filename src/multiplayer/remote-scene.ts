@@ -7,9 +7,9 @@ import type { PropCanvas } from "../city/prop-canvas";
 import type { RGB } from "../city/world";
 import { project, type ViewCamera } from "../city/vfx";
 import type { RemoteAvatar } from "./types";
+import { drawHuman, type HumanPaint } from "../city/human-model";
 
 const DEG = 180 / Math.PI;
-const SHOE: RGB = [30, 32, 38];
 const PANTS: RGB = [44, 50, 60];
 const SKIN: RGB = [176, 140, 112];
 /** Bodies dissolve near this distance (m); tags stay readable further out. */
@@ -33,55 +33,42 @@ export function drawRemotePlayers(t: PropCanvas, view: ActivityView, remotes: re
     if (view.visible && distance > 12 && !view.visible(r.x, r.y + 2, r.z)) continue;
     if (r.mode === "drive" || r.mode === "taxi") drawCar(t, r.x, 0, r.z, r.heading, remoteCarId(r, r.mode === "taxi"), distance < 140, false, { speed: r.speed });
     else if (r.mode === "sky") drawCar(t, r.x, Math.max(0, r.y), r.z, r.heading, remoteCarId(r, true), false, true);
-    else drawRunner(t, r, view.time, distance < 150);
+    else drawRunner(t, r, view.time, distance < (view.low ? 28 : 48));
   }
   restorePropRange(outer);
 }
 
-function drawRunner(t: PropCanvas, r: RemoteAvatar, time: number, detail: boolean): void {
+function drawRunner(t: PropCanvas, r: RemoteAvatar, time: number, detail: boolean, paint: HumanPaint = ink): void {
   const flying = r.mode === "fly" && r.y > 0.6;
   const moving = Math.abs(r.speed) > 0.4;
-  const gait = !flying && moving ? Math.sin(r.stride) * Math.min(0.42, 0.18 + Math.abs(r.speed) * 0.02) : 0;
   const bob = !flying && moving ? Math.abs(Math.cos(r.stride)) * 0.06 : 0;
   const jacket = dim(r.color, 0.42), trim = r.color;
   t.push(); t.translate(r.x, -(r.y + bob), r.z); t.rotateY(-r.heading * DEG);
   // Flight: lean into the direction of travel, legs trailing, a hover ring and thruster glow.
   if (flying) { t.translate(0, -1.2, 0); t.rotateX(-Math.min(1, Math.abs(r.speed) / 60) * 38 - 6); t.translate(0, 1.2, 0); }
-  for (const side of [-1, 1]) {
-    const swing = flying ? 0.18 : gait * side;
-    ink(t, PANTS, "|"); box(t, side * 0.2, 0.47, swing, 0.26, 0.92, 0.3);
-    ink(t, SHOE, "="); box(t, side * 0.2, 0.08, swing - 0.08, 0.28, 0.16, 0.46);
-  }
-  // Short jacket with a lit collar and a stripe down each side in the player's colour.
-  ink(t, jacket, "H");
-  t.translate(0, -1.45, 0); t.ellipsoid(0.45, 0.62, 0.31); t.translate(0, 1.45, 0);
-  ink(t, trim, "|", 1.15);
+  drawHuman(t, { coat: jacket, trim: PANTS, skin: SKIN, light: trim, headwear: "visor", idle: "breathe", prop: null }, { time, seed: hash(r.id), stride: r.stride, moving: moving && !flying, detail, distant: !detail }, paint);
+  paint(t, trim, "|", 1.15);
   for (const side of [-1, 1]) box(t, side * 0.34, 1.45, -0.2, 0.06, 0.7, 0.05);
   box(t, 0, 2.02, 0, 0.5, 0.07, 0.34);
-  for (const side of [-1, 1]) {
-    const swing = flying ? -20 : -gait * side * 70;
-    t.push(); t.translate(side * 0.52, -1.9, 0); t.rotateX(swing);
-    ink(t, jacket, "|"); box(t, 0, -0.44, 0, 0.19, 0.88, 0.23);
-    ink(t, SKIN, "o"); box(t, 0, -0.94, 0, 0.13, 0.13, 0.15);
-    t.pop();
-  }
-  // Head with a wraparound visor in the player's colour: distinct from residents and NPCs.
-  t.push(); t.translate(0, -2.3, -0.03);
-  ink(t, SKIN, "O"); t.ellipsoid(0.24, 0.31, 0.25);
-  ink(t, [26, 30, 38], "%"); t.translate(0, -0.12, 0.05); t.ellipsoid(0.27, 0.22, 0.27); t.translate(0, 0.12, -0.05);
-  ink(t, trim, "=", 1.3); box(t, 0, 0.02, -0.17, 0.5, 0.1, 0.16);
-  t.pop();
   if (detail) {
     const outer = propRange(150);
-    ink(t, trim, "-", 0.8 + Math.sin(time * 2.4 + r.stride * 0.1) * 0.12);
-    t.translate(0, -0.04, 0); t.rotateX(90); t.torus(0.8, 0.035); t.rotateX(-90); t.translate(0, 0.04, 0);
+    paint(t, trim, "-", 0.8 + Math.sin(time * 2.4 + r.stride * 0.1) * 0.12);
+    t.translate(0, -0.04, 0); t.torus(0.8, 0.035); t.translate(0, 0.04, 0);
     if (flying) {
-      ink(t, trim, "*", 1.4 + Math.sin(time * 18) * 0.3);
+      paint(t, trim, "*", 1.4 + Math.sin(time * 18) * 0.3);
       for (const side of [-1, 1]) box(t, side * 0.2, -0.12, 0.1, 0.16, 0.16 + Math.abs(Math.sin(time * 23 + side)) * 0.25, 0.16);
     }
     restorePropRange(outer);
   }
   t.pop();
+}
+
+const indoorPaint: HumanPaint = (canvas, color, glyph, gain = 1) => {
+  canvas.char(glyph); canvas.charColor(color[0] * gain, color[1] * gain, color[2] * gain); canvas.cellColor(0, 0, 0, 255);
+};
+
+export function drawInteriorPlayers(canvas: PropCanvas, remotes: readonly RemoteAvatar[], time: number): void {
+  for (const remote of remotes) drawRunner(canvas, remote, time, true, indoorPaint);
 }
 
 /** What the overlay pass needs to place name tags: this frame's remotes and camera. */
@@ -106,7 +93,7 @@ export function drawRemoteLabels(t: Textmodifier, cols: number, rows: number, fr
     const gain = seen ? 1 : 0.45;
     t.charColor(r.color[0] * gain, r.color[1] * gain, r.color[2] * gain);
     t.cellColor(r.color[0] * 0.08, r.color[1] * 0.08, r.color[2] * 0.08, seen ? 200 : 110);
-    t.print(distance > 60 ? `${r.name} ${Math.round(distance)}m` : r.name, gx, gy);
+    t.print(distance > 60 ? `${r.name} ${Math.round(distance)}m` : r.name, gx, gy, { markup: false });
   }
   t.cellColor(0, 0, 0, 0);
 }

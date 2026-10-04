@@ -31,6 +31,11 @@ import { TouchSettings } from "./touch-settings";
 import { useTouchUi } from "./touch-prefs";
 import { useMobileShell } from "./use-mobile-shell";
 import { isTouchFirst } from "@/city/device";
+// RPG UI: inventory & character (I / Tab), vendor, death screen, pickup prompt, loot feed (src/components/rpg).
+import { InventoryButton, RpgPrompt, RpgScreens, useRpgUi } from "./rpg";
+import { interiorPlaces } from "@/city/interiors";
+import { InteriorMap } from "./interior-map";
+import { TRAIN_EYE_HEIGHT } from "@/city/metro";
 
 type Phase = "loading" | "intro" | "playing" | "paused" | "error" | "lost"; // Mobile: "lost" = WebGL context lost
 type Panel = "map" | "settings" | "transit" | null;
@@ -58,6 +63,7 @@ export function CityExperience() {
   const [settings, setSettings] = useState<CitySettings>(DEFAULT_SETTINGS);
   const [snapshot, setSnapshot] = useState<CitySnapshot>(INITIAL_SNAPSHOT);
   const [world, setWorld] = useState<CityWorld | null>(null);
+  const [engine, setEngine] = useState<CityController | null>(null);
   const [notice, setNotice] = useState<Landmark | null>(null);
   const [error, setError] = useState("");
   // Quest UI state
@@ -68,7 +74,7 @@ export function CityExperience() {
   // Multiplayer: lobby panel + room session (toasts reuse the quest notifications).
   const [lobby, setLobby] = useState(false);
   const toast = useCallback((message: string) => { const item = createToast(message); setToasts((current) => enqueueToast(current, item)); }, []);
-  const multiplayer = useMultiplayer(controller, toast);
+  const multiplayer = useMultiplayer(engine, toast);
   const district = DISTRICTS[snapshot.district];
   const ready = phase !== "loading" && phase !== "error" && phase !== "lost";
   // Mobile: touch UI, radio widget folded into the touch drawer, and engine rebuilds after a lost context.
@@ -76,10 +82,10 @@ export function CityExperience() {
   const [radioOpen, setRadioOpen] = useState(false);
   const [bootKey, setBootKey] = useState(0);
   const settingsRef = useRef<CitySettings | null>(null);
-  const poseRef = useRef<{ x: number; z: number; yaw: number } | null>(null);
+  const poseRef = useRef<{ x: number; z: number; yaw: number; cabin: CitySnapshot["cabin"]; metroTime: number } | null>(null);
   const radioAudible = useRef(false); // Radio: re-applied to a rebuilt engine (the radio survives a lost context)
   useMobileShell();
-  useEffect(() => { settingsRef.current = settings; poseRef.current = { x: snapshot.x, z: snapshot.z, yaw: snapshot.yaw }; }, [settings, snapshot]);
+  useEffect(() => { settingsRef.current = settings; poseRef.current = { ...(snapshot.interior?.entrance ?? { x: snapshot.x, z: snapshot.z, yaw: snapshot.yaw }), cabin: snapshot.cabin, metroTime: snapshot.metroTime }; }, [settings, snapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +101,7 @@ export function CityExperience() {
         const initial: CitySettings = settingsRef.current && bootKey > 0 ? settingsRef.current : { ...DEFAULT_SETTINGS, quality: isTouchFirst() ? "auto" : DEFAULT_SETTINGS.quality }; // Mobile: phones start on Auto
         setSettings(initial);
         city = createCity(canvas, initial, {
-          onReady: () => { if (!cancelled) { if (rebuild) { city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
+          onReady: () => { if (!cancelled) { if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
           onContextLost: () => { if (!cancelled) setPhase("lost"); }, // Mobile
           onContextRestored: () => { if (!cancelled) setBootKey((key) => key + 1); },
           onError: (message) => { if (!cancelled) { setError(message); setPhase("error"); } },
@@ -122,6 +128,7 @@ export function CityExperience() {
           },
         });
         controller.current = city;
+        setEngine(city);
         setWorld(city.world);
       } catch (cause) {
         if (!cancelled) { setError(cause instanceof Error ? cause.message : "Unable to initialize WebGL2."); setPhase("error"); }
@@ -170,10 +177,18 @@ export function CityExperience() {
   const chooseDialogue = useCallback((optionId: string) => controller.current?.chooseDialogue(optionId), []);
   const closeDialogue = useCallback(() => controller.current?.closeDialogue(), []);
   useQuestLogHotkey(ready && !dialogue, questLog, openQuestLog, closeQuestLog);
+  // RPG UI: renders nothing until snapshot.rpg exists. Its screens pause like the quest log; feed lines become toasts.
+  const rpgUi = useRpgUi({
+    real: snapshot.rpg, controller, canvas: canvasRef, ready, phase, dialogue: !!dialogue, others: !!panel || questLog || lobby,
+    pauseCity: () => { controller.current?.pause(); setPhase((current) => current === "playing" ? "paused" : current); },
+    resumeCity: () => enter(),
+    closeOthers: () => { setPanel(null); setQuestLog(false); setLobby(false); },
+    onFeed: (entry, style) => { const item = createToast(entry.text, { tone: entry.tone, ...style }); setToasts((current) => enqueueToast(current, item)); },
+  });
   // Radio: duck the rain bed while the radio is audible.
   const duckRain = useCallback((audible: boolean) => { radioAudible.current = audible; controller.current?.duckAmbience(audible ? 0.4 : 1); }, []);
   // World map: M toggles it without pausing; conversations, panels, the quest log and the lobby close it.
-  const worldMap = useWorldMap({ ready, phase, blocked: !!dialogue || !!panel || questLog || lobby, controller, canvas: canvasRef });
+  const worldMap = useWorldMap({ ready, phase, blocked: !!dialogue || !!panel || questLog || lobby || rpgUi.blocking /* RPG UI */, controller, canvas: canvasRef });
   const waypointState = useWaypointState();
   const [minimapRotate, setMinimapRotate] = useState(false);
   const linkWaypointToast = useCallback((label: string) => toast(`Waypoint added from link: ${label}`), [toast]);
@@ -209,7 +224,7 @@ export function CityExperience() {
     <div className="edge-shade" aria-hidden="true" />
     {/* Mobile: phone controls. Rendered before the HUD so the minimap, quest tracker and radio stay tappable above its zones. */}
     {phase === "playing" && touchUi && !worldMap.open && !dialogue ? <TouchControls controller={controller} snapshot={snapshot} online={multiplayer.view.status === "connected"} radioOpen={radioOpen}
-      onPause={() => { controller.current?.pause(); setPhase("paused"); }} onTransit={() => openPanel("transit")} onMap={worldMap.openMap} onQuests={openQuestLog}
+      onPause={() => { controller.current?.pause(); setPhase("paused"); }} onTransit={() => openPanel("transit")} onMap={worldMap.openMap} onQuests={openQuestLog} onInventory={rpgUi.rpg ? rpgUi.openInventory : undefined /* RPG UI */}
       onRadio={() => setRadioOpen((open) => !open)} onOnline={openLobby} onSettings={() => openPanel("settings")} /> : null}
     {touchUi && (phase === "intro" || phase === "playing") ? <RotateHint /> : null}
     <SceneStudio city={controller} snapshot={snapshot} onExplore={enter} />
@@ -221,6 +236,7 @@ export function CityExperience() {
         <button className="quiet-button" disabled={!ready} onClick={() => openPanel("transit")}>Transit <kbd>T</kbd></button>
         <button className="quiet-button" disabled={!ready} onClick={worldMap.openMap}>City map <kbd>M</kbd></button>{/* World map */}
         <button className="quiet-button header-quests" disabled={!ready} onClick={openQuestLog}>Quests <kbd>J</kbd></button>{/* Quest UI */}
+        <InventoryButton ui={rpgUi} disabled={!ready} />{/* RPG UI */}
         <button className="quiet-button" disabled={!ready} onClick={openLobby} data-online={multiplayer.view.status}>{multiplayer.view.status === "connected" ? `Online · ${multiplayer.view.roster.length}` : "Online"} <span aria-hidden="true">{multiplayer.view.status === "connected" ? "◉" : "◌"}</span></button>{/* Multiplayer */}
         <button className="quiet-button" disabled={!ready} onClick={() => openPanel("settings")}>Settings <span aria-hidden="true">☷</span></button>
       </nav>
@@ -228,7 +244,7 @@ export function CityExperience() {
 
     <div className="location-strip" aria-live="off">
       <span className="status-light" aria-hidden="true" />
-      <span>{district.name}</span><span className="location-divider">/</span><span className="location-description">{district.description}</span>
+      <span>{snapshot.interior?.name ?? district.name}</span><span className="location-divider">/</span><span className="location-description">{snapshot.interior ? `${district.name} · Indoors` : district.description}</span>
     </div>
 
     {phase === "loading" ? <div className="loading-state" role="status"><span className="loading-glyph">▒</span><h1>Building the skyline</h1><p>Finding a way through the rain.</p><span className="loading-line" /></div> : null}
@@ -237,7 +253,7 @@ export function CityExperience() {
 
     {(phase === "intro" || phase === "paused") && !panel && !worldMap.open /* World map */ ? <section className="entry-panel" aria-label={phase === "intro" ? "Welcome to Nightfall" : "City paused"}>
       <div className="entry-index"><span className="entry-rule" />{phase === "intro" ? "Free to wander. Nothing to outrun." : "Take a breath. The city can wait."}</div>
-      <h1>{phase === "intro" ? <>Somewhere,<br />after midnight.</> : <>Still here.<br />Still raining.</>}</h1>
+      <h1>{phase === "intro" ? <>Somewhere,<br />after midnight.</> : snapshot.interior ? <>Out of the rain.<br />For a moment.</> : <>Still here.<br />Still raining.</>}</h1>
       <p className="entry-description">{phase === "intro" ? "Street traffic. Last trains. Lights above the rain. Walk six districts, hail a cab, or take to the skyline." : `${district.name}. ${Math.round(snapshot.distance)} metres behind you. A whole city still ahead.`}</p>
       <button className="primary-button" onClick={enter}>{phase === "intro" ? "Enter the city" : snapshot.mode === "walk" ? "Keep walking" : "Continue journey"}<span aria-hidden="true">↗</span></button>
       <div className="entry-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span><span><span className="mouse-symbol" aria-hidden="true" /> look</span><span><kbd>Shift</kbd> run</span></div>
@@ -249,41 +265,44 @@ export function CityExperience() {
       {/* Driving agent: tiny self-contained controls strip (drive-hud.tsx), renders only in drive mode. */}
       <DriveHud snapshot={snapshot} onToggleView={() => controller.current?.action("camera", true)} />
       {!worldMap.open ? <WaypointHud snapshot={snapshot} /> : null}{/* World map: compass + bearing to the active waypoint */}
-      {snapshot.interaction ? <button className="interaction-prompt" disabled={snapshot.interaction.startsWith("Walk") || snapshot.interaction === "Lift in motion"} onClick={() => controller.current?.interact()}><kbd>E</kbd>{snapshot.interaction}</button> : null}
+      {/* RPG UI: the pickup prompt takes the same slot when E would pick up (cars and people come first; loot beats the street lift). */}
+      {rpgUi.rpg?.prompt && snapshot.mode === "walk" && (!snapshot.interaction || snapshot.interaction === "Take lift to the platform") ? <RpgPrompt prompt={rpgUi.rpg.prompt} onInteract={() => controller.current?.interact()} />
+        : snapshot.interaction ? <button className="interaction-prompt" disabled={snapshot.interaction.startsWith("Walk") || snapshot.interaction === "Lift in motion" || snapshot.interaction === "Finish combat before entering"} onClick={() => controller.current?.interact()}><kbd>E</kbd>{snapshot.interaction}</button> : null}
       <div className="walking-hint"><kbd>Esc</kbd> pause <span /> <kbd>T</kbd> transport <span /> <kbd>{snapshot.mode === "fly" ? "Q / C" : "Space"}</kbd> {snapshot.mode === "fly" ? "rise / descend" : "jump"}</div>
       <div className="travel-hud" aria-label="Locomotion status">
         <span className="travel-symbol" aria-hidden="true">{snapshot.mode === "walk" ? "↟" : snapshot.mode === "metro" ? "═" : "↗"}</span>
-        <div><small>{MODE_NAMES[snapshot.mode]}</small><strong>{snapshot.destination ?? (snapshot.mode === "fly" ? `${Math.round(snapshot.altitude)} m above the street` : "Follow the lights")}</strong>
+        <div><small>{snapshot.interior ? "Indoors · Explore the room" : MODE_NAMES[snapshot.mode]}</small><strong>{snapshot.interior?.name ?? snapshot.destination ?? (snapshot.mode === "fly" ? `${Math.round(snapshot.altitude)} m above the street` : "Follow the lights")}</strong>
           {snapshot.destination ? <div className="journey-progress"><span style={{ width: `${snapshot.progress * 100}%` }} /></div> : null}
         </div>
-        <span className="travel-speed">{Math.round(snapshot.speed * 3.6)}<small>km/h</small></span>
-        {snapshot.mode === "metro" ? <button onClick={() => controller.current?.interact()} disabled={snapshot.interaction !== "Step onto the platform"}>Alight <kbd>E</kbd></button> : snapshot.mode !== "walk" ? <button onClick={() => freeMode("walk")} aria-label="End ride and return to walking">Exit <kbd>E</kbd></button> : <button onClick={() => openPanel("transit")}>Ride <span>↗</span></button>}
+        {!snapshot.interior ? <span className="travel-speed">{Math.round(snapshot.speed * 3.6)}<small>km/h</small></span> : null}
+        {snapshot.mode === "metro" ? <button onClick={() => controller.current?.interact()} disabled={snapshot.interaction !== "Step onto the platform"}>Alight <kbd>E</kbd></button> : snapshot.mode !== "walk" ? <button onClick={() => freeMode("walk")} aria-label="End ride and return to walking">Exit <kbd>E</kbd></button> : <button onClick={() => openPanel("transit")}>{snapshot.interior ? "Places" : "Ride"} <span>↗</span></button>}
       </div>
       {/* Mobile: the old direction pad and touch buttons were replaced by <TouchControls> above. */}
     </> : null}
 
     {ready && !panel && !worldMap.open ? <aside className="navigation-widget" aria-label="Local navigation">
       {/* World map: the north mark toggles a heading-up minimap; the minimap opens the world map and shows waypoints. */}
-      <div className="map-heading"><span>Local streets</span><button type="button" className={`north-mark ${mapStyles.minimapToggle}`} aria-pressed={minimapRotate} onClick={() => setMinimapRotate((value) => !value)} title={minimapRotate ? "Heading up: click for north up" : "North up: click for heading up"}>{minimapRotate ? "▲ ahead" : "N ↑"}</button></div>
-      <button className="minimap-button" onClick={worldMap.openMap} aria-label="Open city map"><CityMap world={world} snapshot={snapshot} waypoints={waypointState.waypoints} activeWaypointId={waypointState.activeId} rotate={minimapRotate} /><span className="map-corner top-left" /><span className="map-corner bottom-right" /></button>
-      <div className="map-caption"><span className="you-dot" />You are here<span>{snapshot.discovered.length} / 6 found</span></div>
+      <div className="map-heading"><span>{snapshot.interior ? "Room layout" : "Local streets"}</span>{!snapshot.interior ? <button type="button" className={`north-mark ${mapStyles.minimapToggle}`} aria-pressed={minimapRotate} onClick={() => setMinimapRotate((value) => !value)} title={minimapRotate ? "Heading up: click for north up" : "North up: click for heading up"}>{minimapRotate ? "▲ ahead" : "N ↑"}</button> : <span>Exit ↓</span>}</div>
+      <button className="minimap-button" onClick={worldMap.openMap} aria-label="Open city map">{snapshot.interior ? <InteriorMap place={snapshot.interior} snapshot={snapshot} /> : <CityMap world={world} snapshot={snapshot} waypoints={waypointState.waypoints} activeWaypointId={waypointState.activeId} rotate={minimapRotate} />}<span className="map-corner top-left" /><span className="map-corner bottom-right" /></button>
+      <div className="map-caption"><span className="you-dot" />You are here<span>{snapshot.interior ? "Sheltered" : `${snapshot.discovered.length} / 6 found`}</span></div>
     </aside> : null}
 
     {/* Quest UI: tracker + credits, NPC conversation, notifications and the quest log. */}
     {(phase === "playing" || phase === "paused") && !panel && !questLog && !worldMap.open ? <QuestTracker quests={snapshot.quests} x={snapshot.x} z={snapshot.z} yaw={snapshot.yaw} onOpenLog={openQuestLog} /> : null}
     {dialogue ? <QuestDialogue key={dialogueKey(dialogue)} dialogue={dialogue} onChoose={chooseDialogue} onClose={closeDialogue} /> : null}
     <ToastStack toasts={toasts} onDismiss={dismissToast} />
+    <RpgScreens ui={rpgUi} place={district.name} />{/* RPG UI: inventory / vendor / death */}
     {questLog ? <QuestLog quests={snapshot.quests} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
     {/* Multiplayer: Online panel, and room chat + roster while connected. */}
-    {lobby ? <MultiplayerLobby view={multiplayer.view} pose={{ x: snapshot.x, y: Math.max(0, snapshot.altitude - WALK_HEIGHT), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0 }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
+    {lobby ? <MultiplayerLobby view={multiplayer.view} pose={{ x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
     {ready && multiplayer.view.status === "connected" && !panel && !questLog && !lobby ? <ChatPanel view={multiplayer.view} enabled={phase === "playing" && !dialogue} onSend={multiplayer.sendChat} /> : null}
     {/* World map: large overlay; the city keeps running behind it when opened while playing. */}
     {worldMap.open && world ? <WorldMap world={world} snapshot={snapshot} live={worldMap.live} onClose={worldMap.closeMap} /> : null}
     {/* Radio: mounted once the city is ready and kept mounted so audio survives pauses/panels; `visible` only hides the widget. */}
-    {ready || phase === "lost" /* Mobile: a lost GPU context must not stop the music */ ? <Radio active={ready && !dialogue && !panel && !questLog && !lobby} visible={ready && !panel && !questLog && !lobby && (!touchUi || radioOpen) /* Mobile: opened from the touch drawer */} driving={snapshot.mode === "drive"} onAudibleChange={duckRain} /> : null}
+    {ready || phase === "lost" /* Mobile: a lost GPU context must not stop the music */ ? <Radio active={ready && !dialogue && !panel && !questLog && !lobby && !rpgUi.blocking /* RPG UI */} visible={ready && !panel && !questLog && !lobby && (!touchUi || radioOpen) /* Mobile: opened from the touch drawer */} driving={snapshot.mode === "drive"} onAudibleChange={duckRain} /> : null}
 
     <footer className="city-footer">
-      <div className="footer-place"><span>Night cycle</span><span className="footer-dash" /><span>{settings.rain ? "Persistent rain" : "Clear skies"}</span></div>
+      <div className="footer-place"><span>Night cycle</span><span className="footer-dash" /><span>{snapshot.interior ? "Sheltered from the rain" : settings.rain ? "Persistent rain" : "Clear skies"}</span></div>
       <div className="coordinates" aria-label="Player coordinates" data-x={snapshot.x.toFixed(2)} data-z={snapshot.z.toFixed(2)} data-y={snapshot.altitude.toFixed(2)} data-yaw={snapshot.yaw.toFixed(4)} data-cars={snapshot.cars} data-residents={snapshot.residents}><span>{coordinate(snapshot.x)} E</span><span>{coordinate(-snapshot.z)} N</span><span className="fps-count">{snapshot.fps || "—"} fps</span></div>
     </footer>
 
@@ -301,6 +320,9 @@ export function CityExperience() {
           <h3 className="section-title">{rideMode === "metro" ? "Visit a station" : "Choose your destination"} <span>{MODE_NAMES[rideMode]}</span></h3>
           <div className="district-stops">{DISTRICTS.map((item) => <button key={item.id} onClick={() => ride(item.id)}><span className="line-color" style={{ background: item.hex }} /><span>{item.name}</span><small>{Math.round(Math.hypot(snapshot.x - item.x, snapshot.z - item.z))} m</small><span aria-hidden="true">↗</span></button>)}</div>
           <div className="free-modes"><button onClick={() => freeMode("walk")}>Explore on foot <kbd>WASD</kbd></button><button onClick={() => freeMode("fly")}>Free flight <kbd>F</kbd></button></div>
+          <h3 className="section-title">Step inside <span>6 open doors</span></h3>
+          <p className="ride-description">Visit a doorway, then press E to enter. Each district has a place to get out of the rain.</p>
+          <div className="landmark-list">{world ? interiorPlaces(world).map(place => <button key={place.id} onClick={() => travel(place.entrance.x, place.entrance.z, place.entrance.yaw)} aria-label={`Visit ${place.name}`}><span className="landmark-found" aria-hidden="true">⌂</span><span>{place.name}<small>{DISTRICTS[place.district].name} · {Math.round(Math.hypot(snapshot.x - place.entrance.x, snapshot.z - place.entrance.z))} m</small></span><span aria-hidden="true">↗</span></button>) : null}</div>
           <h3 className="section-title">Places worth finding <span>{snapshot.discovered.length}/6</span></h3>
           <div className="landmark-list">{LANDMARKS.map((landmark) => <button key={landmark.id} onClick={() => travel(landmark.arrivalX, landmark.arrivalZ)} aria-label={`Travel to ${landmark.name}`}><span className={snapshot.discovered.includes(landmark.id) ? "landmark-found" : "landmark-marker"}>{snapshot.discovered.includes(landmark.id) ? "✓" : "◇"}</span><span>{landmark.name}<small>{Math.round(Math.hypot(snapshot.x - landmark.x, snapshot.z - landmark.z))} m away</small></span><span aria-hidden="true">↗</span></button>)}</div>
         </> : <>

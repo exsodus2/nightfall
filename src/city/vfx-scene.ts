@@ -4,6 +4,7 @@ import type { Building, RGB } from "./world";
 import { signFaces } from "./signage";
 import { visibleFrom } from "./visibility";
 import { VFX_MODE, VFX_SURFACE } from "./vfx-shaders";
+import { WHEEL_GEOMETRY } from "./vehicle-wheels";
 import {
   RAIN_FALL, RAIN_WIND, carMotion, cellWorld, dripState, endMotionFrame, hash, project, rainDrops, searchlight, signBuzzes,
   signSeed, sparkBurst, sparkGlyph, splashGlyph, splashPhase, wrap, type ViewCamera,
@@ -108,8 +109,9 @@ function drawCarItems(t: Textmodifier, items: readonly CarItem[]): void {
     vfxCell(t, VFX_MODE.wheel, [150, 162, 172], c.blur, [30, 36, 44]);
     t.charRotation(c.spin);
     t.push(); t.translate(c.x, -c.y, c.z); t.rotateY(-c.yaw * 180 / Math.PI);
-    for (const side of [-1, 1]) for (const front of [-1.75, 1.75]) {
-      t.push(); t.translate(side * 1.565, -0.46, front); t.rotateY(90); t.rect(0.82, 0.82); t.pop();
+    for (const side of [-1, 1]) for (const axle of [-1, 1]) {
+      const diameter = WHEEL_GEOMETRY.radius * 2;
+      t.push(); t.translate(side * (WHEEL_GEOMETRY.lateral + WHEEL_GEOMETRY.halfWidth + 0.015), -WHEEL_GEOMETRY.height, axle * WHEEL_GEOMETRY.axle); t.rotateY(90); t.rect(diameter, diameter); t.pop();
     }
     t.pop();
   }

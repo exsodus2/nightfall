@@ -2,6 +2,9 @@ import { densityRamp } from "./atlas";
 import { MESSAGE_ROW, MINI_FONT_OFFSET } from "./scene-data";
 // VFX agent: SURFACE 8 (wheels, steam, searchlights) lives in vfx-shaders.ts, spliced in below.
 import { VFX_GLSL_BRANCH, VFX_GLSL_DECLARATIONS } from "./vfx-shaders";
+// Park agent: Rootwood Park's ground (`parkGround`, used by the SURFACE < 1.5 branch) is generated
+// from the park layout constants in park.ts.
+import { parkGlsl } from "./park";
 
 /** First scene-data texel of the glyph table: 95 bold ASCII glyphs, then 95 thin ones. */
 export const GLYPH_TABLE = 48;
@@ -14,7 +17,7 @@ const NAMED: Record<string, string> = {
   SPACE: " ", DOT: ".", COMMA: ",", COLON: ":", SEMI: ";", DASH: "-", UNDER: "_", EQ: "=", PLUS: "+", STAR: "*",
   HASH: "#", AT: "@", PCT: "%", AMP: "&", SLASH: "/", BSLASH: "\\", PIPE: "|", LBR: "[", RBR: "]", QUOTE: "'",
   TICK: "`", EXCL: "!", TILDE: "~", LT: "<", GT: ">", CARET: "^", O: "o", X: "x", DOLLAR: "$", EIGHT: "8",
-  CAPB: "B", CAPM: "M", CAPW: "W", CAPH: "H", ZERO: "0", ONE: "1", I: "i",
+  CAPB: "B", CAPM: "M", CAPW: "W", CAPH: "H", ZERO: "0", ONE: "1", I: "i", LPAR: "(", RPAR: ")", CAPY: "Y",
 };
 const ASCII_DEFINES = Object.entries(NAMED).map(([name, c]) => `#define A_${name} ${c.charCodeAt(0)}`).join("\n");
 
@@ -305,11 +308,13 @@ vec3 atmosphere(vec3 p) {
   return sum * u_atmosphere;
 }
 ${VFX_GLSL_DECLARATIONS}
+${parkGlsl()}
 void main() {
   vec3 p = v_worldPosition, eye = eyePosition();
   vec3 n = normalize(cross(dFdy(p), dFdx(p)));
   if (dot(n, eye - p) < 0.0) n = -n;
   vec3 view = normalize(p - eye);
+  vec3 sky = skyColor(view);
   float cellWorld = max(length(dFdx(p)), length(dFdy(p)));
   int code = A_SPACE;
   bool thin = false;
@@ -434,6 +439,31 @@ ${VFX_GLSL_BRANCH}
       code = star > 0.9993 ? A_STAR : star > 0.998 ? A_PLUS : A_DOT; thin = star < 0.998;
       ink = vec3(0.55, 0.62, 0.72) * (0.5 + 0.5 * sin(u_time * 0.35 + star * 90.0));
     }
+    // The endless city: beyond the draw distance a skyline of towers stands on the horizon in every
+    // direction, darker than the lit smog behind it, pricked with lit windows and slow red aviation
+    // lights. Its grid is sized in screen cells (fwidth), so windows never shrink below a cell.
+    float el = asin(clamp(up, -1.0, 1.0)), az = atan(direction.z, direction.x);
+    float cellAngle = max(fwidth(el), 1e-4);
+    float lot = floor(az / 0.018), lotRnd = hash(vec2(lot, 3.1)), district = hash(vec2(floor(lot / 7.0), 9.7));
+    float top = 0.006 + pow(lotRnd, 2.2) * (0.035 + 0.075 * district);
+    if (el < top && el > -0.12) {
+      float depth = hash(vec2(lot, 5.3));
+      vec3 mass = skyColor(direction) * (0.52 + 0.2 * depth) + vec3(0.003, 0.004, 0.006);
+      paper = mass; ink = mass * 1.25; code = A_SPACE; thin = true;
+      vec2 winCell = floor(vec2(az, el) / (cellAngle * vec2(1.6, 1.4)));
+      float w = hash(winCell + lot * 0.37);
+      float litShare = 0.16 + 0.2 * district;
+      if (el < top - cellAngle * 1.2 && el > 0.0 && w > 1.0 - litShare) {
+        code = w > 1.0 - litShare * 0.3 ? A_COLON : A_DOT;
+        ink = mix(vec3(0.7, 0.48, 0.26), vec3(0.45, 0.68, 0.88), step(0.8, fract(w * 7.0))) * (0.6 + 0.45 * fract(w * 13.0));
+      }
+      if (el > top - cellAngle) { paper = mass * 1.35; code = A_UNDER; ink = mass * 2.2; }
+      // Aviation beacons on the tallest towers: a slow 0.4 Hz fade, never a strobe.
+      if (lotRnd > 0.94 && el > top - cellAngle * 1.1) {
+        code = A_DOT; thin = false;
+        ink = vec3(0.9, 0.12, 0.1) * (0.35 + 0.65 * (0.5 + 0.5 * sin(u_time * 2.5 + lot)));
+      }
+    }
   } else if (SURFACE < 0.5) {
     int style = clamp(int(round((v_cellColor.a * 255.0 - 32.0) / 28.0)), 0, 7);
     bool roof = abs(n.y) > 0.5;
@@ -442,11 +472,14 @@ ${VFX_GLSL_BRANCH}
     vec2 spacing = style == 1 ? vec2(4.8, 6.4) : style == 2 ? vec2(2.4, 3.6) : style == 3 ? vec2(7.0, 8.8) : style == 4 ? vec2(3.4, 4.8) : style == 5 ? vec2(5.2, 5.5) : style == 7 ? vec2(2.1, 6.7) : vec2(2.8, 4.2);
     vec2 tile = vec2(horizontal, heightCoord) / spacing;
     float windowCells = min(spacing.x, spacing.y) / max(cellWorld, 0.001);
-    float detail = smoothstep(1.2, 2.2, windowCells);
     vec2 windowId = floor(tile) + floor(p.xz / 64.0) * 13.7;
     float seed = hash(windowId), seed2 = hash(windowId + 41.3);
     vec2 winX = style == 1 ? vec2(0.42, 0.64) : style == 2 ? vec2(0.06, 0.94) : vec2(0.18, 0.78);
     vec2 winY = style == 2 ? vec2(0.12, 0.92) : style == 3 ? vec2(0.55, 0.73) : vec2(0.22, 0.73);
+    vec2 paneSpan = vec2(winX.y - winX.x, winY.y - winY.x);
+    vec2 paneFootprint = max(fwidth(tile) / paneSpan, vec2(0.001));
+    float paneResolution = 1.0 / max(paneFootprint.x, paneFootprint.y);
+    float detail = smoothstep(0.8, 1.9, paneResolution);
     float windowMask = band(tile.x, winX.x, winX.y) * band(tile.y, winY.x, winY.y);
     if (style == 7) windowMask *= band(horizontal / 14.0, 0.18, 0.75);
     float occupancy = style == 2 ? 0.24 : style == 3 ? 0.4 : 0.46;
@@ -460,13 +493,18 @@ ${VFX_GLSL_BRANCH}
     float flicker = 0.94 + 0.06 * sin(u_time * 0.24 + seed * 14.0);
     emission = windowColor * lights * flicker;
     vec3 lit3 = lighting(p, n, concrete * (1.0 - slab * 0.28), roof ? u_rain * 0.65 : 0.12);
+    // City glow: sodium and neon light from the street bounces up every facade, strongest low
+    // down, plus a cool smog fill from the sky - a lived-in city is never a black void.
+    float streetGlow = exp(-heightCoord * 0.04);
+    vec3 bounce = vec3(0.2, 0.105, 0.05) * streetGlow + vec3(0.05, 0.07, 0.09) * (0.5 + 0.5 * smoothstep(0.0, 120.0, heightCoord));
+    lit3 += concrete * bounce * (roof ? 0.35 : 1.0);
     float keyLight = clamp(luma(lit3) / max(luma(concrete), 0.02), 0.0, 2.5);
     // Paper carries the mass; glyph contrast rises close to the viewer so near walls are crisp.
     // Comfort: surface texture stays a quiet engraving of the paper (low ink/paper ratio, lowest
     // far away where cells cover the most detail), so a glyph that changes under motion changes
     // little brightness. Structure - slabs, outlines, windows - keeps the stronger contrast.
     float nearness = 1.0 - smoothstep(0.25, 1.6, cellWorld);
-    paper = lit3 * mix(0.74, 0.6, nearness) + emission * 0.5;
+    paper = lit3 * mix(0.95, 0.78, nearness) + emission * mix(1.0, 0.5, detail);
     float contrast = mix(1.7, 2.3, nearness) + 0.25 * keyLight;
     float grain = mix(1.3, 1.75, nearness) + 0.15 * keyLight;
     int floorStroke = strokeFor(heightCoord), riseStroke = strokeFor(horizontal);
@@ -474,29 +512,123 @@ ${VFX_GLSL_BRANCH}
       code = cellWorld < 0.5 ? A_HASH : cellWorld < 1.4 ? A_PLUS : A_DOT; thin = cellWorld >= 0.5;
       ink = paper * 1.4;
     } else if (windowMask > 0.5 && detail > 0.5) {
-      // Windows big enough to show: framed in brackets, lit rooms filled with dense letters.
-      float across = (fract(tile.x) - winX.x) / (winX.y - winX.x);
-      float edgeWidth = 0.5 / (windowCells * (winX.y - winX.x));
-      bool framed = windowCells > 3.2 && (across < edgeWidth || across > 1.0 - edgeWidth);
+      vec2 paneUv = (fract(tile) - vec2(winX.x, winY.x)) / paneSpan;
+      vec2 edgeCells = min(paneUv, 1.0 - paneUv) / paneFootprint;
+      float frameDetail = smoothstep(2.3, 3.8, paneResolution);
+      float frameCover = (1.0 - smoothstep(0.2, 0.9, min(edgeCells.x, edgeCells.y))) * frameDetail;
+      bool sideFrame = edgeCells.x < edgeCells.y;
+      bool framed = frameCover > 0.45;
+      float facing = clamp(-dot(n, view), 0.0, 1.0);
+      float grazing = 1.0 - facing, grazing2 = grazing * grazing;
+      float fresnel = 0.04 + 0.96 * grazing2 * grazing2 * grazing;
+      vec3 reflection = sky * vec3(1.05, 1.62, 1.92) + bounce * 0.16;
+      float glassMix = 0.1 + 0.76 * fresnel;
+      vec2 roomUv = paneUv;
+      float roomDetail = smoothstep(3.5, 7.0, paneResolution);
+#ifndef LITE
+      vec2 viewAcross = vec2(abs(n.x) > 0.5 ? view.z : view.x, -view.y);
+      roomUv += clamp(viewAcross / max(facing, 0.24), vec2(-1.2), vec2(1.2)) * vec2(0.13, 0.1) * roomDetail;
+#endif
       if (lit > 0.5) {
         int fills[8] = int[8](A_HASH, A_AT, A_PCT, A_AMP, A_EIGHT, A_CAPB, A_CAPM, A_CAPW);
-        code = framed ? (across < 0.5 ? A_LBR : A_RBR) : fills[clamp(int(seed2 * 8.0), 0, 7)];
-        if (seed2 > 0.8 && !framed) code = A_EQ; // blinds
+        code = fills[clamp(int(seed2 * 8.0), 0, 7)];
+        if (seed2 > 0.8) code = A_EQ;
         ink = windowColor * 1.2 * flicker;
         paper = mix(paper, windowColor * 0.3, 0.8);
+        if (!framed && roomDetail > 0.01) {
+          vec2 lamp = vec2(0.25 + 0.5 * fract(seed * 7.31), 0.5 + 0.3 * fract(seed * 3.17));
+          vec2 d = (roomUv - lamp) * vec2(1.4, 1.9);
+          float b = 0.42 + 0.58 * exp(-dot(d, d) * 2.6);
+          float kind = fract(seed2 * 5.73 + seed * 1.9);
+          vec3 tint = windowColor;
+#ifdef LITE
+          bool rich = false;
+#else
+          bool rich = paneResolution > 8.0;
+#endif
+          if (kind < 0.16) {
+            tint = vec3(0.35, 0.55, 0.95);
+            vec2 tv = roomUv - vec2(0.8, 0.28);
+            b = (0.35 + 0.65 * exp(-dot(tv, tv) * 3.5)) * (0.88 + 0.12 * sin(u_time * 0.9 + seed * 31.0));
+          }
+          b = mix(0.65, b, roomDetail);
+          code = boldRamp(clamp(0.2 + b * 0.79, 0.0, 0.99));
+          ink = mix(ink, tint * (0.55 + 1.1 * b) * flicker, roomDetail);
+          paper = mix(paper, tint * (0.08 + 0.34 * b) * flicker, roomDetail);
+          if (kind >= 0.16 && kind < 0.36) {
+            float slat = band(paneUv.y * (rich ? 7.0 : 4.0), 0.0, 0.45);
+            code = slat > 0.5 ? A_EQ : A_DASH; thin = slat <= 0.5;
+            ink = mix(ink, tint * (0.4 + 0.9 * b), roomDetail); paper = mix(paper, tint * (0.05 + 0.2 * b), roomDetail);
+          } else if (rich && kind >= 0.36 && kind < 0.54 && (paneUv.x < 0.24 || paneUv.x > 0.76)) {
+            code = paneUv.x < 0.12 || paneUv.x > 0.88 ? A_PIPE : paneUv.x < 0.5 ? A_LPAR : A_RPAR;
+            vec3 cloth = mix(vec3(0.55, 0.16, 0.2), vec3(0.2, 0.34, 0.3), fract(seed * 13.0));
+            ink = cloth * (0.5 + 0.6 * b); paper = cloth * 0.12 * (0.5 + b);
+          } else if (rich && kind >= 0.54 && kind < 0.74) {
+            float px = 0.3 + 0.4 * fract(seed * 5.13);
+            vec2 head = (roomUv - vec2(px, 0.66)) * vec2(1.0, 0.8);
+            bool body = abs(roomUv.x - px) < 0.13 + 0.06 * (1.0 - smoothstep(0.3, 0.52, roomUv.y)) && roomUv.y < 0.54;
+            if (dot(head, head) < 0.011 || body) { code = dot(head, head) < 0.011 ? A_O : A_CAPM; ink = tint * 0.16; paper = tint * 0.035; }
+          } else if (rich && kind >= 0.74 && kind < 0.86 && roomUv.y < 0.24) {
+            code = fract(roomUv.x * 5.0) < 0.5 ? A_STAR : A_CAPY;
+            ink = vec3(0.3, 0.75, 0.4) * (0.5 + 0.7 * b); paper = tint * 0.08;
+          }
+          emission = mix(emission, tint * b * 0.6, roomDetail);
+        }
       } else {
-        code = framed ? (across < 0.5 ? A_LBR : A_RBR) : A_DOT; thin = !framed;
-        paper = mix(lit3 * 0.42, skyColor(reflect(view, n)) * 1.6, 0.5) + vec3(0.004, 0.008, 0.012);
-        ink = paper * 1.8 + vec3(0.01, 0.02, 0.025) * nearness;
+        code = A_DOT; thin = true;
+        paper = lit3 * 0.21 + vec3(0.008, 0.014, 0.022);
+        ink = paper * 1.35;
+        glassMix = 0.25 + 0.7 * fresnel;
+        if (paneResolution > 5.0 && seed2 > 0.72) { code = A_EQ; ink = paper * 1.5; }
       }
-    } else if (detail <= 0.5 && lights > 0.1) {
+#ifndef LITE
+      vec2 roomEdge = min(roomUv, 1.0 - roomUv);
+      float recess = mix(1.0, 0.38 + 0.62 * smoothstep(-0.04, 0.14, min(roomEdge.x, roomEdge.y)), roomDetail);
+      paper *= recess; ink *= recess; emission *= recess;
+#endif
+      paper = mix(paper, reflection, glassMix);
+      ink = mix(ink, reflection * 1.22, glassMix);
+      emission *= 1.0 - glassMix;
+      float mullionCover = 0.0, transomCover = 0.0;
+#ifndef LITE
+      float dividerDetail = smoothstep(5.0, 8.0, paneResolution);
+      mullionCover = (1.0 - smoothstep(0.2, 0.8, abs(paneUv.x - 0.5) / paneFootprint.x)) * dividerDetail;
+      transomCover = (1.0 - smoothstep(0.2, 0.8, abs(paneUv.y - 0.72) / paneFootprint.y)) * dividerDetail;
+#endif
+      float frame = max(frameCover, max(mullionCover, transomCover));
+      vec3 metal = lit3 * 0.58 + bounce * 0.07 + vec3(0.009, 0.014, 0.017);
+      paper = mix(paper, metal * 0.52, frame);
+      ink = mix(ink, metal * 1.45, frame);
+      emission *= 1.0 - frame;
+      if (framed) {
+        code = sideFrame ? (paneUv.x < 0.5 ? A_LBR : A_RBR) : floorStroke;
+        if (max(edgeCells.x, edgeCells.y) < 0.9) code = A_PLUS;
+        thin = false;
+      } else if (max(mullionCover, transomCover) > 0.45) {
+        code = mullionCover > 0.45 && transomCover > 0.45 ? A_PLUS : mullionCover > transomCover ? riseStroke : floorStroke;
+        thin = false;
+      }
+    } else if (detail <= 0.5 && lights > 0.07) {
       // Windows smaller than a cell become points of light instead of aliasing noise. One threshold
       // only (fewer glyph flips while moving); brightness follows the prefiltered light smoothly.
       code = lights > 0.26 ? A_COLON : A_DOT; thin = true;
-      ink = windowColor * (0.55 + lights * 1.3);
+      ink = windowColor * (0.7 + lights * 1.6);
     } else if (slab > 0.45 && windowCells > 1.8) {
       code = floorStroke == A_DASH ? A_EQ : floorStroke;
       ink = paper * contrast * 0.85;
+    } else if (!roof && windowCells > 3.0 && style != 2 && band(tile.x, winX.x - 0.04, winX.y + 0.04) * band(tile.y, winY.x - 0.07, winY.x) > 0.5) {
+      // Window sills: a ledge catching the street light.
+      code = floorStroke == A_DASH ? A_UNDER : floorStroke; thin = false;
+      paper = lit3 * 0.85 + bounce * concrete * 0.4; ink = paper * contrast;
+    } else if (!roof && windowCells > 4.0 && style != 2 && hash(windowId + 7.7) > 0.8 && band(tile.x, 0.52, 0.8) * band(tile.y, winY.x - 0.24, winY.x - 0.08) > 0.5) {
+      // Air-conditioning units hung under some windows.
+      float ax = (fract(tile.x) - 0.52) / 0.28;
+      code = ax < 0.14 ? A_LBR : ax > 0.86 ? A_RBR : A_HASH; thin = ax >= 0.14 && ax <= 0.86;
+      paper = vec3(0.07, 0.08, 0.085) + lit3 * 0.5; ink = paper * 2.2;
+    } else if (!roof && windowCells > 2.5 && (style == 0 || style == 4 || style == 6) && band(tile.x / 3.0, 0.0, 0.07) > 0.5) {
+      // Pilasters every third bay: raised, lit edges.
+      code = riseStroke; thin = false;
+      paper = lit3 * 0.95; ink = paper * contrast;
     } else {
       // Each architectural family has its own character texture, oriented to the face.
       thin = true;
@@ -523,6 +655,8 @@ ${VFX_GLSL_BRANCH}
     }
 #endif
   } else if (SURFACE < 1.5) {
+    // Rootwood Park (park.ts) shades its own lawns, paths, plazas, arena and water.
+    if (!parkGround(p, view, cellWorld, code, thin, paper, ink, emission, flags, reflectedGlyph)) {
     float sx = abs(p.x) < 32.0 ? abs(p.x) * 0.5 : street(p.x), sz = street(p.z);
     float road = 1.0 - step(6.2, min(sx, sz));
     vec3 asphalt = mix(vec3(0.11, 0.15, 0.17), vec3(0.047, 0.062, 0.068), road);
@@ -563,6 +697,7 @@ ${VFX_GLSL_BRANCH}
     paper += ring * puddle * u_rain * vec3(0.012, 0.027, 0.032);
     if (flags == 0.0 && ring * puddle * u_rain > 0.5 && cellWorld < 0.35) { code = A_O; thin = true; ink = paper * 1.8 + vec3(0.02, 0.04, 0.05); }
     #endif
+    } // parkGround
   } else if (SURFACE < 2.5) {
     vec3 albedo = v_glyphColor.rgb;
     float emissive = smoothstep(0.64, 0.95, max(albedo.r, max(albedo.g, albedo.b)));
@@ -617,7 +752,7 @@ ${VFX_GLSL_BRANCH}
   }
 
   float fog = isSky ? 0.0 : fogAmount(p);
-  vec3 fogColor = skyColor(view) * 0.9;
+  vec3 fogColor = sky * 0.9;
   vec3 haze = isSky ? vec3(0) : atmosphere(p);
   // Bright points survive the haze longer than diffuse surfaces, then go dark too.
   vec3 glow = emission * fog * (1.0 - fog) * 0.6;

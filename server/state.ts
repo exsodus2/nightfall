@@ -18,6 +18,11 @@ export const PlayerState = schema({
   car: "uint16",
   /** Server time (ms since the room opened) of the last accepted pose. */
   t: "float64",
+  place: "string",
+  trainId: "int8",
+  trainU: "float32",
+  trainV: "float32",
+  trainYaw: "float32",
 }, "PlayerState");
 export type PlayerState = SchemaType<typeof PlayerState>;
 
@@ -49,5 +54,6 @@ export const NightfallState = schema({
   /** Bumped on every accepted quest transition. */
   questRevision: "uint32",
   waypoints: { map: WaypointState },
+  worldTimeMs: "float64",
 }, "NightfallState");
 export type NightfallState = SchemaType<typeof NightfallState>;

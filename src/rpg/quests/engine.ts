@@ -128,7 +128,10 @@ export class QuestEngine {
       bus.on("interacted", e => { this.forObjectives((o, s) => { if (o.kind === "interact" && o.object === e.object) this.complete(s.quest, o, s.state); }); this.refresh(); }),
       bus.on("itemAdded", () => this.refresh()),
       bus.on("itemRemoved", () => this.refresh()),
-      bus.on("entered", () => this.refresh()),
+      bus.on("entered", event => {
+        this.forObjectives((objective, state) => { if (objective.kind === "visit" && objective.area === event.area) this.complete(state.quest, objective, state.state); });
+        this.refresh();
+      }),
       bus.on("left", () => this.refresh()),
       bus.on("flag", e => { if (this.flagStore.get(e.key) !== e.value) { this.flagStore.set(e.key, e.value); this.refresh(); } }),
       bus.on("playerDied", () => this.onDied()),
@@ -207,12 +210,12 @@ export class QuestEngine {
 
   /** Per-frame: named-area enter/leave events, trigger-area gigs, reach/survive objectives, time
    * limits and repeat cooldowns. Call once per frame with the player's ground position. */
-  update(dt: number, player: Point): void {
+  update(dt: number, player: Point & { place?: string }): void {
     const step = isFinite(dt) ? Math.max(0, Math.min(MAX_DT, dt)) : 0;
     this.time += step;
-    this.player = { x: player.x, z: player.z };
+    this.player = player.place ? null : { x: player.x, z: player.z };
     for (const area of this.areaDefs.values()) {
-      const inside = within(area, player);
+      const inside = !player.place && within(area, player);
       if (inside === this.inside.has(area.id)) continue;
       if (inside) this.inside.add(area.id); else this.inside.delete(area.id);
       this.bus.emit({ type: inside ? "entered" : "left", area: area.id });
@@ -223,7 +226,7 @@ export class QuestEngine {
         run.announced = true;
         this.bus.emit({ type: "questUpdated", quest: quest.id, stage: run.stage, status: this.status(quest.id) });
       }
-      if (quest.trigger && within(quest.trigger, player) && this.status(quest.id) === "available") this.begin(quest.id, "trigger");
+      if (!player.place && quest.trigger && within(quest.trigger, player) && this.status(quest.id) === "available") this.begin(quest.id, "trigger");
     }
     for (const [id, run] of this.runs) {
       if (run.status !== "active") continue;
@@ -232,7 +235,7 @@ export class QuestEngine {
       for (const objective of stage?.objectives ?? []) {
         const state = run.objectives.get(objective.id);
         if (!state || state.done || objective.kind !== "survive") continue;
-        if (objective.area && !within(objective.area, player)) continue; // leaving pauses the hold
+        if (objective.area && (player.place || !within(objective.area, player))) continue;
         state.progress += step;
         if (state.progress >= objective.seconds) this.complete(id, objective, state);
       }

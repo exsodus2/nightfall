@@ -26,6 +26,8 @@ export interface TouchControlsProps {
   onMap: () => void;
   onQuests: () => void;
   onRadio: () => void;
+  /** RPG UI: inventory & character screen (omitted until the RPG layer runs). */
+  onInventory?: () => void;
   onOnline: () => void;
   onSettings: () => void;
 }
@@ -166,8 +168,8 @@ export function TouchControls(props: TouchControlsProps) {
     onClick: (event: ReactMouseEvent) => { if (event.detail === 0) run(); }, // keyboard / assistive activation
     onContextMenu: (event: ReactMouseEvent) => event.preventDefault(),
   });
-  const interaction = snapshot.interaction;
-  const canInteract = !!interaction && !interaction.startsWith("Walk") && interaction !== "Lift in motion" && !interaction.startsWith("Slow down");
+  const interaction = snapshot.mode === "walk" && snapshot.rpg?.prompt && (!snapshot.interaction || snapshot.interaction === "Take lift to the platform") ? snapshot.rpg.prompt : snapshot.interaction;
+  const canInteract = !!interaction && !interaction.startsWith("Walk") && interaction !== "Lift in motion" && interaction !== "Finish combat before entering" && !interaction.startsWith("Slow down");
   const riding = mode === "taxi" || mode === "sky";
   const menu = (label: string, glyph: string, run: () => void, extra?: { pressed?: boolean; hidden?: boolean }) => extra?.hidden ? null
     : <button type="button" aria-pressed={extra?.pressed} onClick={() => { setDrawer(false); run(); }}><span aria-hidden="true">{glyph}</span>{label}</button>;
@@ -188,6 +190,7 @@ export function TouchControls(props: TouchControlsProps) {
       {menu("Map", "⌖", props.onMap)}
       {menu("Transit", "↗", props.onTransit)}
       {menu("Quests", "◆", props.onQuests)}
+      {props.onInventory ? menu("Inventory", "#", props.onInventory) : null}{/* RPG UI */}
       {menu(radioOpen ? "Hide radio" : "Radio", "♪", props.onRadio, { pressed: radioOpen })}
       {menu("Chat", "›", () => window.dispatchEvent(new Event("nightfall:chat-open")), { hidden: !online })}
       {menu("Online", "◉", props.onOnline)}

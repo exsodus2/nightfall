@@ -165,7 +165,7 @@ test("the engine pose: feet height per mode, car heading, remote headlights by d
   const driving = localPose({ ...base, mode: "drive", eye: 1.25, car });
   assert.deepEqual([driving.y, driving.heading, driving.speed, driving.car], [0, 1.2, 14, 7]);
   const lights = [{ x: 0, z: 0, yaw: 0, intensity: 1 }, { x: 50, z: 0, yaw: 0, intensity: 1 }];
-  const remote = { id: "a", name: "A", color: [1, 2, 3] as const, hex: "#010203", x: 20, y: 0, z: 0, yaw: 0, pitch: 0, heading: 0.3, speed: 9, mode: "drive" as const, car: 1, stride: 0 };
+  const remote = { id: "a", name: "A", color: [1, 2, 3] as const, hex: "#010203", x: 20, y: 0, z: 0, yaw: 0, pitch: 0, heading: 0.3, speed: 9, mode: "drive" as const, car: 1, stride: 0, place: "", carrier: null };
   mergeRemoteHeadlights(lights, [remote, { ...remote, mode: "walk" }], 0, 0, true);
   assert.deepEqual(lights.map(l => l.x), [0, 20, 50]);
 });

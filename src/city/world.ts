@@ -1,4 +1,8 @@
+import { parkBlock, parkBlocked } from "./park.ts";
+
 export type RGB = readonly [number, number, number];
+/** Rootwood Park (park.ts): bounds, the boss arena and the interior test, for other systems. */
+export { PARK, PARK_ARENA, PARK_INTERIOR, inPark, parkBlocked } from "./park.ts";
 
 export interface District {
   id: number;
@@ -185,7 +189,8 @@ export class CityWorld {
     for (let bz = -HALF_BLOCKS; bz < HALF_BLOCKS; bz++) {
       for (let bx = -HALF_BLOCKS; bx < HALF_BLOCKS; bx++) {
         const buildings: Building[] = [];
-        const reserved = LANDMARKS.some((landmark) => landmark.kind !== "gate" && Math.floor(landmark.x / BLOCK_SIZE) === bx && Math.floor(landmark.z / BLOCK_SIZE) === bz);
+        // Landmark blocks, and the nine blocks of Rootwood Park, have no building plots.
+        const reserved = parkBlock(bx, bz) || LANDMARKS.some((landmark) => landmark.kind !== "gate" && Math.floor(landmark.x / BLOCK_SIZE) === bx && Math.floor(landmark.z / BLOCK_SIZE) === bz);
         if (!reserved) {
           for (let plot = 0; plot < 4; plot++) {
             const originalX = bx * BLOCK_SIZE + (plot % 2 === 0 ? 19 : 45);
@@ -249,6 +254,9 @@ export class CityWorld {
         if (Math.abs(x - landmark.x) < radius && Math.abs(z - landmark.z) < radius) return false;
       }
     }
+    // Rootwood Park: trunks, benches, lanterns, hedges, sculptures, the arena's stage and
+    // pillars, the gatehouse tunnel mouths and the pond (the footbridge crosses it).
+    if (parkBlocked(x, z, PLAYER_RADIUS)) return false;
     return true;
   }
 }
@@ -266,7 +274,7 @@ export const WALK_SPEED = 6;
 export const SPRINT_SPEED = 11;
 
 /** `sprint` is a flag or a 0..1 blend from walking to sprinting (the engine eases it). */
-export function movePlayer(world: CityWorld, player: Player, forward: number, strafe: number, sprint: boolean | number, dt: number): void {
+export function movePlayer(world: Pick<CityWorld, "canOccupy">, player: Player, forward: number, strafe: number, sprint: boolean | number, dt: number): void {
   const magnitude = Math.hypot(forward, strafe);
   if (magnitude === 0) return;
   const pace = typeof sprint === "number" ? Math.max(0, Math.min(1, sprint)) : sprint ? 1 : 0;

@@ -1,6 +1,7 @@
 import { BLOCK_SIZE, HALF_BLOCKS, RAIL_SOLIDS, WORLD_EDGE, blockKey, randomFor, type CityWorld } from "./world.ts";
 import { STATIONS, localToWorld } from "./metro.ts";
 import { safeLanding } from "./locomotion.ts";
+import { inPark } from "./park.ts";
 import { easeViewBlend, stepViewBlend, type DriveView } from "./drive-view.ts";
 
 /** Pure vehicle model, parked-car placement and driving camera. No DOM, no textmode:
@@ -169,6 +170,8 @@ export class ParkedCars {
           if (axis === "x" && Math.abs(along) < 31) continue;
           const pose = axis === "z" ? { x: lateral, z: along, yaw: side < 0 ? 0 : Math.PI } : { x: along, z: lateral, yaw: -side * Math.PI / 2 };
           if (STATIONS.some(s => Math.abs(pose.x - s.x) < 40 && Math.abs(pose.z - s.z) < 40)) continue;
+          // Rootwood Park's streets are promenades (its boundary streets keep their kerbside cars).
+          if (inPark(pose.x, pose.z)) continue;
           // Only where the pavement is wide enough for the driver to step out beside the car.
           if (!carFits(world, pose)) continue;
           const exit = exitSpot(world, pose);

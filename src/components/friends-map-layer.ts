@@ -1,5 +1,6 @@
 import type { FriendPosition } from "@/multiplayer/types";
 import type { QuestLayerView } from "./quest-map-layer";
+import { presenceMapPosition, presencePlace } from "@/multiplayer/presence";
 
 /** Multiplayer: other players on the minimap / atlas: a heading chevron in their colour, their name
  * on the atlas, and an edge pointer on the minimap when they are off the local map. */
@@ -10,8 +11,9 @@ export function drawFriendsLayer(ctx: CanvasRenderingContext2D, view: QuestLayer
   ctx.font = "11px monospace";
   ctx.textAlign = "center";
   for (const friend of friends) {
-    const x = px(friend.x), z = pz(friend.z);
-    const inside = Math.abs(friend.x - centerX) <= extent && Math.abs(friend.z - centerZ) <= extent;
+    const position = presenceMapPosition(friend);
+    const x = px(position.x), z = pz(position.z);
+    const inside = Math.abs(position.x - centerX) <= extent && Math.abs(position.z - centerZ) <= extent;
     ctx.fillStyle = friend.color;
     ctx.shadowColor = friend.color;
     ctx.shadowBlur = 8;
@@ -19,7 +21,7 @@ export function drawFriendsLayer(ctx: CanvasRenderingContext2D, view: QuestLayer
       ctx.save(); ctx.translate(x, z); ctx.rotate(friend.yaw);
       ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 5); ctx.lineTo(0, 2.5); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill();
       ctx.restore();
-      if (full) { ctx.shadowBlur = 0; ctx.fillText(friend.name, x, z - 11); }
+      if (full) { ctx.shadowBlur = 0; const place = presencePlace(friend.place); ctx.fillText(place ? `${friend.name} · ${place.name}` : friend.name, x, z - 11); }
     } else if (!full) {
       const angle = Math.atan2(z - size / 2, x - size / 2);
       const reach = (size / 2 - 7) / Math.max(Math.abs(Math.cos(angle)), Math.abs(Math.sin(angle)));

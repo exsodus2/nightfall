@@ -1,8 +1,10 @@
 // Buffered snapshot interpolation for remote players. Pure (no DOM, no Colyseus): the session
 // feeds it server-stamped poses; the renderer samples it every frame slightly in the past.
 import { SEND_INTERVAL, type Mode } from "./protocol.ts";
+import { samePlace } from "./presence.ts";
+import { sameCarrier, type TrainCarrier } from "./rail.ts";
 
-export interface PoseSample { time: number; x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: Mode; car: number }
+export interface PoseSample { time: number; x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: Mode; car: number; place?: string; carrier?: TrainCarrier | null }
 
 /** Beyond this jump between consecutive samples (m) a player is snapped, never slid. */
 export const TELEPORT_DISTANCE = 60;
@@ -21,14 +23,18 @@ export class SnapshotBuffer {
   get size(): number { return this.samples.length; }
   get newest(): PoseSample | null { return this.samples[this.samples.length - 1] ?? null; }
 
-  /** Adds a sample. Out-of-order or duplicate timestamps are ignored. */
+  /** Adds a sample; equal timestamps replace only a changed place or travel mode. */
   push(sample: PoseSample): void {
     const last = this.newest;
-    if (last && sample.time <= last.time) return;
+    if (last && sample.time < last.time) return;
+    if (last && sample.time === last.time) {
+      if (last.mode !== sample.mode || !samePlace(last.place, sample.place) || !sameCarrier(last.carrier, sample.carrier) || (last.speed !== 0 && sample.speed === 0)) this.samples[this.samples.length - 1] = { ...sample, place: sample.place ?? "", carrier: sample.carrier ? { ...sample.carrier } : null };
+      return;
+    }
     // After an idle gap, hold the old pose until one interval before the new one; otherwise the
     // player would drift across the whole gap in slow motion.
     if (last && sample.time - last.time > IDLE_GAP) this.samples.push({ ...last, time: sample.time - SEND_INTERVAL, speed: 0 });
-    this.samples.push(sample);
+    this.samples.push({ ...sample, place: sample.place ?? "", carrier: sample.carrier ? { ...sample.carrier } : null });
     if (this.samples.length > CAPACITY) this.samples.splice(0, this.samples.length - CAPACITY);
   }
 
@@ -46,6 +52,7 @@ export class SnapshotBuffer {
     if (!b) {
       const prev = s[i - 1];
       const ahead = Math.min(time - a.time, MAX_EXTRAPOLATION);
+      if (a.carrier) return { ...a, time, speed: time - a.time > MAX_EXTRAPOLATION ? 0 : a.speed };
       if (!prev || jumped(prev, a) || a.speed === 0) return { ...a, time };
       const span = a.time - prev.time;
       if (span <= 0) return { ...a, time };
@@ -55,7 +62,7 @@ export class SnapshotBuffer {
     if (jumped(a, b)) return { ...a, time };
     const k = (time - a.time) / (b.time - a.time);
     return {
-      time, mode: k < 0.5 ? a.mode : b.mode, car: b.car,
+      time, mode: a.mode, car: b.car, place: a.place ?? "", carrier: a.carrier && b.carrier ? { train: a.carrier.train, u: lerp(a.carrier.u, b.carrier.u, k), v: lerp(a.carrier.v, b.carrier.v, k), yaw: lerpAngle(a.carrier.yaw, b.carrier.yaw, k) } : null,
       x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: lerp(a.z, b.z, k), speed: lerp(a.speed, b.speed, k),
       yaw: lerpAngle(a.yaw, b.yaw, k), heading: lerpAngle(a.heading, b.heading, k), pitch: lerp(a.pitch, b.pitch, k),
     };
@@ -63,13 +70,14 @@ export class SnapshotBuffer {
 }
 
 function jumped(a: PoseSample, b: PoseSample): boolean {
-  return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) > TELEPORT_DISTANCE || (a.mode === "drive") !== (b.mode === "drive");
+  return (!a.carrier && Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) > TELEPORT_DISTANCE) || a.mode !== b.mode || !samePlace(a.place, b.place) || !sameCarrier(a.carrier, b.carrier);
 }
 
 /** Relates the server clock (sample stamps, ms) to the local clock (s). The offset follows the
  * smallest observed delay at once and larger ones slowly, so network jitter barely moves it. */
 export class ServerClock {
   private offset: number | null = null;
+  reset(): void { this.offset = null; }
   observe(serverMs: number, localSeconds: number): void {
     const observed = localSeconds - serverMs / 1000;
     if (this.offset === null || observed < this.offset) this.offset = observed;

@@ -13,9 +13,14 @@ let executable;
 for (const path of candidates) { try { await access(path); executable = path; break; } catch { /* Next browser */ } }
 if (!executable) throw new Error("Set CHROME_PATH to an installed Chromium browser.");
 const port = 9332;
-const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", "visual-browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--enable-webgl", "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
+const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", "visual-browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-extensions", "--enable-webgl", ...(args.has("software") ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []), "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
 let socket;
 const report = [];
+const cameras = {
+  "glass-office": { x: -45, z: 124, height: 14, yaw: 0, pitch: 0 },
+  "glass-grazing": { x: -35, z: 119, height: 14, yaw: -1.335, pitch: 0 },
+  "glass-warm": { x: -45, z: 63, height: 14, yaw: 0, pitch: 0 },
+};
 try {
   let tabs;
   for (let i = 0; i < 60; i++) { try { tabs = await fetch(`http://127.0.0.1:${port}/json`).then(r => r.json()); break; } catch { await delay(200); } }
@@ -33,7 +38,7 @@ try {
     if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") errors.push(message.params.args.map(arg => arg.value ?? arg.description).join(" "));
   });
   const call = (method, params = {}) => new Promise((resolveCall, reject) => {
-    const requestId = ++id, timer = setTimeout(() => reject(Error(`Timed out: ${method}`)), 30000);
+    const requestId = ++id, timer = setTimeout(() => { pending.delete(requestId); reject(Error(`Timed out: ${method}`)); }, 90000);
     pending.set(requestId, { resolve: resolveCall, reject, timer }); socket.send(JSON.stringify({ id: requestId, method, params }));
   });
   const evaluate = async expression => {
@@ -42,23 +47,36 @@ try {
     return result.result.value;
   };
   await call("Runtime.enable"); await call("Page.enable");
-  await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: Number(args.get("dpr") ?? 1), mobile: false });
+  const mobile = args.has("mobile");
+  await call("Emulation.setDeviceMetricsOverride", { width: mobile ? 844 : 1440, height: mobile ? 390 : 960, deviceScaleFactor: Number(args.get("dpr") ?? (mobile ? 3 : 1)), mobile });
+  if (mobile) await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   const views = (args.get("views") ?? "market,crossing,tenements,foundry,rooftops,platform,carriage").split(",");
   for (const view of views) {
-    const params = new URLSearchParams({ studio: "1", view, clock: args.get("clock") ?? "45", clean: "1" });
+    const params = new URLSearchParams({ studio: "1", view, clock: args.get("clock") ?? "45", clean: "1", perf: "1" });
     if (args.has("reference")) params.set("reference", args.get("reference"));
     const url = `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?${params}`;
     await call("Page.navigate", { url });
+    console.log(`Loading ${view}...`);
     for (let i = 0; i < 100; i++) {
       const phase = await evaluate("document.querySelector('main')?.dataset.phase");
       if (phase === "error") throw Error(await evaluate("document.body.innerText"));
       if (phase === "intro") break;
       await delay(200);
     }
+    if (await evaluate("document.querySelector('main')?.dataset.phase") !== "intro") throw Error(`Renderer not ready: ${view}`);
+    if (cameras[view]) await evaluate(`window.__nightfall.inspect(${JSON.stringify({ kind: "camera", ...cameras[view] })})`);
+    if (args.has("quality")) {
+      const label = { high: "Fine", balanced: "Balanced", low: "Performance", auto: "Auto" }[args.get("quality")];
+      if (!label) throw Error("Quality must be high, balanced, low or auto");
+      await evaluate("[...document.querySelectorAll('button')].find(button => button.textContent.trim().startsWith('Settings')).click()");
+      await delay(100);
+      await evaluate(`[...document.querySelectorAll('[aria-label="Detail level"] button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+      await evaluate("document.querySelector('[aria-label=\"Close panel\"]').click()");
+    }
     await delay(Number(args.get("warm") ?? 2500));
     const image = await call("Page.captureScreenshot", { format: "png" });
     await writeFile(resolve(directory, `${view}.png`), Buffer.from(image.data, "base64"));
-    const metrics = await evaluate("({ fps: document.querySelector('.fps-count')?.textContent, status: [...document.querySelectorAll('.studio-body dl > *')].map(el=>el.textContent).join(' | '), x: document.querySelector('.coordinates')?.dataset.x, z: document.querySelector('.coordinates')?.dataset.z })");
+    const metrics = await evaluate("({ fps: document.querySelector('.fps-count')?.textContent, status: [...document.querySelectorAll('.studio-body dl > *')].map(el=>el.textContent).join(' | '), x: document.querySelector('.coordinates')?.dataset.x, z: document.querySelector('.coordinates')?.dataset.z, performance: window.__nightfallPerf?.() })");
     report.push({ view, url, ...metrics }); console.log(JSON.stringify({ view, ...metrics }));
   }
   if (errors.length) throw Error(errors.join("\n"));
@@ -66,4 +84,5 @@ try {
   const escape = text => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
   await writeFile(resolve(directory, "index.html"), `<!doctype html><meta charset="utf-8"><title>Nightfall visual audit</title><style>body{margin:32px;background:#0a1317;color:#c5d4ce;font:14px/1.6 system-ui}h1{font-size:24px}main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}figure{margin:0}img{width:100%;image-rendering:auto}a{color:#9ddccd}figcaption{padding:10px 0}details{font:12px monospace;white-space:pre-line}@media(max-width:900px){main{grid-template-columns:1fr}}</style><h1>Nightfall · visual audit</h1><p>Fixed seed, camera and clock. Click a scene to inspect the full-resolution image. <a href="${escape(process.env.CITY_URL ?? "http://127.0.0.1:3000")}/?studio=1">Open scene lab</a></p><main>${report.map(row => `<figure><a href="${row.view}.png"><img src="${row.view}.png" alt="${row.view}"></a><figcaption><strong>${row.view}</strong> · ${row.fps} · <a href="${escape(row.url.replace("clean=1", "clean=0"))}">Inspect this camera</a><details><summary>Scene metrics</summary>${escape(row.status ?? "")}</details></figcaption></figure>`).join("")}</main>`);
   console.log(`Gallery: ${resolve(directory, "index.html")}`);
-} finally { socket?.close(); chrome.kill(); }
+} catch (error) { console.error(error); process.exitCode = 1; }
+finally { socket?.close(); chrome.kill(); }

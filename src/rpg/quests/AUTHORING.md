@@ -72,6 +72,7 @@ A stage with **no objectives** completes the moment it is entered. Use one as a 
 | `collect { item, count }` | The player **holds** `count` of the item. This is checked live, so dropping the item un-does the objective. |
 | `deliver { item, count, npc }` | The player picks "Hand over ..." when talking to the NPC. The items are taken at that moment. |
 | `reach { area }` | The player stands inside the circle. |
+| `visit { area: "interior:blue-hour" }` | A matching `entered` event arrives while the objective is active. Interior events only fire on real entry, never from walking past outside; supply `target` with the doorway position for navigation. |
 | `interact { object }` | The player uses the interactable. |
 | `survive { seconds, area? }` | The player stays alive for that many seconds (inside the area if one is given). Leaving the area pauses the timer. Dying resets it. |
 | `choose { dialogue, options }` | The player picks one of those option ids in that dialogue. |
@@ -280,6 +281,8 @@ dialogue entry can check `{ flag: "bone-leader.alive" }`. The Razorback
 reputation change can gate vendors and encounters.
 
 ## Checklist before you ship a pack
+
+Interactables default to the exterior. Set `place` to a venue id (for example, `kiln`) to restrict a terminal to that interior; its `x/z` remain world coordinates. Indoor use does not enable street combat, loot pickup or exterior proximity objectives. Dialogue terminals should disappear after a confirmed choice or reward, not merely when opened: avoid `once: true` on a terminal that the player can leave without finishing.
 
 1. Give every id a prefix unique to the pack. For example, the dialogue ids here start with `cab.`.
 2. Run `validateContent(pack, [itemsPack, combatPack])` in a test and assert it returns `[]`.

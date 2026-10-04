@@ -3,6 +3,8 @@
 // Colyseus imports, `.ts` specifiers only, so both sides load the exact same rules.
 import { WORLD_EDGE } from "../city/world.ts";
 import type { TravelMode } from "../city/locomotion";
+import { normalizePlace, validPresence } from "./presence.ts";
+import { CARRIER_WALK_SPEED, parseTrainCarrier, validRailPresence, type TrainCarrier } from "./rail.ts";
 
 export const ROOM_NAME = "nightfall";
 export const DEFAULT_PORT = 2567;
@@ -32,7 +34,7 @@ export type Mode = (typeof MODES)[number];
 export const isMode = (value: unknown): value is Mode => typeof value === "string" && (MODES as readonly string[]).includes(value);
 
 /** Client -> server, ~12 Hz. `y` is the height of the feet (or the vehicle's floor) above the street. */
-export interface PoseMessage { x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: Mode; car: number }
+export interface PoseMessage { x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: Mode; car: number; place?: string; carrier?: TrainCarrier | null }
 export interface QuestIntentMessage { npcId: string; optionId: string }
 /** Server -> clients. */
 export interface ChatMessage { id: number; from: string; name: string; color: string; text: string; time: number; kind: "chat" | "system" }
@@ -117,10 +119,16 @@ export function parsePose(raw: unknown): PoseMessage | null {
   const m = raw as Record<string, unknown>;
   if (![m.x, m.y, m.z, m.yaw, m.pitch, m.heading, m.speed].every(finite) || !isMode(m.mode)) return null;
   const n = m as Record<"x" | "y" | "z" | "yaw" | "pitch" | "heading" | "speed", number>;
+  const place = normalizePlace(m.place);
+  if (place === null || !validPresence({ x: n.x, y: n.y, z: n.z, mode: m.mode, place })) return null;
+  const carrier = parseTrainCarrier(m.carrier);
+  if (m.carrier !== undefined && m.carrier !== null && !carrier) return null;
+  if (!validRailPresence({ x: n.x, y: n.y, z: n.z, mode: m.mode, place, carrier })) return null;
+  const speedLimit = carrier ? CARRIER_WALK_SPEED : MODE_SPEED[m.mode];
   return {
     x: clamp(n.x, -WORLD_EDGE, WORLD_EDGE), y: clamp(n.y, 0, MAX_HEIGHT), z: clamp(n.z, -WORLD_EDGE, WORLD_EDGE),
     yaw: wrapAngle(n.yaw), pitch: clamp(n.pitch, -1.6, 1.6), heading: wrapAngle(n.heading),
-    speed: clamp(n.speed, -MODE_SPEED[m.mode], MODE_SPEED[m.mode]), mode: m.mode, car: finite(m.car) ? clamp(Math.floor(m.car), 0, 65535) : 0,
+    speed: clamp(n.speed, -speedLimit, speedLimit), mode: m.mode, car: carrier ? 0 : finite(m.car) ? clamp(Math.floor(m.car), 0, 65535) : 0, place, carrier,
   };
 }
 

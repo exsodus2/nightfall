@@ -324,6 +324,7 @@ export type Objective = { id: string; text: string; optional?: boolean; hidden?:
   | { kind: "collect"; item: string; count: number }
   | { kind: "deliver"; item: string; count: number; npc: string }
   | { kind: "reach"; area: Area }
+  | { kind: "visit"; area: string }
   | { kind: "interact"; object: string }
   | { kind: "survive"; seconds: number; area?: Area }
   | { kind: "choose"; dialogue: string; options: readonly string[] }
@@ -405,6 +406,7 @@ export interface DialogueDefinition {
 export interface InteractableDefinition extends Point {
   id: string;
   label: string;
+  place?: string;
   /** Height of the prompt/marker (m). */
   y?: number;
   glyph?: string;
@@ -451,7 +453,7 @@ export interface RpgInput {
 export interface RpgFrame {
   dt: number;
   time: number;
-  player: { x: number; z: number; eye: number; yaw: number; pitch: number; mode: string; onFoot: boolean };
+  player: { x: number; z: number; eye: number; yaw: number; pitch: number; mode: string; onFoot: boolean; place?: string };
   input: RpgInput;
 }
 

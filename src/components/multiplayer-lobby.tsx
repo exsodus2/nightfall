@@ -76,7 +76,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
   return <div className="panel-backdrop" onClick={onClose}>
     <section className={`side-panel ${styles.lobby}`} role="dialog" aria-modal="true" aria-labelledby="mp-title" tabIndex={-1} ref={dialogRef} onClick={(event) => event.stopPropagation()}>
       <div className="panel-heading"><div><span className="panel-kicker">Nightfall online</span><h2 id="mp-title">{connected ? "Party up." : "Bring a friend."}</h2></div><button className="close-button" onClick={onClose} aria-label="Close online panel">×</button></div>
-      <p className="panel-intro">Walk, drive and chat together, and share quest progress with everyone in your room. Up to eight runners per room.</p>
+      <p className="panel-intro">Meet in the streets or step into the same venue. Share chat and map pins with up to eight runners. Your RPG quests, inventory and rewards stay yours.</p>
 
       {connected && view.code ? <>
         <div className={styles.room}>

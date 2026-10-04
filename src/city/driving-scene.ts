@@ -3,6 +3,7 @@ import type { Textmodifier } from "textmode.js";
 import { carColor, cuboid as box, drawCar, ink, propRange, restorePropRange, type ActivityView } from "./activity";
 import { DRIVER_EYE_HEIGHT, type DriveCar, type ParkedCar } from "./driving";
 import { steeringWheelAngle } from "./drive-view";
+import { drawRearCabin } from "./vehicle-cabin";
 
 /** Parked cars along the kerbs, plus the player's car: the whole body once the camera is outside
  * it (chase view), or the cockpit around the driver's eye. */
@@ -84,6 +85,7 @@ function drawCockpit(t: PropCanvas, car: DriveCar): void {
   }
   ink(t, [120, 170, 190], "/", 0.45);
   for (const side of [-1, 1]) box(t, side * 1.47, 1.52, -0.925, 0.22, 0.11, 0.01);
+  drawRearCabin(t, body, ink);
   drawSteeringWheel(t, car.steer);
   t.pop();
 }

@@ -13,16 +13,30 @@ npm run dev
 
 Open **http://127.0.0.1:3000**. Click **Enter the city** to capture the mouse and walk.
 
+## Public domain hosting
+
+For `https://city.optimisticroc.com`, point the reverse proxy at this machine's HTTP port **3173**, with WebSocket upgrades enabled. This port serves both the website and multiplayer.
+
+Set `NEXT_PUBLIC_MULTIPLAYER_URL=wss://city.optimisticroc.com` in `.env.production.local`, then run `npm run build`. Start `npm run start:site` and `npm run server:public` in separate terminals. The website listens internally on `127.0.0.1:3001`; `server/public.env` configures the public gateway on `0.0.0.0:3173`.
+
 ## Explore
 
 - A deterministic 1,536 × 1,536 metre world: **576 city blocks and over 2,200 buildings**.
 - Six districts with a connected street and alley network, six discoverable landmarks, and building collision.
+- Six walkable district interiors: Kiln Nine's workshop, Undertone's listening bar, Dead Letter Exchange's relay room, The Glasshouse's conservatory, Blue Hour Tea, and Second Life Salvage. Use **T → Step inside → a venue**, then **E** at its lit doorway. Each has furniture collision, residents, a room-layout minimap, and restrained steam, drifting motes or animated equipment. Return to the lit exit and press **E** to leave.
+- **Night Shift quests:** meet Mira Bell outside Blue Hour Tea. Carry a grow-light manifest through four real interiors, then choose who receives a late-night radio channel. Entries count only after accepting the job; progress, decisions and rewards persist.
+- **Kiln Nine workbench:** approach the right-hand machine's **USE** panel and press **E**. Read its calibration plate, diagnose mistakes safely and certify a Shield Cell. Leaving midway preserves progress; the reward is granted once.
 - Eight architectural families with varied masonry, window spacing, balconies, industrial pipes and rooftop machinery; hundreds of shop-name combinations, recessed storefronts, awnings, vending machines, lanterns and hanging utilities.
 - Traffic follows signals and queues behind other cars. Residents follow pavement routes, wait at crossings, browse shops and make deliveries. Fifty-four commuters board trains, sit, alight, use lifts and visit station markets before returning.
+- Close-up residents have articulated limbs, layered clothing, visible faces, varied hair and headwear, handheld props and idle gestures. Distant silhouettes use a small geometry budget; umbrella poles and canopies share one centred attachment.
+- Nearby residents notice players, offer short district-specific remarks and find safe pavement detours around someone in their way. Awareness is distance-limited and speech is rate-limited; distant residents retain cheap routines.
+- Facade glass has angle-dependent sky reflections, recessed room detail, stable frames and mullions. Fine details fade with cell footprint, and touch devices use a lighter shader variant.
 - Air traffic, steam vents, world-mounted signs, restrained reflective puddles, rain and live synth billboards.
 - Ground taxis follow street routes; sky taxis take off, fly above the towers, and land. The monorail is a physical four-train service with six stations, working lifts, sliding doors and three connected carriages you can walk through.
 - Drivable cars: walk up to one of the ~1,300 cars parked along the kerbs (or a traffic car stopped at a light) and press **E**. W/S or ↑/↓ throttle, brake and reverse; A/D or ←/→ steer; Space handbrake; Shift boost; V (or the **V · Cockpit / Chase** button in the driving HUD) switches between the cockpit, with bonnet, pillars, mirrors and a steering wheel that turns in your hands, and a chase camera behind the whole car; the switch eases over 0.4 s and the last choice is remembered for the next car; E (when slow) steps out onto the pavement. Cars collide with buildings, rail pillars and other cars, traffic queues behind yours, and a car you leave stays where you parked it. Flight is disabled while driving; T, taxis and the monorail park the car first.
 - Walking, sprinting, jumping, and free flight, plus a live minimap (north-up or heading-up) and the elevated rail loop.
+- Walking and dodging respect nearby parked and traffic car footprints. Swept collision prevents corner-cutting, allows escape from a moving car's overlap and leaves elevated platforms and flight unaffected.
+- Cars have round tyre sidewalls without square backings, plus a complete rear cockpit with seats, headrests, rear-door trim, a parcel shelf and an open rear-window view.
 - **City map (M)**, World-of-Warcraft style: a large translucent overlay drawn as a terminal — every block, building, street and the rail loop re-sampled into ASCII characters in district tints, redrawn (never scaled) at any zoom. Zoom smoothly with the wheel (toward the cursor), **+ / −** or the buttons; drag to pan; **H** or ◎ centres on you. Zoomed out it shows districts and landmarks; zoomed in, street names, then individual buildings with their shop signs and heights. Moving trains, stations, quest givers and targets, friends and your heading are live. **The city does not pause**: the mouse is released for the map, but traffic, trains and rain keep going and **WASD keeps walking**; M or Esc closes it and recaptures the mouse.
 - **Waypoints**: click (or right-click) the map to drop one; name it, colour it, track it, share it or remove it from the list (right-click a pin, or **Del**, removes it). The tracked waypoint lights a tall beacon in the 3D city that can be seen from anywhere, a compass tape with bearing and distance at the top of the HUD, and a pin or edge chevron on the minimap. **Share** sends it to friends in your online room; **Copy link** makes a `?wp=x,z,label` URL that adds the waypoint for whoever opens it — no server needed. Your waypoints are remembered in this browser.
 - **In-game radio** streaming [Nightride FM](https://nightride.fm) (Nightride, Chillsynth, Datawave, Spacesynth, Darksynth, Horrorsynth, EBSM, plus Rekt and Rektory from the sister [Rekt Network](https://rekt.network)). Hotkeys work while you keep moving with the mouse captured; the HUD widget (above the minimap) is clickable whenever the pointer is free and on touch screens. Shows the live artist and title, a spectrum meter, volume and a station flash; while driving it becomes the car head unit. It never starts on its own: the first press of **R** or ▶ starts it, and station, volume, mute and on/off are remembered in this browser (a radio left on resumes on your next click or key press). The rain ambience ducks while it plays. The station list has an option to pause while the tab is hidden (off by default).
@@ -37,7 +51,7 @@ Open **http://127.0.0.1:3000**. Click **Enter the city** to capture the mouse an
 | Q / C (or Control) | Rise / descend in flight |
 | F | Toggle free flight |
 | T | Choose transportation and destination |
-| E | Talk to a nearby person / use station lift / board or alight through an open train door / exit taxi / land / get in or out of a car |
+| E | Enter / leave a venue, talk to a nearby person, use station lift, board / alight, exit taxi, land, get in / out of a car |
 | V | While driving: cockpit / chase camera (remembered) |
 | Arrow up / down | Walk forward / backward |
 | Arrow left / right | Turn |
@@ -52,13 +66,20 @@ Open **http://127.0.0.1:3000**. Click **Enter the city** to capture the mouse an
 | - / = | Radio volume down / up (zoom instead while the city map is open) |
 | N | Mute / unmute the radio |
 | Enter | Online: open the room chat; Enter sends, Esc closes (game keys are ignored while typing) |
+| Left mouse | Attack: tap for light (3-hit combo), hold and release for a heavy / fire the gun in hand (hold for automatic) |
+| Right mouse | Block with a melee weapon (start just before a hit to parry) / aim a gun |
+| C (on foot) | Dodge roll in the direction you move (brief invulnerability) |
+| X | Reload |
+| 1 / 2 / 3 / 4 | Melee / sidearm / primary / holster (fists) |
+| Q / Z (on foot) | Use quick item 1 / 2 (stims, medkits, buffs) |
+| E (on loot or objects) | Pick up dropped loot / use terminals, crates and other marked objects |
 | Escape | Pause and release mouse |
 | Touch: left thumb | Floating joystick: walk / fly (analog); push past the ring to run; in a car steer + gas / brake |
 | Touch: right thumb | Swipe to look (optional gyro aim in Settings) |
 | Touch buttons | Interact (labelled, appears when something is in reach), Jump, Fly / Rise / Down / Land, Brake / Cam in a car, Pause, ≡ menu (Map, Transit, Quests, Radio, Chat, Online, Settings) |
 | Drag the city | Look when mouse capture is unavailable (desktop) |
 
-The camera starts at street level. Relative mouse input uses raw deltas where supported and frame-rate-independent smoothing. Travel, discoveries, and settings last for the current page session. This is an exploration experience; buildings have exterior facades and solid footprints. The monorail has walkable interiors; other buildings remain exterior scenery. For rail travel, choose **T → Monorail → a station** to visit its street entrance, press **E** for the lift, then approach an open carriage door. Walk through the train with WASD; alight at an open door at the next station.
+The camera starts at street level. Relative mouse input uses raw deltas where supported and frame-rate-independent smoothing. Travel, discoveries, and settings last for the current page session. Buildings retain solid exterior footprints; six marked venues switch into a separate walkable room on entry. Only the occupied room is drawn: no exterior buildings, reflections or rain, and no geometry for unopened rooms. Pausing or saving indoors preserves a safe outdoor return position. For rail travel, choose **T → Monorail → a station** to visit its street entrance, press **E** for the lift, then approach an open carriage door. Walk through the train with WASD; alight at an open door at the next station.
 
 ## iPhone and other phones
 
@@ -101,7 +122,8 @@ Play with friends in the same city through a small [Colyseus](https://colyseus.i
 
 - See each other walk, run and fly: other players are ASCII runners with a visor and ring in their colour and a floating name tag, smoothly interpolated (12 Hz updates, buffered ~160 ms, drawn every frame). Players in a car, taxi or sky taxi are shown in it, and their cars light the street with headlights.
 - Room chat (**Enter**), with join / leave notices. The server limits messages to 200 characters and a burst of 5 (then one every 1.5 s) and strips invisible/control characters; messages are always rendered as text.
-- Shared quests: everyone in a room shares one contract ledger and credit purse. When anyone accepts, advances or completes a quest, the server replays the choice on its own quest book (so only real, in-order transitions near the right NPC count) and every player's tracker, log and markers update. Joining a room adopts the room's progress.
+- Shared interiors: friends in the same venue see one another and appear on its floorplan. Players outside see a visitor's venue name and doorway position on the city map. Chat and shared map pins work across the room; RPG quest progress, inventory and rewards remain individual.
+- A room clock synchronizes monorail timetables and crossing signals. Rider positions are interpolated inside their carriage, then attached to the current train, so friends do not lag behind it. Paused riders travel with their train; renderer recovery restores their carriage position. Civilian routes and traffic vehicles remain local simulations.
 - Friends appear on the minimap and atlas; shared waypoints are synced through the room.
 - Movement is client-driven but the server clamps positions to the city, rejects impossible speeds per mode, and allows one instant jump (atlas travel, taxis, station visits) every 1.5 s.
 
@@ -185,6 +207,10 @@ Tests cover world generation, road and pavement connectivity, collision, camera 
 
 With the app running, `npm run test:browser` checks rendering, populated streets, walking and turning, pause, taxi travel, sky takeoff, station lifts, boarding, walking between carriages, closed-door restrictions, alighting, free flight, settings, mobile layout, and touch movement in an isolated installed Chrome or Edge. It requires no additional package. Pass `-- --gpu` to use hardware acceleration instead of the default software renderer. Screenshots are saved to the ignored `artifacts/` directory. Set `CHROME_PATH` for a different Chromium executable or `CITY_URL` for a different server address.
 
+`npm run test:interiors` checks all six room entrances, walking, exits, pause/resume, car collision and entry/exit, elevated movement, paused monorail attachment and phone layouts; captures close-up NPCs, tyres and both cockpit directions; and records street/interior render-callback timing in `artifacts/interiors/`. It uses hardware acceleration by default (`-- --software` opts out), with the same `CITY_URL` and `CHROME_PATH` overrides. Unit tests also guard room collision, geometry budgets, centred umbrellas, round tyres and rear-cabin sightlines.
+
+`npm run test:living-city` runs the Night Shift manifest and Kiln calibration through real UI interactions, checks one-time rewards, then creates an ephemeral local multiplayer server to verify shared interior avatars, floorplan dots, scope changes and WebGL recovery. It uses an isolated browser profile and never touches your real save or public server.
+
 ## Visual iteration
 
 Open **http://127.0.0.1:3000/?studio=1** for the opt-in scene lab. Seven camera bookmarks cover streets, facades, rooftops, a station and a carriage. Freeze the world, rebuild at a specific clock, advance time, inspect resident counts or copy a camera link. Add `&clean=1` to hide the interface.
@@ -196,10 +222,12 @@ npm run audit:visual
 npm run audit:visual -- --views=market,rooftops --out=reference --reference=1
 npm run audit:motion -- --path=turn --frames=30 --clip=360,200,720,480
 npm run audit:visual -- --views=market,rooftops --out=batched
+npm run audit:visual -- --views=glass-office,glass-grazing,glass-warm --clock=4 --out=glass-fine
+npm run audit:visual -- --views=glass-office --clock=4 --quality=low --out=glass-low
 node scripts/image-diff.mjs artifacts/reference/market.png artifacts/batched/market.png
 ```
 
-`audit:motion` moves the camera along a scripted path (`walk`, `sprint`, `turn`, `slowturn`, `strafe`, `flight`, `approach`, `micro`, `micropitch`) one exact step per frame and writes an animated GIF, a contact sheet, a motion-compensated shimmer heatmap and metrics (band-local alignment, magnitude-weighted `shimmerEnergy` / `changeEnergy`, and per-strip `strips` / `vertical` image motion that exposes judder; `--query=warp=offset` appends URL parameters) to `artifacts/motion/<path>/`. The visual audit creates full-resolution PNGs, metrics and an HTML comparison gallery in `artifacts/visual-audit/`. Options include `--clock=45`, `--dpr=2`, `--warm=4000` and `--out=directory`. The reference switch retains the native box-submission path for validating instancing; both paths use identical geometry and materials. Compare at the same clock, viewport and camera. Frame rates are device-dependent and should be measured with a single browser instance.
+`audit:motion` moves the camera along a scripted path (`walk`, `sprint`, `turn`, `slowturn`, `strafe`, `flight`, `approach`, `micro`, `micropitch`) one exact step per frame and writes an animated GIF, a contact sheet, a motion-compensated shimmer heatmap and metrics (band-local alignment, magnitude-weighted `shimmerEnergy` / `changeEnergy`, and per-strip `strips` / `vertical` image motion that exposes judder; `--query=warp=offset` appends URL parameters) to `artifacts/motion/<path>/`. The visual audit creates full-resolution PNGs, metrics and an HTML comparison gallery in `artifacts/visual-audit/`. Options include `--clock=45`, `--dpr=2`, `--warm=4000`, `--quality=low`, `--mobile`, `--software` and `--out=directory`. The reference switch retains the native box-submission path for validating instancing; both paths use identical geometry and materials. Compare at the same clock, viewport and camera. Frame rates are device-dependent and should be measured with a single browser instance.
 
 ## Files
 
@@ -211,6 +239,8 @@ node scripts/image-diff.mjs artifacts/reference/market.png artifacts/batched/mar
 - `src/city/locomotion.ts` — camera smoothing, route planning, transportation, safe landing.
 - `src/city/people.ts`, `traffic.ts` — stateful resident routines and signal-following traffic.
 - `src/city/driving.ts`, `driving-scene.ts` — vehicle model, parked cars and driving camera; car and cockpit drawing.
+- `src/city/interiors.ts`, `interior-scene.ts`, `interior-material.ts`, `src/components/interior-map.tsx` — venue selection, entry/exit, room collision, bounded room rendering and floorplans.
+- `src/city/human-model.ts`, `umbrella-model.ts`, `vehicle-wheels.ts`, `vehicle-cabin.ts` — shared residents, centred umbrellas, round tyres and rear cockpit geometry.
 - `src/city/metro.ts`, `metro-scene.ts` — physical rail service, stations and carriage interiors.
 - `src/city/architecture.ts`, `building-batch.ts` — cached building models and GPU instancing.
 - `src/city/materials.ts` — native ASCII material shaders.

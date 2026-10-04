@@ -4,6 +4,7 @@
 
 import { NPCS, type NpcDefinition } from "../city/npcs.ts";
 import type { CityWorld } from "../city/world.ts";
+import { interiorPlaces, type InteriorPlace } from "../city/interiors.ts";
 import type { DialogueResult, NpcDialogue, NpcMarker, QuestSnapshot } from "../city/quests.ts";
 import { EventBus } from "./events.ts";
 import { Character, ItemRegistry, ITEMS, LootSystem, Vendors, WorldLoot, loadSave, parseSave, seededRng, writeSave, clearSave, type SaveGame } from "./items/index.ts";
@@ -36,6 +37,7 @@ export class RpgSession {
   readonly combat: CombatWorld;
   readonly quests: QuestEngine;
   private readonly storage: Storage | null;
+  private readonly venues: ReadonlyMap<string, InteriorPlace>;
   private readonly archetypes = new Map<string, EnemyArchetype>();
   private readonly npcNames = new Map<string, string>();
   private readonly rng = seededRng(0x5eed);
@@ -52,6 +54,7 @@ export class RpgSession {
   constructor(opts: RpgSessionOptions) {
     const packs = [LEGACY_PACK, ...(opts.packs ?? [])];
     this.storage = opts.storage ?? null;
+    this.venues = new Map(interiorPlaces(opts.world).map(place => [place.id, place]));
     const save = this.storage ? loadSave(this.storage) : null;
     this.registry = new ItemRegistry([...ITEMS, ...COMBAT_TEST_ITEMS.filter(item => !ITEMS.some(base => base.id === item.id))]);
     for (const pack of packs) this.registry.register(pack.items);
@@ -134,14 +137,15 @@ export class RpgSession {
   /** Runs combat, loot and quests for one frame. Returns the displacement the engine must apply
    * through its collision (dodge, knockback, lock-on magnetism, enemy body push). */
   update(frame: RpgFrame): { move: Point | null } {
-    this.lastPlayer = frame.player;
+    const player = frame.player.place ? { ...frame.player, onFoot: false } : frame.player;
+    this.lastPlayer = player;
     this.worldLoot.update(frame.dt);
-    const input = frame.player.onFoot && !this.vendorOpen ? frame.input : { ...frame.input, attackPressed: false, attackHeld: false, attackReleased: false, altHeld: false, dodgePressed: false, reloadPressed: false, quickUse: null, selectSlot: null, interactPressed: false };
-    const { move } = this.combat.update({ ...frame, input }, this.character);
-    this.quests.update(frame.dt, frame.player);
+    const input = player.onFoot && !this.vendorOpen ? frame.input : { ...frame.input, attackPressed: false, attackHeld: false, attackReleased: false, altHeld: false, dodgePressed: false, reloadPressed: false, quickUse: null, selectSlot: null, interactPressed: false };
+    const { move } = this.combat.update({ ...frame, player, input }, this.character);
+    this.quests.update(frame.dt, player);
     // Pickups and world objects: E takes the nearest pile, else uses the nearest object.
-    const pile = frame.player.onFoot ? this.worldLoot.nearest(frame.player.x, frame.player.z) : null;
-    const object = !pile && frame.player.onFoot ? this.nearestInteractable(frame.player) : null;
+    const pile = this.canInteract(player) && !player.place ? this.worldLoot.nearest(player.x, player.z) : null;
+    const object = !pile ? this.nearestInteractable(player) : null;
     this.prompt = pile ? `Pick up ${pile.name}${pile.count > 1 ? ` x${pile.count}` : ""}${pile.rarity !== "common" ? ` [${pile.rarity}]` : ""}` : object ? object.label : null;
     if (input.interactPressed && pile) this.pickup(pile);
     this.saveTimer += frame.dt;
@@ -157,9 +161,14 @@ export class RpgSession {
     this.dirty = true;
   }
 
-  private nearestInteractable(player: Point): InteractableDefinition | null {
+  private canInteract(player: RpgFrame["player"]): boolean {
+    return !this.dead && !this.vendorOpen && player.mode === "walk" && (player.place ? this.venues.has(player.place) : player.onFoot);
+  }
+
+  private nearestInteractable(player: RpgFrame["player"]): InteractableDefinition | null {
+    if (!this.canInteract(player)) return null;
     let best: InteractableDefinition | null = null, bestDistance = INTERACT_RANGE;
-    for (const item of this.quests.interactables()) {
+    for (const item of this.interactables(player.place)) {
       const d = Math.hypot(item.x - player.x, item.z - player.z);
       if (d < bestDistance) { best = item; bestDistance = d; }
     }
@@ -168,12 +177,16 @@ export class RpgSession {
 
   /** E with nothing else in reach: a nearby world object. Returns its dialogue if it opens one. */
   interactNearby(): NpcDialogue | null {
-    if (!this.lastPlayer) return null;
+    if (!this.lastPlayer || !this.canInteract(this.lastPlayer)) return null;
+    if (!this.lastPlayer.place && this.worldLoot.nearest(this.lastPlayer.x, this.lastPlayer.z)) return null;
     const object = this.nearestInteractable(this.lastPlayer);
     return object ? this.quests.interact(object.id) : null;
   }
   /** True when E has something RPG-side to do here (a pile or an object). */
-  hasInteraction(): boolean { return this.prompt !== null; }
+  hasInteraction(): boolean {
+    const player = this.lastPlayer;
+    return !!player && this.canInteract(player) && (!!this.nearestInteractable(player) || (!player.place && !!this.worldLoot.nearest(player.x, player.z)));
+  }
 
   // ---- dialogue (vendors add a Trade option) --------------------------------------------------
 
@@ -183,7 +196,7 @@ export class RpgSession {
     if (optionId === TRADE_OPTION && open) { this.vendorOpen = open.npcId; this.quests.close(); return { dialogue: null, message: null }; }
     const result = this.quests.choose(optionId);
     this.dirty = true;
-    return { ...result, dialogue: this.withTrade(result.dialogue) };
+    return { dialogue: this.withTrade(result.dialogue), message: null };
   }
   private withTrade(dialogue: NpcDialogue | null): NpcDialogue | null {
     if (!dialogue || !this.vendors.isVendor(dialogue.npcId) || dialogue.options.some(o => o.id === TRADE_OPTION)) return dialogue;
@@ -205,7 +218,7 @@ export class RpgSession {
   effects(): readonly CombatEffect[] { return this.combat.effects(); }
   playerView(): PlayerCombatView { return this.combat.playerView(); }
   groundLoot(near: Point, radius = 120): GroundLootView[] { return this.worldLoot.views(near.x, near.z, radius); }
-  interactables(): readonly InteractableDefinition[] { return this.quests.interactables(); }
+  interactables(place = ""): readonly InteractableDefinition[] { return this.quests.interactables().filter(object => (object.place ?? "") === place); }
   weapon(): ItemDefinition | null {
     const view = this.combat.playerView();
     return view.weaponItem ? this.registry.get(view.weaponItem) ?? null : null;
@@ -236,6 +249,7 @@ export class RpgSession {
       case "use": c.use(action.item); break;
       case "assignQuick": c.assignQuick(action.item, action.slot); break;
       case "drop": {
+        if (this.lastPlayer?.place) { this.post("Step outside to drop items", "info"); break; }
         const count = Math.max(1, Math.floor(action.count));
         if (this.lastPlayer && c.remove(action.item, count)) this.worldLoot.drop(this.lastPlayer.x, this.lastPlayer.z, [{ item: action.item, count }], 0);
         break;
@@ -254,7 +268,8 @@ export class RpgSession {
   save(position?: { x: number; z: number; yaw: number }): void {
     this.saveTimer = 0; this.dirty = false;
     if (!this.storage) return;
-    const pos = position ?? (this.lastPlayer ? { x: this.lastPlayer.x, z: this.lastPlayer.z, yaw: this.lastPlayer.yaw } : null);
+    const venue = !position && this.lastPlayer?.place ? this.venues.get(this.lastPlayer.place) : null;
+    const pos = position ?? venue?.entrance ?? (this.lastPlayer ? { x: this.lastPlayer.x, z: this.lastPlayer.z, yaw: this.lastPlayer.yaw } : null);
     const game: SaveGame = { version: 1, savedAt: Date.now(), character: this.character.serialize(), quests: this.quests.serialize(), flags: { ...this.quests.flags.all() }, discovered: [...this.discovered], encounters: this.combat.serialize(), position: pos };
     if (parseSave(game)) writeSave(this.storage, game);
   }

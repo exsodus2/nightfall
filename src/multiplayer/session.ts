@@ -7,17 +7,19 @@ import type { QuestBookState } from "../city/quests";
 import { ServerClock, SnapshotBuffer } from "./interpolation.ts";
 import { CHAT_MAX, INTERPOLATION_DELAY, ROOM_NAME, SEND_INTERVAL, hexToRgb, isMode, normalizeCode, sanitizeText, type ChatMessage, type Mode, type QuestEventMessage, type WaypointMessage } from "./protocol.ts";
 import type { FriendPosition, LocalPose, MultiplayerLink, PartyQuestSync, RemoteAvatar } from "./types";
+import { EXTERIOR_PLACE, normalizePlace, samePlace } from "./presence.ts";
+import { parseTrainCarrier, railPose, sameCarrier, type TrainCarrier } from "./rail.ts";
 
 // Room state as the client decodes it (reflected schema instances; only what we read).
 interface MapView<V> { forEach(callback: (value: V, key: string) => void): void; get(key: string): V | undefined; readonly size: number }
-interface PlayerView { name: string; color: string; x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: string; car: number; t: number }
+interface PlayerView { name: string; color: string; x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: string; car: number; t: number; place?: string; trainId?: number; trainU?: number; trainV?: number; trainYaw?: number }
 interface QuestView { status: string; step: number }
 interface WaypointView { id: string; x: number; z: number; label: string; color: string; owner: string; shared: boolean; createdAt: number }
-interface StateView { players?: MapView<PlayerView>; quests?: MapView<QuestView>; credits?: number; questRevision?: number; waypoints?: MapView<WaypointView> }
+interface StateView { players?: MapView<PlayerView>; quests?: MapView<QuestView>; credits?: number; questRevision?: number; waypoints?: MapView<WaypointView>; worldTimeMs?: number }
 
 export type SessionStatus = "idle" | "connecting" | "connected" | "error";
 export interface ChatLine { id: string; kind: "chat" | "system" | "notice"; name: string; color: string; text: string; self: boolean }
-export interface RosterEntry { id: string; name: string; color: string; mode: Mode; self: boolean }
+export interface RosterEntry { id: string; name: string; color: string; mode: Mode; self: boolean; place: string }
 export interface SessionView { status: SessionStatus; error: string | null; code: string | null; serverUrl: string | null; selfId: string | null; roster: readonly RosterEntry[]; chat: readonly ChatLine[] }
 /** One-off notifications for toasts. */
 export interface SessionEvent { kind: "quest" | "notice" | "disconnected"; text: string }
@@ -46,6 +48,8 @@ export class MultiplayerSession implements MultiplayerLink {
   private readonly waypointListeners = new Set<(all: readonly SharedWaypoint[]) => void>();
   private readonly remotesById = new Map<string, RemoteEntry>();
   private readonly clock = new ServerClock();
+  private readonly worldClock = new ServerClock();
+  private lastWorldStamp = -1;
   private remoteList: RemoteAvatar[] = [];
   private friendList: FriendPosition[] = [];
   private waypointList: SharedWaypoint[] = [];
@@ -55,6 +59,9 @@ export class MultiplayerSession implements MultiplayerLink {
   private questRevision = -1;
   private lastSend = -Infinity;
   private lastMode: Mode | null = null;
+  private lastPlace = EXTERIOR_PLACE;
+  private lastCarrier: TrainCarrier | null = null;
+  private lastSpeed = 0;
   private attempt = 0;
 
   // ---- React ------------------------------------------------------------------------------
@@ -133,6 +140,8 @@ export class MultiplayerSession implements MultiplayerLink {
     this.room = null;
     this.remotesById.clear(); this.remoteList = []; this.friendList = [];
     this.quest = null; this.questRevision = -1; this.rosterSignature = ""; this.lastMode = null;
+    this.clock.reset(); this.lastSend = -Infinity; this.lastPlace = EXTERIOR_PLACE;
+    this.worldClock.reset(); this.lastWorldStamp = -1; this.lastCarrier = null; this.lastSpeed = 0;
     if (this.waypointList.length) { this.waypointList = []; this.waypointSignature = ""; this.notifyWaypoints(); }
   }
 
@@ -140,25 +149,31 @@ export class MultiplayerSession implements MultiplayerLink {
     const room = this.room;
     if (!room || !state.players) return;
     const now = performance.now() / 1000, selfId = room.sessionId;
+    if (typeof state.worldTimeMs === "number" && Number.isFinite(state.worldTimeMs) && state.worldTimeMs >= 0 && state.worldTimeMs > this.lastWorldStamp) {
+      this.worldClock.observe(state.worldTimeMs, now);
+      this.lastWorldStamp = state.worldTimeMs;
+    }
     const roster: RosterEntry[] = [], friends: FriendPosition[] = [], seen = new Set<string>();
     state.players.forEach((player, id) => {
       const mode: Mode = isMode(player.mode) ? player.mode : "walk";
-      roster.push({ id, name: player.name, color: player.color, mode, self: id === selfId });
+      const place = normalizePlace(player.place) ?? EXTERIOR_PLACE;
+      const carrier = mode === "metro" && !place ? parseTrainCarrier({ train: player.trainId, u: player.trainU, v: player.trainV, yaw: player.trainYaw }) : null;
+      roster.push({ id, name: player.name, color: player.color, mode, self: id === selfId, place });
       if (id === selfId) return;
       seen.add(id);
-      friends.push({ id, name: player.name, color: player.color, x: player.x, z: player.z, yaw: player.yaw, mode });
+      friends.push({ id, name: player.name, color: player.color, x: player.x, z: player.z, yaw: player.yaw, mode, place, carrier });
       let entry = this.remotesById.get(id);
       if (!entry) { entry = { id, name: player.name, hex: player.color, buffer: new SnapshotBuffer(), lastT: -1, stride: 0, lastNow: now, latest: player }; this.remotesById.set(id, entry); }
       entry.name = player.name; entry.hex = player.color; entry.latest = player;
-      if (player.t !== entry.lastT) {
+      if (player.t !== entry.lastT || !samePlace(entry.buffer.newest?.place, place) || entry.buffer.newest?.mode !== mode || !sameCarrier(entry.buffer.newest?.carrier, carrier) || (entry.buffer.newest?.speed !== 0 && player.speed === 0)) {
         entry.lastT = player.t;
         this.clock.observe(player.t, now);
-        entry.buffer.push({ time: player.t / 1000, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, heading: player.heading, speed: player.speed, mode, car: player.car });
+        entry.buffer.push({ time: player.t / 1000, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, heading: player.heading, speed: player.speed, mode, car: player.car, place, carrier });
       }
     });
     for (const id of [...this.remotesById.keys()]) if (!seen.has(id)) this.remotesById.delete(id);
     this.friendList = friends;
-    const signature = roster.map(r => `${r.id}|${r.name}|${r.color}|${r.mode}`).join(";");
+    const signature = roster.map(r => `${r.id}|${r.name}|${r.color}|${r.mode}|${r.place}`).join(";");
     if (signature !== this.rosterSignature) { this.rosterSignature = signature; this.update({ roster }); }
 
     // Party quests: adopt on every accepted transition.
@@ -191,27 +206,41 @@ export class MultiplayerSession implements MultiplayerLink {
   // ---- MultiplayerLink (engine) ---------------------------------------------------------------
   publish(pose: LocalPose, now: number): void {
     if (!this.room) return;
-    if (now - this.lastSend < SEND_INTERVAL && pose.mode === this.lastMode) return;
-    this.lastSend = now; this.lastMode = pose.mode;
-    this.room.send("pose", { x: round(pose.x), y: round(pose.y), z: round(pose.z), yaw: round(pose.yaw, 1000), pitch: round(pose.pitch, 1000), heading: round(pose.heading, 1000), speed: round(pose.speed), mode: pose.mode, car: pose.car });
+    const place = normalizePlace(pose.place);
+    if (place === null) return;
+    const carrier = parseTrainCarrier(pose.carrier);
+    if (pose.carrier && !carrier) return;
+    const speed = round(pose.speed), stopped = speed === 0 && this.lastSpeed !== 0;
+    if (now - this.lastSend < SEND_INTERVAL && pose.mode === this.lastMode && place === this.lastPlace && sameCarrier(carrier, this.lastCarrier) && !stopped) return;
+    this.lastSend = now; this.lastMode = pose.mode; this.lastPlace = place; this.lastCarrier = carrier; this.lastSpeed = speed;
+    this.room.send("pose", { x: round(pose.x), y: round(pose.y), z: round(pose.z), yaw: round(pose.yaw, 1000), pitch: round(pose.pitch, 1000), heading: round(pose.heading, 1000), speed, mode: pose.mode, car: pose.car, place, carrier });
+  }
+
+  worldTime(now: number): number | null {
+    return this.room && this.worldClock.ready ? Math.max(0, this.worldClock.serverNow(now)) : null;
   }
 
   remotes(now: number): readonly RemoteAvatar[] {
     if (!this.room || !this.remotesById.size) return this.remoteList.length ? (this.remoteList = []) : this.remoteList;
     const renderTime = this.clock.serverNow(now) - INTERPOLATION_DELAY;
+    const worldTime = this.worldTime(now);
     const list: RemoteAvatar[] = [];
     for (const entry of this.remotesById.values()) {
       const pose = entry.buffer.sample(renderTime);
       if (!pose) continue;
       const dt = Math.min(0.2, Math.max(0, now - entry.lastNow)); entry.lastNow = now;
       entry.stride += Math.min(Math.abs(pose.speed), 20) * dt * 1.15;
-      list.push({ id: entry.id, name: entry.name, hex: entry.hex, color: hexToRgb(entry.hex), x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, pitch: pose.pitch, heading: pose.heading, speed: pose.speed, mode: pose.mode, car: pose.car, stride: entry.stride });
+      const position = pose.carrier && worldTime !== null ? railPose(pose.carrier, worldTime) : pose;
+      list.push({ id: entry.id, name: entry.name, hex: entry.hex, color: hexToRgb(entry.hex), x: position.x, y: position.y, z: position.z, yaw: position.yaw, pitch: pose.pitch, heading: position.heading, speed: pose.speed, mode: pose.mode, car: pose.car, stride: entry.stride, place: pose.place ?? EXTERIOR_PLACE, carrier: pose.carrier ?? null });
     }
     this.remoteList = list;
     return list;
   }
 
-  friends(): readonly FriendPosition[] { return this.friendList; }
+  friends(): readonly FriendPosition[] {
+    const worldTime = this.worldTime(performance.now() / 1000);
+    return worldTime === null ? this.friendList : this.friendList.map(friend => friend.carrier ? { ...friend, ...railPose(friend.carrier, worldTime) } : friend);
+  }
   questSync(): PartyQuestSync | null { return this.quest; }
   questIntent(npcId: string, optionId: string): void { this.room?.send("quest", { npcId, optionId }); }
 

@@ -11,7 +11,11 @@
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "server": "node --experimental-strip-types server/index.ts",
+    "server:public": "node --env-file=server/public.env --experimental-strip-types server/index.ts",
+    "start:site": "next start --hostname 127.0.0.1 --port 3001",
     "test:browser": "node scripts/browser-check.mjs",
+    "test:interiors": "node scripts/interiors-check.mjs",
+    "test:living-city": "node --experimental-strip-types scripts/living-city-check.mjs",
     "audit:visual": "node scripts/visual-audit.mjs",
     "audit:motion": "node scripts/motion-capture.mjs"
   },

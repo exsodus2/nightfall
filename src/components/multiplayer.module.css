@@ -26,7 +26,7 @@
 .roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .roster li { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 9px; font: 11px var(--font-mono); color: #d6e2da; }
 .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 8px currentColor; background: currentColor; }
-.mode { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #7f9c98; }
+.mode { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; letter-spacing: .08em; color: #7f9c98; }
 .you { color: #7f9c98; margin-left: 6px; font-size: 9px; }
 
 /* In-game chat + roster column, bottom left above the walking hint. */

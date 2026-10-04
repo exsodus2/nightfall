@@ -9,6 +9,8 @@ import {
   type ChatMessage, type PoseMessage, type QuestEventMessage,
 } from "../src/multiplayer/protocol.ts";
 import { NightfallState, PlayerState, QuestProgressState, WaypointState } from "./state.ts";
+import { EXTERIOR_PLACE, STREET_INTERACTION_HEIGHT, samePlace, validPresence, validPresenceTransition } from "../src/multiplayer/presence.ts";
+import { railPose, validRailPresence, validRailTransition } from "../src/multiplayer/rail.ts";
 
 interface JoinOptions { name?: unknown; pose?: unknown }
 interface PlayerMeta { pose: PoseMessage | null; poseTime: number; teleportTime: number; poses: RateLimiter; chat: RateLimiter; actions: RateLimiter; waypoints: RateLimiter }
@@ -22,11 +24,11 @@ export class NightfallRoom extends Room<NightfallState> {
   private readonly book = new QuestBook();
   private readonly meta = new Map<string, PlayerMeta>();
   private readonly history: ChatMessage[] = [];
-  private readonly opened = Date.now();
+  private readonly opened = performance.now();
   private chatId = 0;
 
   /** Milliseconds since the room opened (player `t` stamps and chat times). */
-  private now(): number { return Date.now() - this.opened; }
+  private now(): number { return performance.now() - this.opened; }
 
   async onCreate(): Promise<void> {
     // Short, human-friendly room codes (players join with client.joinById(code)).
@@ -38,6 +40,8 @@ export class NightfallRoom extends Room<NightfallState> {
     // schema() leaves primitive fields undefined until assigned.
     this.state.credits = 0;
     this.state.questRevision = 0;
+    this.state.worldTimeMs = this.now();
+    this.clock.setInterval(() => { this.state.worldTimeMs = this.now(); }, 250);
 
     this.onMessage("pose", (client, message: unknown) => this.handlePose(client, message));
     this.onMessage("chat", (client, message: unknown) => this.handleChat(client, message));
@@ -47,13 +51,15 @@ export class NightfallRoom extends Room<NightfallState> {
   }
 
   onJoin(client: Client, options?: JoinOptions): void {
+    this.state.worldTimeMs = this.now();
     const names: string[] = [], colors = new Set<string>();
     this.state.players.forEach(player => { names.push(player.name); colors.add(player.color); });
     const player = new PlayerState();
     player.name = uniqueName(sanitizeName(options?.name), names);
     player.color = PLAYER_COLORS.find(color => !colors.has(color)) ?? PLAYER_COLORS[this.state.players.size % PLAYER_COLORS.length];
-    const pose = parsePose(options?.pose) ?? SPAWN_POSE;
-    Object.assign(player, { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, pitch: pose.pitch, heading: pose.heading, speed: pose.speed, mode: pose.mode, car: pose.car, t: this.now() });
+    const parsed = parsePose(options?.pose) ?? SPAWN_POSE;
+    const pose = parsed.carrier ? { ...parsed, ...railPose(parsed.carrier, this.now() / 1000) } : parsed;
+    Object.assign(player, { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, pitch: pose.pitch, heading: pose.heading, speed: pose.speed, mode: pose.mode, car: pose.car, t: this.now(), place: pose.place ?? EXTERIOR_PLACE, trainId: pose.carrier?.train ?? -1, trainU: pose.carrier?.u ?? 0, trainV: pose.carrier?.v ?? 0, trainYaw: pose.carrier?.yaw ?? 0 });
     this.state.players.set(client.sessionId, player);
     this.meta.set(client.sessionId, { pose, poseTime: this.now(), teleportTime: -Infinity, poses: new RateLimiter(30, 1 / 40), chat: new RateLimiter(), actions: new RateLimiter(10, 0.5),
       // Joining republishes every shared waypoint at once: the burst must hold a full set.
@@ -81,13 +87,18 @@ export class NightfallRoom extends Room<NightfallState> {
     const now = this.now();
     if (!meta || !player || !meta.poses.take(now / 1000)) return;
     const next = parsePose(message);
-    if (!next) return;
-    const check = checkMove(meta.pose, next, (now - meta.poseTime) / 1000, (now - meta.teleportTime) / 1000);
+    if (!next || !validPresenceTransition(meta.pose, next) || !validRailTransition(meta.pose, next, now / 1000)) return;
+    const canonical = next.carrier ? { ...next, ...railPose(next.carrier, now / 1000) } : next;
+    const previous = meta.pose?.carrier ? { ...meta.pose, ...railPose(meta.pose.carrier, now / 1000) } : meta.pose;
+    const scopeChanged = !samePlace(meta.pose?.place, next.place);
+    const check = scopeChanged ? { pose: canonical, teleported: false, corrected: false } : checkMove(previous, canonical, (now - meta.poseTime) / 1000, (now - meta.teleportTime) / 1000);
+    if (!validPresence(check.pose) || !validRailPresence(check.pose) || (check.corrected && (meta.pose?.carrier || next.carrier))) return;
     if (check.teleported) meta.teleportTime = now;
     const pose = check.pose;
     meta.pose = pose; meta.poseTime = now;
     player.x = pose.x; player.y = pose.y; player.z = pose.z; player.yaw = pose.yaw; player.pitch = pose.pitch;
-    player.heading = pose.heading; player.speed = pose.speed; player.mode = pose.mode; player.car = pose.car; player.t = now;
+    player.heading = pose.heading; player.speed = pose.speed; player.mode = pose.mode; player.car = pose.car; player.t = now; player.place = pose.place ?? EXTERIOR_PLACE;
+    player.trainId = pose.carrier?.train ?? -1; player.trainU = pose.carrier?.u ?? 0; player.trainV = pose.carrier?.v ?? 0; player.trainYaw = pose.carrier?.yaw ?? 0;
   }
 
   private handleChat(client: Client, message: unknown): void {
@@ -109,7 +120,7 @@ export class NightfallRoom extends Room<NightfallState> {
     const npc = npcById(this.book.npcs, intent.npcId);
     const reject = (reason: string) => client.send("questRejected", { reason });
     if (!npc || !meta.pose) return reject("Unknown contact.");
-    if (meta.pose.mode !== "walk" || Math.hypot(meta.pose.x - npc.x, meta.pose.z - npc.z) > QUEST_REACH) return reject(`You need to be with ${npc.name}.`);
+    if (meta.pose.place || meta.pose.mode !== "walk" || meta.pose.y > STREET_INTERACTION_HEIGHT || Math.hypot(meta.pose.x - npc.x, meta.pose.z - npc.z) > QUEST_REACH) return reject(`You need to be with ${npc.name}.`);
     this.book.talk(npc.id);
     const result = this.book.choose(intent.optionId);
     this.book.close();

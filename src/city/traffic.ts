@@ -1,5 +1,6 @@
 import { trafficGreen } from "./people.ts";
 import { randomFor } from "./world.ts";
+import { underPark } from "./park.ts";
 
 export interface Vehicle { id: number; x: number; z: number; yaw: number; speed: number; waiting: boolean }
 interface Driver extends Vehicle { along: number; cruise: number }
@@ -80,9 +81,12 @@ export class CityTraffic {
     }
     return null;
   }
+  /** Cars in range, except those in the underpass beneath Rootwood Park: the park's streets are
+   * promenades, and their lanes run on underground between the gatehouse tunnel mouths (park.ts).
+   * A car is dropped only once it is wholly inside a mouth, so it drives into the dark, not away. */
   nearby(x: number, z: number, range: number): Vehicle[] {
     const cars: Vehicle[] = [];
-    for (const lane of this.lanes) for (const car of lane.cars) if ((car.x - x) ** 2 + (car.z - z) ** 2 < range * range) cars.push(car);
+    for (const lane of this.lanes) for (const car of lane.cars) if ((car.x - x) ** 2 + (car.z - z) ** 2 < range * range && !underPark(car.x, car.z)) cars.push(car);
     return cars;
   }
 }

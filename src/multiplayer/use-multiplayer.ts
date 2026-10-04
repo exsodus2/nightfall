@@ -2,7 +2,7 @@
 
 // React glue for multiplayer: owns the page's MultiplayerSession, attaches it to the engine while
 // connected, swaps the waypoint store onto the room, and turns session events into toasts.
-import { useCallback, useEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { CityController } from "@/city/engine";
 import { LOCAL_OWNER, cityWaypoints } from "@/city/waypoints";
 import { MultiplayerSession, type ConnectRequest, type SessionView } from "./session";
@@ -17,17 +17,16 @@ export interface MultiplayerApi {
   sendChat: (text: string) => boolean;
 }
 
-export function useMultiplayer(controller: RefObject<CityController | null>, onToast: (message: string) => void): MultiplayerApi {
+export function useMultiplayer(controller: CityController | null, onToast: (message: string) => void): MultiplayerApi {
   const [session] = useState(() => new MultiplayerSession());
   const view = useSyncExternalStore(session.subscribe, session.getView, () => SERVER_VIEW);
   const connected = view.status === "connected";
 
   // The engine reads poses / remote players / party quests through the link only while connected.
   useEffect(() => {
-    const city = controller.current;
-    if (!connected || !city) return;
-    city.setMultiplayer(session);
-    return () => city.setMultiplayer(null);
+    if (!connected || !controller) return;
+    controller.setMultiplayer(session);
+    return () => controller.setMultiplayer(null);
   }, [connected, controller, session]);
 
   // Shared waypoints go through the room while connected; the store falls back to solo afterwards.

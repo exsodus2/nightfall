@@ -1,11 +1,16 @@
 import { CityWorld, HALF_BLOCKS, randomFor } from "./world.ts";
+import { inPark } from "./park.ts";
 import { BENCH, SEATS, STATIONS, PLATFORM_HEIGHT, boardingTrain, localToWorld, seatedYaw, trainAt } from "./metro.ts";
+import { CITIZEN_AWARENESS_RADIUS, CitizenAwareness, citizenPavement, perceivedPlayers, type CitizenReaction, type PopulationPerception } from "./citizen-ai.ts";
+
+export type { PerceivedPlayer, PopulationPerception } from "./citizen-ai.ts";
 
 export type ResidentState = "walking" | "waiting" | "browsing" | "talking" | "platform" | "boarding" | "riding" | "alighting" | "lift";
 export interface Citizen {
   id: number; x: number; y: number; z: number; yaw: number;
   state: ResidentState; moving: boolean; seated: boolean; umbrella: boolean;
   occupation: "resident" | "courier" | "commuter"; goal: string;
+  reaction?: CitizenReaction; attentionYaw?: number; bark?: string; barkUntil?: number;
 }
 interface Corner { bx: number; bz: number; corner: number }
 interface PavementPoint { x: number; z: number; crossing: boolean; road?: boolean; visit?: boolean; axis: "x" | "z" }
@@ -52,7 +57,9 @@ export function pavementRoute(start: Corner, goal: Corner): PavementPoint[] {
       while (key(previous) !== key(start)) { const p = came.get(key(previous)); if (!p) break; nodes.unshift(p); previous = p; }
       return nodes.slice(1).map((node, i) => {
         const point = pavementPoint(node), before = pavementPoint(nodes[i]);
-        return { ...point, crossing: node.bx !== nodes[i].bx || node.bz !== nodes[i].bz, road: node.bx !== nodes[i].bx || node.bz !== nodes[i].bz, axis: Math.abs(point.x - before.x) > 1 ? "x" : "z" };
+        // Crossing an old street inside Rootwood Park is a stroll over a promenade: no traffic, no signal.
+        const across = (node.bx !== nodes[i].bx || node.bz !== nodes[i].bz) && !inPark((point.x + before.x) / 2, (point.z + before.z) / 2);
+        return { ...point, crossing: across, road: across, axis: Math.abs(point.x - before.x) > 1 ? "x" : "z" };
       });
     }
     for (const next of neighbors(current)) {
@@ -71,7 +78,11 @@ export class CityPopulation {
   readonly walkers: Walker[] = [];
   readonly commuters: Commuter[] = [];
   private tick = 0;
+  private readonly awareness: CitizenAwareness;
+  private readonly world: CityWorld;
   constructor(world: CityWorld) {
+    this.world = world;
+    this.awareness = new CitizenAwareness(world);
     for (const block of world.blocks.values()) for (let i = 0; i < 6; i++) {
       const id = this.walkers.length, corner = i % 4;
       const node = { bx: block.x, bz: block.z, corner }, end = { ...node, corner: (corner + 1) % 4 };
@@ -85,17 +96,25 @@ export class CityPopulation {
     }
   }
 
-  update(dt: number, time: number, metroTime: number, eye: { x: number; z: number }): void {
+  update(dt: number, time: number, metroTime: number, eye: { x: number; z: number }, perception?: PopulationPerception, signalTime = time): void {
     const slice = this.tick++ % FAR_SLICES;
+    const players = perceivedPlayers(perception, eye);
     for (const person of this.walkers) {
       let span = dt;
+      const eyeDistance = (person.x - eye.x) ** 2 + (person.z - eye.z) ** 2;
+      if (eyeDistance > CITIZEN_AWARENESS_RADIUS ** 2) this.awareness.clear(person, time);
       // Out of range: a cheap, time-sliced update. Freezing them outright made the edge of the
       // simulated area a trap: residents who wandered out never came back and the streets emptied.
-      if ((person.x - eye.x) ** 2 + (person.z - eye.z) ** 2 > 280 ** 2) {
+      if (eyeDistance > 280 ** 2) {
         if (person.id % FAR_SLICES !== slice) continue;
         span = dt * FAR_SLICES;
       }
       person.moving = false;
+      if (perception && eyeDistance <= CITIZEN_AWARENESS_RADIUS ** 2 || this.awareness.hasDetour(person.id)) {
+        const response = this.awareness.update(person, person.path[person.next], span, time, eyeDistance <= CITIZEN_AWARENESS_RADIUS ** 2 ? players : [], perception?.rain ?? false);
+        if (response === "turn-back") { this.turnBack(person); continue; }
+        if (response === "handled") continue;
+      } else this.awareness.clear(person, time);
       if (person.timer > 0) { person.timer -= span; continue; }
       if (person.next >= person.path.length) {
         person.visits++;
@@ -107,7 +126,7 @@ export class CityPopulation {
         const shop = { x: (corner.x + nextCorner.x) / 2, z: (corner.z + nextCorner.z) / 2, crossing: false, axis: (corner.x === nextCorner.x ? "z" : "x") as "x" | "z" };
         person.path.push({ ...shop, visit: true }, { ...corner, crossing: false, axis: shop.axis });
         person.state = person.visits % 3 === 0 ? "talking" : "browsing";
-        person.goal = person.occupation === "courier" ? "Delivering a parcel" : person.state === "talking" ? "Meeting a neighbor" : "Browsing the local shops";
+        person.goal = person.occupation === "courier" ? "Delivering a parcel" : inPark(shop.x, shop.z) ? "Strolling in Rootwood Park" : person.state === "talking" ? "Meeting a neighbor" : "Browsing the local shops";
         person.state = "walking";
         continue;
       }
@@ -115,7 +134,7 @@ export class CityPopulation {
       // The flag clears only after entry, allowing the crossing to complete if
       // the signal changes while the person is already in the crosswalk.
       if (target.crossing) {
-        if (!pedestrianGreen(target.axis, time)) { person.state = "waiting"; person.goal = "Waiting for the crossing signal"; continue; }
+        if (!pedestrianGreen(target.axis, signalTime)) { person.state = "waiting"; person.goal = "Waiting for the crossing signal"; continue; }
         target.crossing = false; person.state = "walking";
       }
       const step = Math.min(distance, (target.road ? 2.8 : person.pace) * span);
@@ -132,6 +151,28 @@ export class CityPopulation {
       }
     }
     for (const person of this.commuters) this.updateCommuter(person, dt, metroTime);
+  }
+
+  private turnBack(person: Walker): void {
+    const target = person.path[person.next];
+    if (!target || target.road) return;
+    const directionX = target.x - person.x, directionZ = target.z - person.z;
+    const candidates = Array.from({ length: 4 }, (_, corner) => {
+      const node = { bx: Math.floor(person.x / 64), bz: Math.floor(person.z / 64), corner };
+      return { node, point: pavementPoint(node) };
+    }).filter(({ point }) => (point.x - person.x) * directionX + (point.z - person.z) * directionZ < -0.01)
+      .sort((first, second) => Math.hypot(first.point.x - person.x, first.point.z - person.z) - Math.hypot(second.point.x - person.x, second.point.z - person.z));
+    for (const { node, point } of candidates) {
+      const steps = Math.ceil(Math.hypot(point.x - person.x, point.z - person.z) / 0.25);
+      let clear = true;
+      for (let index = 1; index <= steps; index++) {
+        if (!citizenPavement(this.world, person.x + (point.x - person.x) * index / steps, person.z + (point.z - person.z) * index / steps)) { clear = false; break; }
+      }
+      if (!clear) continue;
+      person.node = node; person.path = [{ ...point, crossing: false, axis: Math.abs(directionX) > Math.abs(directionZ) ? "x" : "z" }]; person.next = 0;
+      person.state = "walking"; person.goal = "Taking the quieter way around";
+      return;
+    }
   }
 
   /** A free seat on `train`, preferring the carriage behind the commuter's door. */

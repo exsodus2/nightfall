@@ -3,9 +3,10 @@ import { wrap } from "./locomotion";
 import { trafficGreen, type Citizen } from "./people";
 import type { Vehicle } from "./traffic";
 import { drawCitizen } from "./people-scene";
-import { LAMP_HEAD_HEIGHT, LAMP_STREETS, randomFor, streetLamp, type RGB } from "./world";
+import { LAMP_HEAD_HEIGHT, LAMP_STREETS, inPark, randomFor, streetLamp, type RGB } from "./world";
 // VFX: wheels, brake lights, steam, sky trails (vfx-scene.ts).
 import { carFx, skyTrail, ventSteam } from "./vfx-scene";
+import { drawVehicleTyres } from "./vehicle-wheels";
 
 export function cuboid(t: PropCanvas, x: number, y: number, z: number, w: number, h: number, d: number): void {
   // Only position changes here. An inverse translation avoids copying the
@@ -29,7 +30,7 @@ export function ink(t: PropCanvas, color: RGB, glyph = "#", gain = 1): void {
 const CAR_COLORS: readonly RGB[] = [[243, 155, 53], [46, 152, 184], [181, 72, 132], [129, 158, 150], [131, 107, 189]];
 /** Body colour drawCar uses for a car id (driving-scene.ts matches the cockpit to it). */
 export const carColor = (id: number): RGB => CAR_COLORS[id % CAR_COLORS.length];
-export interface ActivityView { x: number; z: number; yaw: number; height: number; time: number; rain: boolean; low: boolean; visible?: (x: number, y: number, z: number, radius?: number) => boolean }
+export interface ActivityView { x: number; z: number; yaw: number; height: number; time: number; signalTime?: number; rain: boolean; low: boolean; visible?: (x: number, y: number, z: number, radius?: number) => boolean }
 export interface ActivityCounts { cars: number; residents: number }
 
 /** `motion` (optional): traffic passes its speed and queue state; without it the VFX estimate speed from movement. */
@@ -49,7 +50,7 @@ export function drawCar(t: PropCanvas, x: number, y: number, z: number, yaw: num
   if (detail) {
     const outer = propRange(140);
     ink(t, [40, 48, 60], "O"); // tyres: light enough to read against the wet road from a chase camera
-    for (const side of [-1, 1]) for (const front of [-1.75, 1.75]) cuboid(t, side * 1.4, 0.46, front, 0.3, 0.8, 0.85);
+    drawVehicleTyres(t);
     // Headlight beams are real light now (projected by the material from the car list).
     restorePropRange(outer);
   }
@@ -69,7 +70,7 @@ export function drawActivity(t: PropCanvas, view: ActivityView, vehicles: readon
   propRange(low ? 110 : 220);
   for (const person of citizens) {
     if (view.visible && !view.visible(person.x, person.y + 2.5, person.z)) continue;
-    drawCitizen(t, person, time, inRange(person.x, person.z, 150), view.rain);
+    drawCitizen(t, person, time, inRange(person.x, person.z, low ? 28 : 48), view.rain);
   }
   const bx = Math.floor(x / 64), bz = Math.floor(z / 64);
   for (let iz = bz - 2; iz <= bz + 2; iz++) for (let ix = bx - 2; ix <= bx + 2; ix++) {
@@ -83,9 +84,17 @@ export function drawActivity(t: PropCanvas, view: ActivityView, vehicles: readon
     cuboid(t, lx, LAMP_HEAD_HEIGHT / 2, lz, 0.22, LAMP_HEAD_HEIGHT, 0.22);
     ink(t, [252, 199, 121], "=");
     cuboid(t, lamp.x, LAMP_HEAD_HEIGHT, lz, 2.5, 0.3, 0.7);
+    // Rootwood Park: the four crossings inside it are promenade plazas. Their lamps stay (lit by
+    // the engine, mirrored by the material's lamp haze) as park lamp standards: no signal head,
+    // no steam vent, a warm lantern cap and a dark-green post.
+    if (inPark(lx, lz)) {
+      ink(t, [212, 168, 104], "o"); cuboid(t, lamp.x, LAMP_HEAD_HEIGHT + 0.45, lz, 0.9, 0.6, 0.9);
+      ink(t, [40, 58, 50], "#"); cuboid(t, lx, 0.5, lz, 0.6, 1, 0.6);
+      continue;
+    }
     ink(t, [33, 52, 72], "#");
     cuboid(t, lx, 5.8, lz - 0.1, 0.65, 1.5, 0.5);
-    const green = trafficGreen("z", time);
+    const green = trafficGreen("z", view.signalTime ?? time);
     ink(t, green ? [88, 255, 163] : [255, 78, 91], "O");
     cuboid(t, lx, green ? 5.35 : 6.2, lz - 0.4, 0.48, 0.4, 0.1);
     // Steam escaping street vents: a volumetric plume drawn by the VFX pass (vfx-scene.ts).

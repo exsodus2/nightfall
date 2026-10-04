@@ -63,7 +63,8 @@ test("traffic stops at signals and resumes without teleporting", () => {
     traffic.update(0.1, time);
     const cars = traffic.nearby(0, 0, 500);
     for (const car of cars) {
-      const p = previous.get(car.id)!;
+      const p = previous.get(car.id);
+      if (!p) continue; // just driven out of the Rootwood Park underpass (hidden while under the park)
       assert.ok(Math.hypot(car.x - p.x, car.z - p.z) < 1.51);
       if (car.waiting) { stopped++; waiting.add(car.id); }
       else if (waiting.delete(car.id)) resumed++;

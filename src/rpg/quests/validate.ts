@@ -13,7 +13,7 @@ const QUEST_STATUSES = new Set(["locked", "available", "active", "complete", "fa
 const STATS = new Set(["cool", "tech", "street"]);
 const KINDS = new Set(["accept", "decline", "complete", "continue", "leave"]);
 const CATEGORIES = new Set(["story", "side", "contract", "gig"]);
-const OBJECTIVE_KINDS = new Set(["talk", "kill", "clear", "collect", "deliver", "reach", "interact", "survive", "choose", "condition"]);
+const OBJECTIVE_KINDS = new Set(["talk", "kill", "clear", "collect", "deliver", "reach", "visit", "interact", "survive", "choose", "condition"]);
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const text = (s: unknown): s is string => typeof s === "string" && s.trim().length > 0;
@@ -187,6 +187,7 @@ export function validateContent(pack: ContentPack, context?: ContentPack | reado
     const at = `interactable ${q(it.id)}`;
     if (!finite(it.x) || !finite(it.z)) err(at, "needs numeric x and z");
     if (!text(it.label)) err(at, "needs a label");
+    if (it.place !== undefined && it.place !== "" && (typeof it.place !== "string" || !/^[a-z][a-z0-9-]{0,47}$/.test(it.place))) err(at, "place must be a lowercase interior id or empty for the exterior");
     if (it.dialogue !== undefined && !dialogues.has(it.dialogue)) err(at, `unknown dialogue ${q(it.dialogue)}`);
     if (it.glyph !== undefined && !/^[\x21-\x7e]$/.test(it.glyph)) err(at, "glyph must be one printable ASCII character");
     if (!it.dialogue && !(it.effects ?? []).length) err(at, "does nothing: give it effects or a dialogue");
@@ -289,6 +290,7 @@ export function validateContent(pack: ContentPack, context?: ContentPack | reado
         if (!countOk(o.count)) err(where, "count must be a whole number >= 1");
         break;
       case "reach": if (!o.area || !finite(o.area.x) || !finite(o.area.z) || !finite(o.area.radius) || o.area.radius <= 0) err(where, "reach needs an area with x, z and radius > 0"); break;
+      case "visit": if (!text(o.area)) err(where, "visit needs a named area id"); break;
       case "interact": if (!interactables.has(o.object)) err(where, `unknown interactable ${q(o.object)}`); break;
       case "survive":
         if (!finite(o.seconds) || o.seconds <= 0) err(where, "seconds must be > 0");
