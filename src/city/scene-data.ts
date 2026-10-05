@@ -59,8 +59,24 @@ export const MINI_FONT_OFFSET = 768;
 /** First row of the message table; rows above hold the 8x8 ASCII font, one byte per glyph row. */
 export const MESSAGE_ROW = 16;
 
+/** Per-character market colour class of a message, for the tickers: 1 = part of a figure
+ *  signed "+", 2 = signed "-", else 0. A sign counts only at the start or after a space and
+ *  before a digit, so phone numbers ("0800-555") and times ("02:00 - 05:00") stay neutral. */
+export function marketClasses(message: string): Uint8Array {
+  const classes = new Uint8Array(message.length), figure = /[0-9.%]/;
+  for (let i = 0; i < message.length; i++) {
+    const sign = message[i];
+    if ((sign !== "+" && sign !== "-") || (i > 0 && message[i - 1] !== " ") || !/[0-9]/.test(message[i + 1] ?? "")) continue;
+    const mark = sign === "+" ? 1 : 2;
+    classes[i] = mark;
+    for (let j = i + 1; j < message.length && figure.test(message[j]); j++) classes[j] = mark;
+  }
+  return classes;
+}
+
 /** Byte texture the material reads text from: the font bitmaps plus a table of messages
- *  (byte 0 = length, then ASCII codes), so any surface can render scrolling text itself. */
+ *  (byte 0 = length, then ASCII codes), so any surface can render scrolling text itself. After
+ *  the messages, one row per message holds its market classes (MESSAGE_ROW + count + index). */
 export class TextData {
   readonly texture: WebGLTexture;
   private readonly gl: WebGL2RenderingContext;
@@ -70,13 +86,14 @@ export class TextData {
     const texture = gl.createTexture();
     if (!texture) throw new Error("Unable to allocate city text data.");
     this.gl = gl; this.texture = texture;
-    const rows = MESSAGE_ROW + messages.length, bytes = new Uint8Array(TEXT_WIDTH * rows);
+    const rows = MESSAGE_ROW + messages.length * 2, bytes = new Uint8Array(TEXT_WIDTH * rows);
     fontRows.forEach((hex, glyph) => { for (let y = 0; y < 8; y++) bytes[glyph * 8 + y] = parseInt(hex.slice(y * 2, y * 2 + 2), 16); });
     bytes.set(miniFontBytes(), MINI_FONT_OFFSET);
     messages.forEach((message, row) => {
       const text = message.slice(0, TEXT_WIDTH - 1), offset = (MESSAGE_ROW + row) * TEXT_WIDTH;
       bytes[offset] = text.length;
       for (let i = 0; i < text.length; i++) bytes[offset + 1 + i] = Math.min(126, Math.max(32, text.charCodeAt(i)));
+      bytes.set(marketClasses(text), (MESSAGE_ROW + messages.length + row) * TEXT_WIDTH + 1);
     });
     withBoundTexture(gl, texture, () => {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);

@@ -1,7 +1,7 @@
 import { textmode, type Textmodifier, type TextmodeShader, type TextmodeFramebuffer, type TextmodeTileset } from "textmode.js";
 import { FiltersPlugin } from "textmode.filters.js";
 import { SynthPlugin, osc, plasma, solid } from "textmode.synth.js";
-import { CITY_MATERIAL, REFLECTION_MATERIAL, CLARITY_FILTER, GLYPH_TABLE, cityMaterial } from "./materials";
+import { CITY_MATERIAL, REFLECTION_MATERIAL, REFERENCE_MATERIAL, CLARITY_FILTER, GLYPH_TABLE, SURFACES, cityMaterial } from "./materials";
 // Mobile: render profiles, adaptive quality and device class (quality-governor.ts, device.ts).
 import { QualityGovernor, renderProfile, type QualityPreset, type RenderProfile } from "./quality-governor";
 import { isTouchFirst, isWebKit } from "./device";
@@ -13,7 +13,8 @@ import { MESSAGES } from "./messages";
 import { BLOCK_SIZE, CityWorld, LANDMARKS, SPAWN, WORLD_EDGE, districtAt, movePlayer, nearestStreetLamps, type Block, type Building, type Landmark, type Player, type RGB } from "./world";
 import { drawActivity, cuboid as box, propAlpha, propRange } from "./activity";
 import { advanceJourney, createJourney, MouseLook, safeLanding, WALK_HEIGHT, type Journey, type RideMode, type TravelMode } from "./locomotion";
-import { drawShop, signFaces } from "./signage";
+import { drawLetterPanel, drawShop, signFaces } from "./signage";
+import { LANDMARK_LABEL_RANGE, visibleLandmarkLabels } from "./landmarks-scene"; // Agent D: landmark titles
 import { fullyHidden, visibleFrom } from "./visibility";
 import { SceneData, TextData } from "./scene-data";
 import { BuildingBatch, BUILDING_VERTEX, BUILDING_MATERIAL, FACADE_MATERIAL, type BatchCamera, type BatchFrame, type BuildingChunk } from "./building-batch";
@@ -24,7 +25,8 @@ import { CityPopulation, type PopulationStats } from "./people";
 import { CityTraffic } from "./traffic";
 import { SCENE_VIEWS, type InspectionCommand } from "./inspection";
 import { drawMetroScene } from "./metro-scene";
-import { STATIONS, PLATFORM_HEIGHT, TRAIN_EYE_HEIGHT, boardingTrain, doorAt, localToWorld, worldToLocal, trainAt, stationArrival, moveInTrain, type Passenger } from "./metro";
+// Monorail seats: SEATS … windowYaw sit the passenger on a free bench seat, looking out of the window.
+import { STATIONS, PLATFORM_HEIGHT, TRAIN_EYE_HEIGHT, boardingTrain, doorAt, localToWorld, worldToLocal, trainAt, stationArrival, moveInTrain, SEATS, SEAT_LOOK, clampSeatedLook, nearestFreeSeat, seatStand, seatTurnSeconds, seatedEye, windowYaw, type Passenger, type Seat, type Train } from "./metro";
 // Quests: named NPCs, dialogue and session quest state (quests.ts, npcs.ts, npc-scene.ts).
 import type { NpcDialogue, QuestSnapshot } from "./quests";
 import { nearestNpc, type NpcDefinition } from "./npcs";
@@ -33,7 +35,7 @@ import { drawWaypointBeacons } from "./waypoint-scene"; // World map: waypoint b
 // Driving: kerbside cars, the player's car and its camera (driving.ts, driving-scene.ts).
 import { DriveSession, ParkedCars, carObstacle, distanceToCar, exitSpot, type CarPose, type Obstacle, type ParkedCar } from "./driving";
 import { drawDriveDashboard, drawDriving } from "./driving-scene";
-import { loadDriveView, saveDriveView } from "./drive-view"; // Driving: remembered cockpit / chase view
+import { loadDriveView, saveDriveView, easeViewBlend, stepViewBlend } from "./drive-view"; // Driving: remembered cockpit / chase view; Monorail seats: the same 0.4 s eased blend
 // VFX: wheels, rain, steam, sparks, searchlights, sky trails (vfx.ts, vfx-scene.ts, vfx-shaders.ts).
 import { beginVfxFrame, drawRain, flushVfx } from "./vfx-scene";
 // Multiplayer: remote players, their cars and party quests (src/multiplayer; optional, solo by default).
@@ -152,7 +154,21 @@ export interface CityController {
   world: CityWorld;
 }
 
-const HOLO_TINTS: readonly (readonly [number, number, number])[] = [[0.25, 0.85, 1], [1, 0.3, 0.72], [1, 0.62, 0.26]];
+// Hologram colour pairs (figure, chromatic ghost / upper shade), picked per district and tower.
+const HOLO_TINTS: readonly (readonly [readonly [number, number, number], readonly [number, number, number]])[] = [
+  [[0.25, 0.85, 1], [1, 0.3, 0.72]], [[1, 0.3, 0.72], [0.3, 0.6, 1]], [[1, 0.62, 0.26], [1, 0.25, 0.4]],
+  [[0.45, 1, 0.6], [0.2, 0.7, 1]], [[0.7, 0.45, 1], [0.25, 0.95, 0.9]], [[0.3, 0.75, 1], [0.95, 0.85, 0.35]],
+];
+
+/** Perf: PropRecorder tag of the rail scene's captured letter panels (shop panels carry their distance). */
+const METRO_PANELS = 1e9;
+/** Perf: a building's sign faces depend only on its fixed shape; built once instead of several times a frame. */
+const signFaceCache = new WeakMap<Building, ReturnType<typeof signFaces>>();
+function facesOf(building: Building): ReturnType<typeof signFaces> {
+  let faces = signFaceCache.get(building);
+  if (!faces) { faces = signFaces(building); signFaceCache.set(building, faces); }
+  return faces;
+}
 
 function glow(t: PropCanvas, color: RGB, intensity = 1): void {
   t.charColor(color[0] * intensity, color[1] * intensity, color[2] * intensity);
@@ -160,84 +176,15 @@ function glow(t: PropCanvas, color: RGB, intensity = 1): void {
   t.char("#");
 }
 
+/** A landmark's title panels (letter panels, sign surface 3, so each letter spans many cells; the
+ * old 3D t.print put one glyph per character quad and repeated it in every cell it covered). The
+ * structure itself is instanced prop geometry recorded with the other props (landmarks-scene.ts,
+ * called from activity.ts), so it is shared by the reflected and main passes. */
 function drawLandmark(t: Textmodifier, landmark: Landmark, time: number): void {
-  const { x, z, color, kind } = landmark;
-  glow(t, color, 0.16);
-  if (kind === "spire") {
-    box(t, x, 58, z, 26, 116, 26);
-    box(t, x, 138, z, 15, 44, 15);
-    glow(t, color, 0.82);
-    for (let i = 0; i < 4; i++) {
-      const offset = i < 2 ? -13.2 : 13.2;
-      box(t, x + offset, 59, z + (i % 2 ? 13.2 : -13.2), 0.65, 118, 0.65);
-    }
-    box(t, x, 183, z, 0.7, 46, 0.7);
-    for (const height of [122, 139, 157]) {
-      t.push();
-      t.translate(x, -height, z);
-      t.rotateX(90);
-      t.rotateZ(time * 4);
-      t.torus(18 - (height - 122) * 0.15, 0.7);
-      t.pop();
-    }
-  } else if (kind === "gate") {
-    glow(t, color, 0.25);
-    box(t, -10, 10, z, 3.4, 20, 3.4);
-    box(t, 10, 10, z, 3.4, 20, 3.4);
-    box(t, 0, 20, z, 27, 4, 4);
-    glow(t, color, 0.95);
-    box(t, 0, 22.2, z, 29, 0.4, 4.5);
-    box(t, -10, 10, z + 1.8, 0.4, 20, 0.4);
-    box(t, 10, 10, z + 1.8, 0.4, 20, 0.4);
-  } else if (kind === "reactor") {
-    box(t, x, 8, z, 22, 16, 22);
-    glow(t, color, 0.85);
-    t.push();
-    t.translate(x, -24, z);
-    t.sphere(11);
-    t.rotateX(65);
-    t.rotateY(time * 6);
-    t.torus(17, 1);
-    t.pop();
-    for (let i = -1; i <= 1; i += 2) box(t, x + i * 18, 32, z - 8, 4, 64, 4);
-  } else if (kind === "array") {
-    box(t, x, 32, z, 20, 64, 20);
-    glow(t, color, 0.85);
-    for (let i = 0; i < 5; i++) {
-      t.push();
-      t.translate(x, -68 - i * 6, z);
-      t.rotateY(time * 9 + i * 22);
-      t.box(37 - i * 5, 0.8, 2);
-      t.pop();
-    }
-  } else if (kind === "garden") {
-    glow(t, [45, 91, 68], 0.8);
-    box(t, x, 11, z, 3.5, 22, 3.5);
-    glow(t, color, 0.45);
-    for (let i = 0; i < 7; i++) {
-      t.push();
-      t.translate(x + Math.sin(i * 2.4) * 7, -22 - (i % 3) * 3, z + Math.cos(i * 2.4) * 7);
-      t.sphere(7.5);
-      t.pop();
-    }
-    glow(t, color, 0.8);
-    t.push();
-    t.translate(x, -0.3, z);
-    t.rotateX(90);
-    t.torus(19, 0.3);
-    t.pop();
-  } else {
-    box(t, x, 9, z, 22, 18, 22);
-    glow(t, color, 0.8);
-    for (let i = 0; i < 5; i++) box(t, x, 21 + i * 2.5, z, 28 - i * 5, 0.7, 28 - i * 5);
-  }
-  t.push();
-  t.translate(x, kind === "gate" ? -20 : -5, z + (kind === "gate" ? 2.2 : 14));
-  t.charColor(...color);
-  t.cellColor(4, 12, 18);
-  t.printAlign("center", "middle");
-  t.print(landmark.name.toUpperCase(), 0, 0);
-  t.pop();
+  void time; // structure animation lives in landmarks-scene.ts
+  propRange(LANDMARK_LABEL_RANGE);
+  for (const face of visibleLandmarkLabels(landmark)) drawLetterPanel(t, face);
+  propRange(0); // the caller draws landmarks at range 0 (always drawn)
 }
 
 // Web Audio supplies an optional rain bed without downloaded audio or another dependency.
@@ -317,6 +264,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   let passengerSpeed = 0;
   let platform: number | null = null;
   let passenger: Passenger | null = null;
+  // Monorail seats: the bench seat `rider` (the passenger object that sat down) occupies. `progress`
+  // eases 0 (standing in the aisle) .. 1 (seated) over 0.4 s; `sitting` is the direction, so standing
+  // up mid-way turns back from where the eye is. `from` is the aisle spot and look (relative to the
+  // train) the sit began from; `look` is the view's own turn to the window (0..1 over `turn` seconds,
+  // longer for big turns); `released` arms WASD-to-stand once movement keys have been let go.
+  // passenger.u/v stay on the aisle spot in front of the seat (always walkable), so the published
+  // carrier, the snapshot cabin and a graphics-recovery restore all stand the player in the aisle.
+  let seated: { rider: Passenger; seat: number; progress: number; look: number; turn: number; sitting: boolean; released: boolean; from: { u: number; v: number; yaw: number; pitch: number } } | null = null;
   let lift: { station: number; from: number; to: number; elapsed: number } | null = null;
   let liftStation: number | null = null;
   let liftHeight = 0;
@@ -332,6 +287,9 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   let props: PropRecorder | undefined;
   let signs: SignCanvas | undefined;
   const directProps = new URLSearchParams(location.search).get("directProps") === "1";
+  // Diagnostics: ?legacySigns=1 re-walks the shops and stations per pass for their letter panels
+  // (the old path) instead of replaying the panels captured while recording props.
+  const legacySigns = new URLSearchParams(location.search).get("legacySigns") === "1";
   const referenceRenderer = new URLSearchParams(location.search).get("reference") === "1";
   // Diagnostics: ?warp=offset renders turning with the old uniform layer offset, ?warp=identity keeps the filter pass but moves nothing.
   const warpMode = new URLSearchParams(location.search).get("warp");
@@ -587,7 +545,9 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     if (drive) return Math.abs(drive.car.speed) > 4 ? "Slow down to get out" : "Get out of the car"; // Driving
     if (passenger) {
       const train = trainAt(metroTime, passenger.train);
-      return train.doors > 0.85 && doorAt(passenger.v) && passenger.u > 1 ? "Step onto the platform" : "Walk through the carriages · doors open at stations";
+      if (seated?.sitting) return train.station !== null && train.doors > 0.85 ? "Stand up · doors open" : "Stand up"; // Monorail seats
+      if (!seated && train.doors > 0.85 && doorAt(passenger.v) && passenger.u > 1) return "Step onto the platform";
+      return !seated && seatTarget() ? "Sit down" : "Walk through the carriages · doors open at stations";
     }
     if (platform !== null) {
       if (nearbyLift() === platform) return "Take lift to the street";
@@ -622,13 +582,72 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   }
 
   function carryPassenger(): void {
+    if (seated && seated.rider !== passenger) leaveSeat(); // Monorail seats: alighted, re-boarded, restored, teleported
     if (!passenger) return;
     const train = trainAt(metroTime, passenger.train);
     const turn = Math.atan2(Math.sin(train.yaw - passenger.yaw), Math.cos(train.yaw - passenger.yaw));
     mouse.yaw += turn; mouse.targetYaw += turn; player.yaw = mouse.yaw; passenger.yaw = train.yaw;
-    Object.assign(player, localToWorld(train, passenger.u, passenger.v));
-    cameraHeight = PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT;
+    if (seated) { population.reservePlayerSeat(passenger.train, seated.seat); placeSeatedEye(train); } // re-asserted: a lab clock reset rebuilds the population
+    else {
+      Object.assign(player, localToWorld(train, passenger.u, passenger.v));
+      cameraHeight = PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT;
+    }
     speed = train.speed;
+  }
+
+  // Monorail seats: sit on a free bench seat (E near it), look out of the window, stand with E/WASD.
+  /** The free seat within reach of a standing passenger: not one a commuter sits on or is boarding toward. */
+  function seatTarget(): Seat | null {
+    if (!passenger || seated) return null;
+    const train = passenger.train;
+    return nearestFreeSeat(passenger.u, passenger.v, seat => !population.seatTaken(train, seat.index));
+  }
+  function sit(seat: Seat): void {
+    if (!passenger || seated) return;
+    const train = trainAt(metroTime, passenger.train);
+    const out = windowYaw(train.yaw, seat.side), turn = Math.atan2(Math.sin(out - mouse.yaw), Math.cos(out - mouse.yaw));
+    seated = { rider: passenger, seat: seat.index, progress: 0, look: 0, turn: seatTurnSeconds(turn), sitting: true, released: false, from: { u: passenger.u, v: passenger.v, yaw: mouse.yaw - train.yaw, pitch: mouse.pitch } };
+    population.reservePlayerSeat(passenger.train, seat.index);
+  }
+  function leaveSeat(): void {
+    seated = null;
+    population.reservePlayerSeat(null);
+  }
+  /** Eye between the standing aisle spot (passenger.u/v) and the seated eye, at the current blend. */
+  function placeSeatedEye(train: Train): void {
+    if (!passenger || !seated) return;
+    const eye = seatedEye(SEATS[seated.seat]), blend = easeViewBlend(seated.progress);
+    Object.assign(player, localToWorld(train, passenger.u + (eye.u - passenger.u) * blend, passenger.v + (eye.v - passenger.v) * blend));
+    cameraHeight = PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT + (eye.y - TRAIN_EYE_HEIGHT) * blend;
+  }
+  /** Per running frame while a seat is held: steps the eased sit/stand, slides the aisle spot from
+   *  where the sit began to the spot in front of the seat, and steers the look: eased toward the
+   *  window while sitting down (no snap), then free within SEAT_LOOK; standing up frees it again.
+   *  Returns false when no seat is held (the passenger walks). */
+  function rideSeat(train: Train, dt: number, moving: boolean): boolean {
+    if (!passenger || !seated || seated.rider !== passenger) return false;
+    if (!moving) seated.released = true;
+    else if (seated.released && seated.sitting && seated.progress >= 1) seated.sitting = false; // WASD stands up
+    seated.progress = stepViewBlend(seated.progress, seated.sitting, dt);
+    const seat = SEATS[seated.seat], blend = easeViewBlend(seated.progress);
+    if (seated.sitting) {
+      const stand = seatStand(seat);
+      passenger.u = seated.from.u + (stand.u - seated.from.u) * blend;
+      passenger.v = seated.from.v + (stand.v - seated.from.v) * blend;
+      if (seated.look < 1) {
+        seated.look = Math.min(1, seated.look + Math.max(0, dt) / seated.turn);
+        const turn = easeViewBlend(seated.look), from = train.yaw + seated.from.yaw, out = windowYaw(train.yaw, seat.side);
+        const desired = from + Math.atan2(Math.sin(out - from), Math.cos(out - from)) * turn;
+        mouse.reset(mouse.yaw + Math.atan2(Math.sin(desired - mouse.yaw), Math.cos(desired - mouse.yaw)), seated.from.pitch + (SEAT_LOOK.tilt - seated.from.pitch) * turn);
+      } else {
+        const target = clampSeatedLook(mouse.targetYaw, mouse.targetPitch, train.yaw, seat.side), current = clampSeatedLook(mouse.yaw, mouse.pitch, train.yaw, seat.side);
+        mouse.targetYaw = target.yaw; mouse.targetPitch = target.pitch; mouse.yaw = current.yaw; mouse.pitch = current.pitch;
+      }
+      player.yaw = mouse.yaw; player.pitch = mouse.pitch;
+    }
+    placeSeatedEye(train);
+    if (!seated.sitting && seated.progress <= 0) leaveSeat(); // back on the aisle spot; walking resumes next frame
+    return true;
   }
   function interact(): void {
     if (!running || lift || rpg.dead) return;
@@ -644,7 +663,14 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       }
       snapshot(); return;
     }
-    if (passenger) { disembark(); snapshot(); return; }
+    if (passenger) {
+      // Monorail seats: E stands up from a seat; at an open door E alights; near a free seat E sits.
+      const train = trainAt(metroTime, passenger.train), seat = seatTarget();
+      if (seated) { if (seated.sitting) seated.sitting = false; }
+      else if (seat && !(train.doors > 0.85 && doorAt(passenger.v) && passenger.u > 1)) sit(seat);
+      else disembark();
+      snapshot(); return;
+    }
     if (drive) { exitCar(false); snapshot(); return; } // Driving
     const doorway = interiorTarget();
     if (doorway) { if (!rpg.inCombat) enterInterior(doorway); snapshot(); return; }
@@ -703,7 +729,8 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
   }
 
   function currentPose(): LocalPose {
-    const pose = localPose({ x: player.x, z: player.z, eye: cameraHeight, yaw: player.yaw, pitch: player.pitch, speed: passenger ? passengerSpeed : speed, mode, car: drive?.car ?? null, rideHeading, inTrain: !!passenger, place: interiors.active?.id ?? "", carrier: passenger ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - passenger.yaw } : null });
+    // Monorail seats: a seated eye is lower, but others see the rider standing on the aisle spot (feet on the floor).
+    const pose = localPose({ x: player.x, z: player.z, eye: seated && passenger ? PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT : cameraHeight, yaw: player.yaw, pitch: player.pitch, speed: passenger ? passengerSpeed : speed, mode, car: drive?.car ?? null, rideHeading, inTrain: !!passenger, place: interiors.active?.id ?? "", carrier: passenger ? { train: passenger.train, u: passenger.u, v: passenger.v, yaw: player.yaw - passenger.yaw } : null });
     if (!running) pose.speed = 0;
     return pose;
   }
@@ -861,7 +888,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       if (!await bootStage("materials")) return;
       // Mobile: touch-first devices compile the `lite` material variant (sin-free hash, lighter atmosphere).
       const lite = touchFirst;
-      const [shader, mirrorShader, buildingShader] = await Promise.all([t.createMaterialShader(lite ? cityMaterial({ reflections: true, lite }) : CITY_MATERIAL), t.createMaterialShader(lite ? cityMaterial({ lite, ground: false }) : REFLECTION_MATERIAL), t.createShader(BUILDING_VERTEX, lite ? cityMaterial({ batch: true, opaque: true, lite, architecture: true }) : FACADE_MATERIAL), t.filters.register("neon-clarity", CLARITY_FILTER, { u_radius: ["radius", 2], u_strength: ["strength", 0.28] }), t.filters.register("view-warp", VIEW_WARP_FILTER, { u_row0: ["row0", [1, 0, 0]], u_row1: ["row1", [0, 1, 0]], u_row2: ["row2", [0, 0, 1]], u_focal: ["focal", 800], u_cell: ["cell", 8], u_origin: ["origin", [0, 0]] })]);
+      const [shader, mirrorShader, buildingShader] = await Promise.all([t.createMaterialShader(referenceRenderer ? REFERENCE_MATERIAL : lite ? cityMaterial({ reflections: true, lite, surfaces: SURFACES.scene }) : CITY_MATERIAL), t.createMaterialShader(lite ? cityMaterial({ lite, ground: false, surfaces: SURFACES.mirror }) : REFLECTION_MATERIAL), t.createShader(BUILDING_VERTEX, lite ? cityMaterial({ batch: true, opaque: true, lite, architecture: true }) : FACADE_MATERIAL), t.filters.register("neon-clarity", CLARITY_FILTER, { u_radius: ["radius", 2], u_strength: ["strength", 0.28] }), t.filters.register("view-warp", VIEW_WARP_FILTER, { u_row0: ["row0", [1, 0, 0]], u_row1: ["row1", [0, 1, 0]], u_row2: ["row2", [0, 0, 1]], u_focal: ["focal", 800], u_cell: ["cell", 8], u_origin: ["origin", [0, 0]] })]);
       if (!active()) { if (!contextLost) { shader.dispose(); mirrorShader.dispose(); buildingShader.dispose(); } return; }
       material = shader;
       reflectionMaterial = mirrorShader;
@@ -873,7 +900,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       sceneData = new SceneData(canvas);
       textData = new TextData(canvas, ASCII_BITMAPS, MESSAGES);
       buildingBatch = new BuildingBatch(canvas, buildingShader, world);
-      const propShader = await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite, ground: false }) : BUILDING_MATERIAL);
+      const propShader = await t.createShader(PROP_VERTEX, lite ? cityMaterial({ batch: true, lite, ground: false, surfaces: SURFACES.props }) : BUILDING_MATERIAL);
       if (!active()) { if (!contextLost) propShader.dispose(); return; }
       propBatch = new PropBatch(canvas, propShader);
       props = new PropRecorder(character => t.font.characterMap.get(character)?.color ?? [0, 0, 0]);
@@ -993,13 +1020,16 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       } else if (passenger) {
         const train = trainAt(metroTime, passenger.train);
         const oldU = passenger.u, oldV = passenger.v;
-        moveInTrain(passenger, player.yaw, forward, strafe, dt);
+        const onSeat = rideSeat(train, dt, Math.hypot(forward, strafe) > 0.2); // Monorail seats: the seat owns the eye; WASD stands up
+        if (!onSeat) {
+          moveInTrain(passenger, player.yaw, forward, strafe, dt);
+          Object.assign(player, localToWorld(train, passenger.u, passenger.v));
+          cameraHeight = PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT;
+        }
         passengerSpeed = Math.hypot(passenger.u - oldU, passenger.v - oldV) / Math.max(dt, 0.001);
-        Object.assign(player, localToWorld(train, passenger.u, passenger.v));
-        cameraHeight = PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT;
         speed = train.speed;
         const rightward = Math.sin(player.yaw - train.yaw) * forward + Math.cos(player.yaw - train.yaw) * strafe;
-        if (passenger.u > 2.12 && rightward > 0 && train.doors > 0.85) disembark();
+        if (!onSeat && passenger.u > 2.12 && rightward > 0 && train.doors > 0.85) disembark();
         player.distance += Math.hypot(player.x - oldX, player.z - oldZ);
       } else if (platform !== null) {
         const station = STATIONS[platform], p = worldToLocal(station, player.x, player.z);
@@ -1131,11 +1161,12 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const blockers = near.slice(0, 18);
     const eye = { x: player.x, y: cameraHeight, z: player.z };
     const visible: { building: Building; distance: number }[] = [];
+    // Perf: the yaw terms are loop invariants, and the cone margin is only computed when it is used.
+    const viewSin = Math.sin(player.yaw), viewCos = Math.cos(player.yaw), coneTest = Math.abs(pitch) < 0.85;
     for (const block of blocks) for (const building of block.buildings) {
       const dx = building.x - player.x, dz = building.z - player.z;
       const distance = Math.hypot(dx, dz);
-      const margin = 0.25 + Math.asin(Math.min(1, 30 / Math.max(1, distance)));
-      if (distance > viewDistance + 12 || (Math.abs(pitch) < 0.85 && distance > 55 && (dx * Math.sin(player.yaw) - dz * Math.cos(player.yaw)) / distance < Math.cos(halfFov + margin))) continue;
+      if (distance > viewDistance + 12 || (coneTest && distance > 55 && (dx * viewSin - dz * viewCos) / distance < Math.cos(halfFov + (0.25 + Math.asin(Math.min(1, 30 / Math.max(1, distance))))))) continue;
       if (distance > 100 && fullyHidden(eye, building, blockers)) continue;
       visible.push({ building, distance });
     }
@@ -1157,7 +1188,7 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const heights = occluders.map(b => b.height);
     while (heights.length < 10) { boxes.push(9999, 9999, 0, 0); heights.push(0); }
     const lamps = near.slice(0, 6).map(b => {
-      const faces = signFaces(b).slice(0, 2).sort((a, c) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(c.x - player.x, c.z - player.z));
+      const faces = facesOf(b).slice(0, 2).sort((a, c) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(c.x - player.x, c.z - player.z));
       const f = faces[0], angle = f.yaw * Math.PI / 180;
       return { position: [f.x + Math.sin(angle), -f.y, f.z + Math.cos(angle), 32], color: f.color.map(v => v / 255) };
     });
@@ -1173,14 +1204,16 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
     const feed = broadcast.drawFramebuffer?.textures ?? [];
     const common = { u_text: textData?.texture ?? sceneData.texture, u_feedGlyph: feed[0] ?? sceneData.texture, u_feedInk: feed[1] ?? sceneData.texture, u_feedPaper: feed[2] ?? sceneData.texture, u_scene: sceneData.texture, u_time: time, u_rain: settings.rain ? 1 : 0, u_atmosphere: settings.effects && profile.atmosphere ? 1 : 0, u_viewRadius: viewDistance, u_fadeIn: reveal };
     const visibility = new Map<string, boolean>();
+    const yawSin = Math.sin(player.yaw), yawCos = Math.cos(player.yaw); // Perf: hoisted out of isVisible
     // `radius` is the prop's horizontal half-extent: a wide awning or fascia next to the camera stays
     // drawn while any of it is on screen, not only while its centre is (they used to vanish at the
     // edge of the view as you turned).
     const isVisible = (x: number, y: number, z: number, radius = 0) => {
+      // Perf: the view-cone test is cheap and was never cached, so it runs before the cache key is built.
+      const dx = x - player.x, dz = z - player.z, distance = Math.hypot(dx, dz);
+      if (distance > 10 + radius && Math.abs(pitch) < 0.85 && (dx * yawSin - dz * yawCos) / distance < Math.cos(halfFov + 0.25 + Math.asin(Math.min(1, radius / Math.max(distance, 1e-3))))) return false;
       const key = `${x},${y},${z},${radius}`, cached = visibility.get(key);
       if (cached !== undefined) return cached;
-      const dx = x - player.x, dz = z - player.z, distance = Math.hypot(dx, dz);
-      if (distance > 10 + radius && Math.abs(pitch) < 0.85 && (dx * Math.sin(player.yaw) - dz * Math.cos(player.yaw)) / distance < Math.cos(halfFov + 0.25 + Math.asin(Math.min(1, radius / Math.max(distance, 1e-3))))) return false;
       // Props are visible when any part could be: test the centre and two points either side.
       const spread = Math.max(3, radius), side = { x: Math.cos(player.yaw) * spread, z: Math.sin(player.yaw) * spread };
       const visible = visibleFrom(eye, { x, y, z }, near) || visibleFrom(eye, { x: x + side.x, y, z: z + side.z }, near) || visibleFrom(eye, { x: x - side.x, y, z: z - side.z }, near);
@@ -1212,10 +1245,16 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       t.camera(player.x, y, player.z, player.x + Math.sin(viewYaw) * Math.cos(viewPitch), y + Math.sin(viewPitch) * (mirror ? -1 : 1), player.z - Math.cos(viewYaw) * Math.cos(viewPitch), 0, mirror ? -1 : 1, 0);
     };
     // Props are recorded once per frame into GPU instances (one draw per mesh) and reused by the
-    // reflected and main passes. Sign panels, which need per-panel uniforms, are re-walked per
-    // pass with SignCanvas; landmarks, screens, holograms and the player's car stay direct.
+    // reflected and main passes. Sign panels, which need per-panel uniforms, are captured by the
+    // same walk and replayed per pass (SignCanvas re-walks them only with ?legacySigns=1);
+    // landmarks, screens, holograms and the player's car stay direct.
     const recordProps = (sink: PropCanvas) => {
+      // Perf: the recorder also captures the letter panels of the stations and shops (their tag says
+      // which pass keeps them), so the render passes replay them instead of re-walking both scenes.
+      const capture: PropRecorder | null = props !== undefined && sink === props && !legacySigns ? props : null;
+      if (capture) capture.panelTag = METRO_PANELS;
       drawMetroScene(sink, view, metroTime, passenger?.train ?? null, liftStation, liftHeight);
+      if (capture) capture.panelTag = -1;
       counts = drawActivity(sink, view, vehicles, citizens);
       drawDriving(sink, view, parkedNearby, null, false, false); // Driving: kerbside cars
       drawNpcs(sink, view, quests.npcs, id => quests.marker(id), quests.dialogue?.npcId ?? null); // Quests: named NPCs + markers
@@ -1225,7 +1264,8 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       drawWaypointBeacons(sink, view, viewDistance); // World map: waypoint light beacons (waypoint-scene.ts)
       drawRemotePlayers(sink, view, remotes); // Multiplayer: other players' figures and cars (instanced with the props)
       drawInteriorEntrances(sink, interiors.places, player, isVisible);
-      for (const { building, distance } of visible) if (distance < (view.low ? 200 : 360)) drawShop(sink, building, distance, player, isVisible, view.low ? 200 : 360);
+      for (const { building, distance } of visible) if (distance < (view.low ? 200 : 360)) { if (capture) capture.panelTag = distance; drawShop(sink, building, distance, player, isVisible, view.low ? 200 : 360); }
+      if (capture) capture.panelTag = -1;
       // Suspended utilities and narrow service bridges break up the avenue's
       // empty silhouette. Small fixtures remain real geometry in reflections.
       propRange(300);
@@ -1263,34 +1303,50 @@ export function createCity(canvas: HTMLCanvasElement, initialSettings: CitySetti
       if (directProps || !signs) recordProps(t);
       else {
         propBatch?.draw(batchCamera(mirror), frame);
-        if (metroSigns && !(mirror && profile.low)) drawMetroScene(signs, view, metroTime, passenger?.train ?? null, liftStation, liftHeight, true); // Mobile (perf): see metroSigns
-        for (const { building, distance } of visible) if (distance < (mirror ? 120 : view.low ? 200 : 360)) drawShop(signs, building, distance, player, isVisible, view.low ? 200 : 360);
+        if (props && !legacySigns) {
+          // Perf: the station and shop letter panels captured while recording props, in the same order
+          // and subset the two walks below produce (the reflection keeps shops within 120 m).
+          props.replayPanels(t, tag => tag === METRO_PANELS ? metroSigns && !(mirror && profile.low) : !mirror || tag < 120);
+        } else {
+          if (metroSigns && !(mirror && profile.low)) drawMetroScene(signs, view, metroTime, passenger?.train ?? null, liftStation, liftHeight, true); // Mobile (perf): see metroSigns
+          for (const { building, distance } of visible) if (distance < (mirror ? 120 : view.low ? 200 : 360)) drawShop(signs, building, distance, player, isVisible, view.low ? 200 : 360);
+        }
       }
       if (drive) drawDriving(t, view, [], drive.car, drive.exterior, mirror); // Driving: player car / cockpit
       if (!mirror) { // RPG: the weapon in hand (true camera, so it stays put through the view warp) and combat effects
         if (onFoot && !combatView.dead) drawViewmodel(t, { x: player.x, y: cameraHeight, z: player.z, yaw: player.yaw, pitch }, combatView, rpg.weapon(), time);
         drawCombatEffects(t, hudFrame?.effects ?? [], vfxCam, time, t.grid?.rows ?? 90);
       }
-      // Hologram screens read the synth feed's cells directly, so they share fog and lighting.
+      // Hologram screens cycle channels in the material (the synth feed's cells, data rain, scope,
+      // map, advert), so they share fog and lighting.
       if (broadcast.drawFramebuffer && profile.holograms) { // Mobile: profile (desktop: !low)
         t.setUniform("u_surface", 5);
         propRange(viewDistance * 0.6); t.cellColor(0, 0, 0, propAlpha());
         for (const { building, distance } of visible) {
           if (building.id % 17 !== 0 || distance > viewDistance * 0.6) continue;
           const face = signFaces(building)[1];
+          // Per screen: channel rotation phase (u_holoSeed) and the advert it shows (u_holoRow).
+          t.setUniforms({ u_holoSeed: (building.id * 0.377) % 1, u_holoRow: (building.id * 7) % MESSAGES.length });
           t.push(); t.translate(face.x, -Math.min(building.height - 8, 28), face.z); t.rotateY(face.yaw);
           t.rect(6, 9); t.pop();
         }
       }
-      // Holograms: tall translucent projections off the upper floors of a few towers, showing the
-      // synth feed with a slogan crawling through them. Fog, not a draw distance, hides them.
+      // Holograms: tall translucent projections off the upper floors of a few towers (six subjects
+      // drawn in the material, see SURFACE 7) with a slogan crawling below. Fog, not a draw
+      // distance, hides them.
       if (broadcast.drawFramebuffer && profile.holograms) { // Mobile: profile (desktop: !low)
         t.setUniform("u_surface", 7);
         for (const { building } of visible) {
           if (building.id % 11 !== 0 || building.height < 70) continue;
           const face = signFaces(building)[1], angle = face.yaw * Math.PI / 180, size = 10 + (building.id % 3) * 3;
-          t.setUniforms({ u_holoRow: building.id % MESSAGES.length, u_holoSeed: (building.id * 0.618) % 1, u_holoTint: HOLO_TINTS[building.id % HOLO_TINTS.length] });
-          t.push(); t.translate(face.x + Math.sin(angle) * 5, -building.height * 0.62, face.z + Math.cos(angle) * 5); t.rotateY(face.yaw);
+          // Projected 7 m out over the street and turned toward the viewer (at most 40 degrees off
+          // the facade), so it reads from down the street instead of edge-on. The turn follows the
+          // camera smoothly; it never snaps.
+          const cx = face.x + Math.sin(angle) * 7, cz = face.z + Math.cos(angle) * 7;
+          const off = Math.atan2(player.x - cx, player.z - cz) - angle, turn = Math.atan2(Math.sin(off), Math.cos(off));
+          const [tint, tint2] = HOLO_TINTS[(building.district * 2 + building.id) % HOLO_TINTS.length];
+          t.setUniforms({ u_holoRow: building.id % MESSAGES.length, u_holoSeed: (building.id * 0.618) % 1, u_holoTint: [...tint], u_holoTint2: [...tint2] });
+          t.push(); t.translate(cx, -building.height * 0.62, cz); t.rotateY(face.yaw + Math.max(-40, Math.min(40, turn * 180 / Math.PI)));
           t.rect(size * 1.25, size * 2.1); t.pop();
         }
       }

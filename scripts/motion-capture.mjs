@@ -40,8 +40,8 @@ const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/App
 let executable;
 for (const candidate of candidates) { try { await access(candidate); executable = candidate; break; } catch { /* Next browser */ } }
 if (!executable) throw new Error("Set CHROME_PATH to an installed Chromium browser.");
-const port = 9361;
-const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", "motion-browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--enable-webgl", "--ignore-gpu-blocklist", "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
+const port = Number(args.get("port") ?? 9361);
+const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", `motion-browser-profile-${port}`)}`, "--no-first-run", "--no-default-browser-check", "--enable-webgl", "--ignore-gpu-blocklist", "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
 let socket;
 const pngs = [];
 try {

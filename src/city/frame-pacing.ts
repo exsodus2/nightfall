@@ -14,6 +14,7 @@ export function vsyncsPerFrame(periodMs: number, capHz: number): number {
 /** Pure pacing state, fed with rAF timestamps: decides which vsyncs render. */
 export class VsyncPacer {
   private deltas: number[] = [];
+  private readonly sorted: number[] = [];
   private last = -1;
   private lastRender = -1;
   private capHz: number;
@@ -31,7 +32,11 @@ export class VsyncPacer {
       if (delta > 2 && delta < 60) {
         this.deltas.push(delta);
         if (this.deltas.length > 48) this.deltas.shift();
-        const sorted = [...this.deltas].sort((a, b) => a - b);
+        // Perf: the median comes from a reused scratch copy; this runs on every vsync (up to 240 Hz).
+        const sorted = this.sorted;
+        sorted.length = 0;
+        for (const value of this.deltas) sorted.push(value);
+        sorted.sort((a, b) => a - b);
         this.period = sorted[sorted.length >> 1];
       }
     }

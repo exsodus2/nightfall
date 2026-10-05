@@ -22,9 +22,16 @@ export interface Building {
   depth: number;
   height: number;
   district: number;
+  /** Building type 0-7 (BUILDING_TYPES). Also the occlusion family visibility.ts assumes: types 4
+   * and 7 have slimmer cores, so every massing family with setbacks is typed 4 or 7. */
   style: number;
   sign: string;
   accent: RGB;
+  /** Massing family (architecture.ts FORM): podium towers, ziggurats, twins, megablocks, spires.
+   * Optional so hand-made test buildings stay valid; absent means the classic slab. */
+  form?: number;
+  /** Facade material 0-11 the shader draws on the main mass (architecture.ts SKIN); absent = style. */
+  skin?: number;
 }
 
 export interface Block {
@@ -172,6 +179,59 @@ const RAIL_SOLIDS_BY_BLOCK = (() => {
   return map;
 })();
 
+/** Massing families; architecture.ts `buildingParts` turns each into boxes. */
+export const FORM = { SLAB: 0, TERRACED: 1, SIGNAL: 2, PODIUM: 3, ZIGGURAT: 4, TWIN: 5, CANTILEVER: 6, MEGABLOCK: 7, SPIRE: 8, SHANTY: 9 } as const;
+/** Facade materials beyond the eight building types (0-7 share the type's id). */
+export const SKIN = { CORRUGATED: 8, CURTAIN: 9, PANEL: 10, GARDEN: 11 } as const;
+type Choices = readonly number[];
+// District identity in massing. Each row: form weights, then [base height, span, curve], the
+// building types for plain slabs, and the facade skins of towers.
+const DISTRICT_MASSING: readonly { forms: readonly (readonly [number, number])[]; height: readonly [number, number, number]; types: Choices; towers: Choices }[] = [
+  // The Foundry: container megablocks, works and slabs; mid-rise and bulky.
+  { forms: [[FORM.MEGABLOCK, 0.3], [FORM.SLAB, 0.33], [FORM.CANTILEVER, 0.1], [FORM.PODIUM, 0.1], [FORM.TERRACED, 0.05], [FORM.SIGNAL, 0.06], [FORM.ZIGGURAT, 0.06]], height: [26, 104, 1.5], types: [3, 1, 0, 3], towers: [1, 10, 3, 8] },
+  // Neon Ward: podium towers, twins, cantilevers and the odd supertall spire.
+  { forms: [[FORM.PODIUM, 0.285], [FORM.TWIN, 0.14], [FORM.CANTILEVER, 0.15], [FORM.SLAB, 0.2], [FORM.ZIGGURAT, 0.08], [FORM.SIGNAL, 0.07], [FORM.TERRACED, 0.05], [FORM.SPIRE, 0.025]], height: [40, 140, 1.35], types: [2, 1, 5, 6], towers: [9, 2, 9, 10] },
+  // Ghost Circuit: antenna towers and cold glass.
+  { forms: [[FORM.SIGNAL, 0.22], [FORM.PODIUM, 0.225], [FORM.SLAB, 0.22], [FORM.TWIN, 0.1], [FORM.CANTILEVER, 0.1], [FORM.ZIGGURAT, 0.06], [FORM.SPIRE, 0.015], [FORM.MEGABLOCK, 0.06]], height: [34, 130, 1.45], types: [1, 2, 3, 6], towers: [7, 10, 9, 2] },
+  // Rain Gardens: terraces and stepped ziggurats carrying planters and greenhouses.
+  { forms: [[FORM.TERRACED, 0.3], [FORM.ZIGGURAT, 0.25], [FORM.SLAB, 0.3], [FORM.PODIUM, 0.1], [FORM.TWIN, 0.05]], height: [28, 100, 1.6], types: [6, 0, 5, 2], towers: [11, 4, 9, 11] },
+  // Silk Market: dense brick and arcade slabs with water tanks.
+  { forms: [[FORM.SLAB, 0.45], [FORM.PODIUM, 0.15], [FORM.CANTILEVER, 0.1], [FORM.TERRACED, 0.1], [FORM.MEGABLOCK, 0.1], [FORM.ZIGGURAT, 0.05], [FORM.TWIN, 0.05]], height: [30, 112, 1.6], types: [5, 0, 6, 1], towers: [2, 6, 0, 9] },
+  // The Spillway: low, patched shanty slabs and scaffolding.
+  { forms: [[FORM.SHANTY, 0.45], [FORM.SLAB, 0.3], [FORM.MEGABLOCK, 0.15], [FORM.TERRACED, 0.05], [FORM.SIGNAL, 0.05]], height: [22, 62, 1.7], types: [0, 6, 3, 5], towers: [0, 6, 8, 0] },
+];
+/** Height, type, massing family and facade of one plot. `random(salt)` is the plot's stream. */
+export function districtMassing(district: number, avenue: boolean, random: (salt: number) => number): { height: number; style: number; form: number; skin: number } {
+  const row = DISTRICT_MASSING[district], pick = (list: Choices, salt: number) => list[Math.floor(random(salt) * list.length) % list.length];
+  let roll = random(0), form: number = FORM.SLAB;
+  for (const [candidate, weight] of row.forms) { if (roll < weight) { form = candidate; break; } roll -= weight; }
+  const [base, span, curve] = row.height;
+  let height = avenue ? 36 + Math.pow(random(1), 1.6) * 88 : base + Math.pow(random(1), curve) * span;
+  // Setback families need height to read; low ones stay low.
+  if (form === FORM.SPIRE) height = 178 + random(2) * 48;
+  else if (form === FORM.PODIUM || form === FORM.TWIN || form === FORM.SIGNAL) height = Math.max(height, 58 + random(2) * 20);
+  else if (form === FORM.ZIGGURAT) height = Math.max(height, 46 + random(2) * 16);
+  else if (form === FORM.MEGABLOCK) height = Math.min(Math.max(height, 34), 96);
+  else if (form === FORM.SHANTY) height = Math.min(height, 46);
+  // Types 7 and 4 tell visibility.ts the core is slimmer than the plot (setbacks, notches).
+  const slim = form === FORM.PODIUM || form === FORM.ZIGGURAT || form === FORM.TWIN || form === FORM.SPIRE || form === FORM.SIGNAL;
+  const style = slim ? 7 : form === FORM.TERRACED ? 4 : pick(row.types, 3);
+  let skin = style;
+  if (slim && form !== FORM.SIGNAL) skin = form === FORM.ZIGGURAT && district !== 3 ? pick([4, 10, 1], 4) : pick(row.towers, 4);
+  else if (form === FORM.SIGNAL) skin = district === 2 && random(4) < 0.4 ? SKIN.PANEL : 7;
+  else if (form === FORM.TERRACED) skin = district === 3 && random(4) < 0.6 ? SKIN.GARDEN : 4;
+  else if (form === FORM.MEGABLOCK) skin = random(4) < 0.5 ? SKIN.PANEL : 1;
+  else {
+    const swap = random(4);
+    if (style === 3 && (district === 0 || district === 5) && swap < 0.5) skin = SKIN.CORRUGATED;
+    else if (style === 1 && swap < 0.45) skin = SKIN.PANEL;
+    else if (style === 2 && (district === 1 || district === 2) && swap < 0.55) skin = SKIN.CURTAIN;
+    else if (district === 3 && swap < 0.35) skin = SKIN.GARDEN;
+    else if (district === 5 && swap < 0.3) skin = SKIN.CORRUGATED;
+  }
+  return { height, style, form, skin };
+}
+
 export function districtAt(x: number, z: number): District {
   const column = x < -256 ? 0 : x >= 256 ? 2 : 1;
   return DISTRICTS[column + (z >= 0 ? 3 : 0)];
@@ -200,14 +260,14 @@ export class CityWorld {
             // Keep the six station concourses clear at street and platform level.
             if (Math.abs(Math.abs(z) - 320) < 28 && [-448, 0, 448].some(stop => Math.abs(x - stop) < 35)) continue;
             const district = districtAt(x, z);
-            const height = (avenue ? 36 : 32) + Math.pow(randomFor(bx, bz, plot * 7 + 1), 1.6) * (avenue ? 88 : 136);
+            const massing = districtMassing(district.id, avenue, (salt) => randomFor(bx, bz, 100 + plot * 13 + salt));
             const building: Building = {
               id: this.buildings.length,
-              x, z, height,
+              x, z, height: massing.height,
               width: avenue ? 13 : 15 + randomFor(bx, bz, plot * 7 + 2) * 7,
               depth: 15 + randomFor(bx, bz, plot * 7 + 3) * 7,
               district: district.id,
-              style: Math.floor(randomFor(bx, bz, plot * 7 + 4) * 8),
+              style: massing.style, form: massing.form, skin: massing.skin,
               sign: `${BRANDS[Math.floor(randomFor(bx, bz, plot * 7 + 5) * BRANDS.length)]} ${TRADES[Math.floor(randomFor(bx, bz, plot * 7 + 9) * TRADES.length)]}`,
               accent: randomFor(bx, bz, plot * 7 + 6) > 0.48 ? district.color : ACCENTS[Math.floor(randomFor(bx, bz, plot * 7 + 7) * ACCENTS.length)],
             };

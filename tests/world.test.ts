@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CityWorld, DISTRICTS, LANDMARKS, SPAWN, WORLD_EDGE, districtAt, movePlayer } from "../src/city/world.ts";
+import { CityWorld, DISTRICTS, FORM, LANDMARKS, SPAWN, WORLD_EDGE, districtAt, movePlayer } from "../src/city/world.ts";
 
 const world = new CityWorld();
 
@@ -49,4 +49,17 @@ test("diagonal walking has the same speed and coordinates select the district", 
   assert.equal(districtAt(-500, -500).name, "The Foundry");
   assert.equal(districtAt(0, -500).name, "Neon Ward");
   assert.equal(districtAt(500, 500).name, "The Spillway");
+});
+
+test("districts have their own massing: Neon Ward towers over the Spillway, a few supertall spires", () => {
+  const mean = (id: number) => { const list = world.buildings.filter(b => b.district === id); return list.reduce((sum, b) => sum + b.height, 0) / list.length; };
+  assert.ok(mean(1) > mean(5) * 1.6, "Neon Ward is taller than the Spillway");
+  const spires = world.buildings.filter(b => b.form === FORM.SPIRE);
+  assert.ok(spires.length >= 4 && spires.length <= 30 && spires.every(b => b.height > 175));
+  for (const b of world.buildings) {
+    assert.ok(b.height >= 20 && b.height < 230, `Building ${b.id} height ${b.height}`);
+    assert.ok(Number.isInteger(b.style) && b.style >= 0 && b.style < 8);
+    assert.ok(b.skin !== undefined && b.skin >= 0 && b.skin < 12);
+  }
+  for (let id = 0; id < 6; id++) assert.ok(new Set(world.buildings.filter(b => b.district === id).map(b => b.form)).size >= 4, `district ${id} mixes forms`);
 });

@@ -12,8 +12,8 @@ const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/App
 let executable;
 for (const path of candidates) { try { await access(path); executable = path; break; } catch { /* Next browser */ } }
 if (!executable) throw new Error("Set CHROME_PATH to an installed Chromium browser.");
-const port = 9332;
-const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", "visual-browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-extensions", "--enable-webgl", ...(args.has("software") ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []), "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
+const port = Number(args.get("port") ?? 9332);
+const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve("artifacts", `visual-browser-profile-${port}`)}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-extensions", "--enable-webgl", ...(args.has("software") ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []), "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
 let socket;
 const report = [];
 const cameras = {
@@ -22,6 +22,31 @@ const cameras = {
   "glass-warm": { x: -45, z: 63, height: 14, yaw: 0, pitch: 0 },
   "park-pond": { x: -437, z: 249, height: 9, yaw: 0.72, pitch: 0.22 },
   "park-arena": { x: -527, z: 378, height: 10, yaw: 0.74, pitch: 0.24 },
+  // Positive pitch looks down. District massing and roof kits from the air (architecture.ts).
+  "foundry-air": { x: -576, z: -128, height: 60, yaw: 0.3, pitch: 0.25 },
+  "neon-air": { x: 0, z: -200, height: 55, yaw: 0.2, pitch: 0.2 },
+  "ghost-air": { x: 576, z: -128, height: 60, yaw: -0.3, pitch: 0.25 },
+  "gardens-air": { x: -576, z: 192, height: 55, yaw: 3.44, pitch: 0.25 },
+  "spill-air": { x: 576, z: 192, height: 45, yaw: 2.84, pitch: 0.2 },
+  "street-up": { x: -128, z: 96, height: 2.7, yaw: 0.4, pitch: -0.45 },
+  "roof-close": { x: -128, z: 64, height: 95, yaw: 0.8, pitch: 0.4 },
+  "top-down": { x: -64, z: 128, height: 230, yaw: 0.3, pitch: 1.2 },
+  // Landmarks (landmarks-scene.ts), shopfronts and street life (signage.ts, street-life.ts).
+  "ember-core": { x: -452, z: -258, height: 2.7, yaw: -0.75, pitch: -0.35 },
+  "ember-far": { x: -448, z: 0, height: 2.7, yaw: -0.11, pitch: -0.05 },
+  "spire": { x: 5, z: -130, height: 2.7, yaw: 0.73, pitch: -0.55 },
+  "spire-far": { x: 0, z: 140, height: 2.7, yaw: 0.106, pitch: -0.12 },
+  "gate": { x: 4, z: 160, height: 2.7, yaw: 3.1416, pitch: -0.2 },
+  "cathedral": { x: 452, z: -258, height: 2.7, yaw: 0.75, pitch: -0.45 },
+  "tree": { x: -462, z: 268, height: 2.7, yaw: -2.41, pitch: -0.3 },
+  "arcade": { x: 452, z: 260, height: 2.7, yaw: 2.36, pitch: -0.3 },
+  "storefront": { x: -45, z: 131, height: 2.7, yaw: 3.1416, pitch: 0.05 },
+  "stall": { x: -45, z: 187.5, height: 2.7, yaw: 0, pitch: 0.05 },
+  "alley-cables": { x: -60, z: 160, height: 2.7, yaw: 1.5708, pitch: -0.2 },
+  // Holograms and hologram screens (materials.ts SURFACE 7 / 5).
+  "hologram": { x: -71, z: -45, height: 40, yaw: 1.5708, pitch: 0.1 },
+  "hologram-street": { x: -70, z: 5, height: 38, yaw: 0.25, pitch: 0.05 },
+  "screen": { x: 66, z: 96, height: 27, yaw: -0.7, pitch: 0 },
 };
 try {
   let tabs;

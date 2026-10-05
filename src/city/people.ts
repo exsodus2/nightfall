@@ -175,9 +175,21 @@ export class CityPopulation {
     }
   }
 
+  /** Monorail seats: the seat the player sits on (engine.ts), skipped by freeSeat. */
+  private playerSeat: { train: number; seat: number } | null = null;
+  /** Reserves `seat` on `train` for the player; `null` (or seat < 0) releases it. Idempotent. */
+  reservePlayerSeat(train: number | null, seat = -1): void {
+    this.playerSeat = train === null || seat < 0 ? null : { train, seat };
+  }
+  /** A commuter sits on, or is boarding toward, `seat` on `train` (the player may not take it). */
+  seatTaken(train: number, seat: number): boolean {
+    return this.commuters.some(o => o.train === train && o.seat === seat);
+  }
+
   /** A free seat on `train`, preferring the carriage behind the commuter's door. */
   private freeSeat(p: Commuter, train: number): number {
     const taken = new Set(this.commuters.filter(o => o !== p && o.train === train && o.seat >= 0).map(o => o.seat));
+    if (this.playerSeat?.train === train) taken.add(this.playerSeat.seat);
     let best = -1, bestScore = Infinity;
     for (const seat of SEATS) {
       if (taken.has(seat.index)) continue;

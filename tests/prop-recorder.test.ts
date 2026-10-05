@@ -99,3 +99,36 @@ test("warmed fixed-depth transform work creates no additional matrix buffers", (
     assert.equal(allocations, 0);
   } finally { globalThis.Float64Array = original; original.prototype.slice = originalSlice; }
 });
+
+test("sign panels are captured only while tagged and replay in order, filtered by tag", () => {
+  const canvas = recorder(), calls: string[] = [];
+  const sink = {
+    push: () => { calls.push("push"); }, pop: () => { calls.push("pop"); }, resetMatrix: () => { calls.push("reset"); },
+    applyMatrix: (m: ArrayLike<number>) => { calls.push(`matrix ${Array.from(m, v => Math.round(v * 1000) / 1000).join(",")}`); },
+    charColor: (r: number, g: number, b: number, a?: number) => { calls.push(`ink ${Math.round(r)},${Math.round(g)},${Math.round(b)},${Math.round(a ?? 255)}`); },
+    cellColor: (r: number, g: number, b: number, a?: number) => { calls.push(`paper ${Math.round(r)},${Math.round(g)},${Math.round(b)},${Math.round(a ?? 255)}`); },
+    rect: (width?: number, height?: number) => { calls.push(`rect ${width},${height}`); },
+    setUniform: (name: string, value: unknown) => { calls.push(`uniform ${name}=${String(value)}`); },
+    setUniforms: (uniforms: Record<string, unknown>) => { calls.push(`uniforms ${Object.entries(uniforms).map(([k, v]) => `${k}=${String(v)}`).join(",")}`); },
+  };
+  // drawLetterPanel's call pattern.
+  const panel = (x: number, yaw: number) => {
+    canvas.setUniforms({ u_surface: 3, u_signSeed: x }); canvas.push(); canvas.translate(x, -6, 2); canvas.rotateY(yaw);
+    canvas.charColor(200, 100, 50); canvas.cellColor(3, 8, 12, 90); canvas.rect(6, 4); canvas.pop(); canvas.setUniform("u_surface", 2);
+  };
+  canvas.reset();
+  panel(1, 90); // untagged: dropped
+  canvas.panelTag = 50; panel(10, 0);
+  canvas.panelTag = 200; canvas.push(); canvas.translate(100, 0, 0); panel(20, 180); canvas.pop();
+  canvas.panelTag = -1; panel(30, 0);
+  assert.equal(canvas.panelCommands, 6);
+  canvas.replayPanels(sink, tag => tag < 120);
+  assert.deepEqual(calls, ["uniforms u_surface=3,u_signSeed=10", "push", "reset", "matrix 1,0,0,0,0,1,0,0,0,0,1,0,10,-6,2,1", "ink 200,100,50,255", "paper 3,8,12,90", "rect 6,4", "pop", "uniform u_surface=2"]);
+  calls.length = 0;
+  canvas.replayPanels(sink, () => true);
+  assert.equal(calls.length, 18);
+  assert.equal(calls[12], "matrix -1,0,0,0,0,1,0,0,0,0,-1,0,120,-6,2,1");
+  canvas.reset(); calls.length = 0;
+  canvas.replayPanels(sink, () => true);
+  assert.deepEqual(calls, []);
+});

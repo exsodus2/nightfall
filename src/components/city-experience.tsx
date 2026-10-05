@@ -181,6 +181,7 @@ export function CityExperience() {
 
   const openPanel = useCallback((next: Panel) => {
     if (recovering.current) return;
+    controller.current?.closeDialogue(); // a panel over an NPC conversation would leave the dialogue eating Enter, digits and Esc
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(next);
@@ -189,6 +190,7 @@ export function CityExperience() {
   // Quest UI callbacks: stable so child effects don't re-run on every snapshot.
   const openQuestLog = useCallback(() => {
     if (recovering.current) return;
+    controller.current?.closeDialogue();
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(null);
@@ -199,6 +201,7 @@ export function CityExperience() {
   // Multiplayer: the Online panel pauses like the other panels.
   const openLobby = useCallback(() => {
     if (recovering.current) return;
+    controller.current?.closeDialogue();
     controller.current?.pause();
     setPhase((current) => current === "playing" ? "paused" : current);
     setPanel(null); setQuestLog(false); setLobby(true);

@@ -131,6 +131,43 @@ export function seatedBox(box: PoseBox, u: number, v: number, side: 1 | -1): Fur
 /** Facing the aisle from a seat on `side`. */
 export const seatedYaw = (trainYaw: number, side: number): number => trainYaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2);
 
+/** The player's seat. A seated rider's eyes sit just above the backrest rail (head centre
+ *  SEATED.head, minus a little), so the open window above the backrest fills the view. */
+export const SEATED_EYE_HEIGHT = SEATED.head - 0.04;
+/** How far (to the aisle spot in front of a seat) the player can reach to sit down. */
+export const SEAT_REACH = 1.5;
+/** Seated look range around the window direction, and the default slight downward tilt toward
+ *  the street. Generous but bounded, so the head never turns through the backrest. */
+export const SEAT_LOOK = { yaw: 100 * Math.PI / 180, pitch: 45 * Math.PI / 180, tilt: -0.12 } as const;
+const angleDelta = (from: number, to: number): number => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+/** The aisle spot in front of a seat: where a rider stands before sitting and after rising.
+ *  Always inside the walkable aisle (canWalkInTrain). */
+export const seatStand = (seat: Seat): { u: number; v: number } => ({ u: seat.side * BENCH.stand, v: seat.v });
+/** Seated eye, carriage-local (y up from the floor): above the hips, a hand's width toward the
+ *  aisle from the head centre, clear of the cushion, backrest and rail. */
+export const seatedEye = (seat: Seat): { u: number; v: number; y: number } => ({ u: seat.side * (BENCH.hip - 0.1), v: seat.v, y: SEATED_EYE_HEIGHT });
+/** Looking straight out of the side window behind a seat on `side` (the opposite of seatedYaw). */
+export const windowYaw = (trainYaw: number, side: number): number => trainYaw + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+/** Seconds the view takes to turn to the window when sitting down: the 0.4 s of the sit itself for
+ *  small turns, longer for big ones, so the (smoothstep) turn never peaks above ~250 degrees/s
+ *  (motion comfort: a half turn in 0.4 s would whip the view round). */
+export const seatTurnSeconds = (turn: number): number => Math.max(0.4, Math.abs(turn) * 0.35);
+/** Nearest seat that `free` accepts, measured to its aisle spot, within `reach` of (u, v). */
+export function nearestFreeSeat(u: number, v: number, free: (seat: Seat) => boolean, reach = SEAT_REACH): Seat | null {
+  let best: Seat | null = null, bestDistance = reach;
+  for (const seat of SEATS) {
+    const stand = seatStand(seat), distance = Math.hypot(u - stand.u, v - stand.v);
+    if (distance <= bestDistance && free(seat)) { best = seat; bestDistance = distance; }
+  }
+  return best;
+}
+/** Keeps a seated look (unwrapped world yaw, pitch) within SEAT_LOOK around the window; the
+ *  returned yaw stays on the caller's unwrapped branch, so it never jumps a full turn. */
+export function clampSeatedLook(yaw: number, pitch: number, trainYaw: number, side: number): { yaw: number; pitch: number } {
+  const delta = angleDelta(windowYaw(trainYaw, side), yaw);
+  return { yaw: yaw - delta + clamp(delta, -SEAT_LOOK.yaw, SEAT_LOOK.yaw), pitch: clamp(pitch, SEAT_LOOK.tilt - SEAT_LOOK.pitch, SEAT_LOOK.tilt + SEAT_LOOK.pitch) };
+}
+
 export function moveInTrain(passenger: Passenger, yaw: number, forward: number, strafe: number, dt: number): void {
   const angle = yaw - passenger.yaw, step = 4.5 * Math.min(0.15, dt) / Math.max(1, Math.hypot(forward, strafe));
   const du = (Math.sin(angle) * forward + Math.cos(angle) * strafe) * step;

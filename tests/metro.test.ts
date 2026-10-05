@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { STATIONS, TRACK_LENGTH, METRO_CYCLE, trackPose, trainAt, boardingTrain, localToWorld, worldToLocal, moveInTrain, canWalkInTrain, doorAt, BENCH, BENCH_PARTS, BENCHES, CARRIAGE_CENTERS, SEATS, SEATED_BODY, SEATED_POSE, seatedBox, seatedYaw, type FurnitureBox } from "../src/city/metro.ts";
+import { STATIONS, TRACK_LENGTH, METRO_CYCLE, trackPose, trainAt, boardingTrain, localToWorld, worldToLocal, moveInTrain, canWalkInTrain, doorAt, BENCH, BENCH_PARTS, BENCHES, CARRIAGE_CENTERS, SEATS, SEATED_BODY, SEATED_POSE, seatedBox, seatedYaw, type FurnitureBox, SEAT_LOOK, SEAT_REACH, SEATED_EYE_HEIGHT, TRAIN_EYE_HEIGHT, clampSeatedLook, nearestFreeSeat, seatStand, seatTurnSeconds, seatedEye, windowYaw } from "../src/city/metro.ts";
+import { CityPopulation } from "../src/city/people.ts";
 import { CityWorld } from "../src/city/world.ts";
 
 test("rounded track preserves position and tangent, including the loop seam", () => {
@@ -95,4 +96,106 @@ test("seated riders sit on solid benches, not through them, one per seat in ever
     }
     for (let j = i + 1; j < SEATS.length; j++) for (const a of body) for (const b of bodies[j]) assert.ok(!overlaps(a, b), `seats ${i} and ${j} overlap`);
   });
+});
+
+// Monorail seats: the player sits on a free bench seat and looks out of the window.
+test("the player's seated eye is inside the carriage, clear of benches and poles, at the open window", () => {
+  const furniture: FurnitureBox[] = BENCHES.flatMap(bench => BENCH_PARTS.map(part => ({ ...part, u: bench.side * part.u, v: bench.v + part.v })));
+  for (const center of CARRIAGE_CENTERS) for (const side of [-1, 1]) for (const v of [-1.65, 1.65]) furniture.push({ part: "pole", u: side * 1.8, y: 2.05, v: center + v, w: 0.065, h: 4.1, d: 0.065 });
+  const near = 0.12; // the camera's near plane: nothing solid may come closer than this
+  assert.ok(SEATED_EYE_HEIGHT < TRAIN_EYE_HEIGHT - 0.2, "sitting lowers the eye");
+  for (const seat of SEATS) {
+    const eye = seatedEye(seat), stand = seatStand(seat);
+    assert.equal(Math.sign(eye.u), seat.side, `seat ${seat.index} eye on the seat's side`);
+    assert.ok(Math.abs(eye.v - seat.v) < 1e-9 && Math.abs(eye.u) < 2.8 - near, `seat ${seat.index} eye inside the sidewall`);
+    // Window opening between the lower wall panel (top 1.2) and the upper one (from 3.68).
+    assert.ok(eye.y > 1.2 && eye.y < 3.68 && eye.y === SEATED_EYE_HEIGHT, `seat ${seat.index} eye at the window`);
+    for (const solid of furniture) {
+      const inside = Math.abs(eye.u - solid.u) < solid.w / 2 + near && Math.abs(eye.y - solid.y) < solid.h / 2 + near && Math.abs(eye.v - solid.v) < solid.d / 2 + near;
+      assert.ok(!inside, `seat ${seat.index} eye clips the ${solid.part}`);
+    }
+    // Standing up lands on the walkable aisle right in front of the seat, clear of the doorway.
+    assert.ok(canWalkInTrain(stand.u, stand.v), `seat ${seat.index} aisle spot is walkable`);
+    assert.ok(Math.abs(stand.v - seat.v) < 1e-9 && Math.sign(stand.u) === seat.side && Math.abs(stand.u) < BENCH.front, `seat ${seat.index} aisle spot in front of the bench`);
+    assert.ok(!doorAt(stand.v), `seat ${seat.index} aisle spot is not in a doorway`);
+  }
+});
+test("the seated view looks straight out of the seat's own window, opposite the aisle-facing riders", () => {
+  for (const trainYaw of [0, 1.1, Math.PI, 4.2, 7.5]) for (const side of [-1, 1] as const) {
+    const pose = { x: -30, z: 12, yaw: trainYaw }, at = localToWorld(pose, 0, 0), out = localToWorld(pose, side, 0);
+    const yaw = windowYaw(trainYaw, side);
+    assert.ok(Math.abs(Math.sin(yaw) - (out.x - at.x)) < 1e-9 && Math.abs(-Math.cos(yaw) - (out.z - at.z)) < 1e-9, "faces the side window");
+    const back = seatedYaw(trainYaw, side) + Math.PI;
+    assert.ok(Math.abs(Math.atan2(Math.sin(yaw - back), Math.cos(yaw - back))) < 1e-9, "the window is behind the aisle-facing pose");
+  }
+});
+test("the nearest free seat is found from the aisle, skips taken seats and needs to be within reach", () => {
+  for (const seat of SEATS) {
+    const stand = seatStand(seat);
+    assert.equal(nearestFreeSeat(stand.u, stand.v, () => true)?.index, seat.index, "the seat in front of you");
+    assert.equal(nearestFreeSeat(stand.u * 0.5, stand.v + 0.3, () => true)?.index, seat.index, "from beside the aisle centre line");
+    const other = nearestFreeSeat(stand.u, stand.v, candidate => candidate.index !== seat.index);
+    assert.notEqual(other?.index, seat.index, "a taken seat is never offered");
+    if (other) assert.ok(Math.hypot(seatStand(other).u - stand.u, seatStand(other).v - stand.v) <= SEAT_REACH);
+  }
+  // Doorways are well away from the benches; the far ends of the train have none.
+  for (const center of CARRIAGE_CENTERS) assert.equal(nearestFreeSeat(0, center, () => true), null);
+  assert.equal(nearestFreeSeat(0, 21.7, () => true), null);
+  // Standing on the left half of the aisle picks a left-hand seat, never one across the aisle.
+  const left = SEATS.find(seat => seat.side < 0)!;
+  assert.equal(nearestFreeSeat(-1, left.v, () => true)?.side, -1);
+});
+test("the seated look stays within a comfortable range around the window, without unwrapping a full turn", () => {
+  for (const trainYaw of [0, 2, -3, 9]) for (const side of [-1, 1] as const) {
+    const out = windowYaw(trainYaw, side);
+    // Inside the range nothing changes.
+    const free = clampSeatedLook(out + 0.8, -0.3, trainYaw, side);
+    assert.ok(Math.abs(free.yaw - (out + 0.8)) < 1e-9 && free.pitch === -0.3);
+    // Beyond it, yaw stops at ±100° and pitch at ±45° around the slight downward tilt.
+    for (const sign of [-1, 1]) {
+      const edge = clampSeatedLook(out + sign * 2.6, sign * 1.2, trainYaw, side);
+      assert.ok(Math.abs(edge.yaw - (out + sign * SEAT_LOOK.yaw)) < 1e-9, "yaw clamps to the range edge");
+      assert.ok(Math.abs(edge.pitch - (SEAT_LOOK.tilt + sign * SEAT_LOOK.pitch)) < 1e-9, "pitch clamps to the range edge");
+    }
+    // An unwrapped mouse yaw (several turns along) stays on its own branch.
+    const turns = out + 6 * Math.PI + 0.4, kept = clampSeatedLook(turns, 0, trainYaw, side);
+    assert.ok(Math.abs(kept.yaw - turns) < 1e-9, "no full-turn jump");
+  }
+  assert.ok(Math.abs(SEAT_LOOK.yaw - 100 * Math.PI / 180) < 1e-12 && Math.abs(SEAT_LOOK.pitch - Math.PI / 4) < 1e-12);
+});
+test("turning to the window when sitting is eased and never whips the view round (motion comfort)", () => {
+  assert.equal(seatTurnSeconds(0), 0.4, "small turns take the 0.4 s of the sit itself");
+  assert.equal(seatTurnSeconds(-0.5), 0.4);
+  for (let turn = -Math.PI; turn <= Math.PI; turn += 0.05) {
+    const seconds = seatTurnSeconds(turn);
+    assert.ok(seconds >= 0.4 && seconds <= 1.2);
+    // A smoothstep turn peaks at 1.5x its mean angular speed.
+    assert.ok(1.5 * Math.abs(turn) / seconds <= 4.3, `peak ${(1.5 * Math.abs(turn) / seconds).toFixed(2)} rad/s for a ${turn.toFixed(2)} rad turn`);
+  }
+});
+test("a seat the player holds is never given to a commuter, and seats commuters hold are refused", () => {
+  // Find the first seat commuters take on train 0 when nobody else is aboard...
+  const open = new CityPopulation(new CityWorld());
+  let first = -1;
+  for (let time = 0; time < 400 && first < 0; time += 0.1) {
+    open.update(0.1, time, time, { x: 9999, z: 9999 });
+    first = open.commuters.find(p => p.train === 0 && p.seat >= 0)?.seat ?? -1;
+  }
+  assert.ok(first >= 0, "commuters board train 0");
+  assert.ok(open.seatTaken(0, first), "a commuter's seat (even while still boarding toward it) is taken for the player");
+  // ...then let the player sit there first: the commuters must choose other seats.
+  const population = new CityPopulation(new CityWorld());
+  population.reservePlayerSeat(0, first);
+  let boarded = 0;
+  for (let time = 0; time < 400; time += 0.1) {
+    population.update(0.1, time, time, { x: 9999, z: 9999 });
+    for (const p of population.commuters) if (p.train === 0 && p.seat >= 0) {
+      boarded++;
+      assert.notEqual(p.seat, first, `a commuter took the player's seat at t=${time.toFixed(1)}`);
+    }
+    assert.equal(population.seatTaken(0, first), false);
+  }
+  assert.ok(boarded > 0, "commuters still ride train 0");
+  // Releasing the reservation is accepted (and idempotent).
+  population.reservePlayerSeat(null); population.reservePlayerSeat(null);
 });

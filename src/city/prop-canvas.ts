@@ -39,8 +39,26 @@ function copyStyle(target: Style, source: Style): void {
   for (let channel = 0; channel < 4; channel++) { target.ink[channel] = source.ink[channel]; target.paper[channel] = source.paper[channel]; }
 }
 
+/** Where captured sign panels are replayed: the real Textmodifier (a subset of its API). */
+export interface PanelSink extends Pick<PropCanvas, "push" | "pop" | "charColor" | "cellColor" | "rect" | "setUniform" | "setUniforms"> {
+  resetMatrix(): void;
+  applyMatrix(matrix: ArrayLike<number>): void;
+}
+
+/** A sign-panel call captured by PropRecorder: uniforms, or a rect with its full model matrix and colours. */
+interface PanelCommand { tag: number; kind: 0 | 1 | 2; uniforms: Record<string, TextmodeUniformValue> | null; name: string; value: TextmodeUniformValue; matrix: Float64Array; ink: number[]; paper: number[]; width: number; height: number }
+
 /** Records textmode-style prop drawing into per-mesh instance arrays for one GPU draw each. */
 export class PropRecorder implements PropCanvas {
+  /**
+   * Perf: sign panels (rects with per-panel uniforms, which cannot be instanced) are captured while
+   * `panelTag` >= 0 and replayed into each render pass with `replayPanels`, instead of walking every
+   * shop and station again through textmode's transform stack once per pass. The tag (the caller's
+   * distance, say) lets a pass keep a subset exactly as if it had walked only those callers.
+   */
+  panelTag = -1;
+  private readonly panels: PanelCommand[] = [];
+  private panelCount = 0;
   readonly data: Float32Array[] = [new Float32Array(4096 * PROP_STRIDE), new Float32Array(2048 * PROP_STRIDE), new Float32Array(64 * PROP_STRIDE)];
   readonly counts = [0, 0, 0];
   surface = 2;
@@ -57,6 +75,35 @@ export class PropRecorder implements PropCanvas {
     this.counts.fill(0);
     this.matrix.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     this.stackDepth = 0;
+    this.panelCount = 0; this.panelTag = -1;
+  }
+  private panel(kind: 0 | 1 | 2): PanelCommand {
+    let command = this.panels[this.panelCount];
+    if (!command) { command = { tag: 0, kind, uniforms: null, name: "", value: 0, matrix: new Float64Array(16), ink: [0, 0, 0, 0], paper: [0, 0, 0, 0], width: 0, height: 0 }; this.panels.push(command); }
+    this.panelCount++;
+    command.tag = this.panelTag; command.kind = kind;
+    return command;
+  }
+  /** Number of captured sign-panel commands this frame (uniform changes and rects). */
+  get panelCommands(): number { return this.panelCount; }
+  /**
+   * Replays the captured sign panels into textmode, in capture order, keeping the commands whose tag
+   * passes `keep`. Each rect is drawn the way drawLetterPanel draws it (push, transform, colours,
+   * rect, pop), with the recorded matrix applied in one step.
+   */
+  replayPanels(t: PanelSink, keep: (tag: number) => boolean): void {
+    for (let i = 0; i < this.panelCount; i++) {
+      const command = this.panels[i];
+      if (!keep(command.tag)) continue;
+      if (command.kind === 0) { if (command.uniforms) t.setUniforms(command.uniforms); }
+      else if (command.kind === 1) t.setUniform(command.name, command.value);
+      else {
+        const { ink, paper } = command;
+        t.push(); t.resetMatrix(); t.applyMatrix(command.matrix);
+        t.charColor(ink[0], ink[1], ink[2], ink[3]); t.cellColor(paper[0], paper[1], paper[2], paper[3]);
+        t.rect(command.width, command.height); t.pop();
+      }
+    }
   }
   push(): void {
     let saved = this.stack[this.stackDepth];
@@ -102,10 +149,21 @@ export class PropRecorder implements PropCanvas {
   charRotation(degrees = 0): void { this.style.rotation = ((degrees % 360) + 360) % 360 / 360; }
   flipX(toggle = true): void { this.style.flip = toggle ? this.style.flip | 2 : this.style.flip & ~2; }
   flipY(toggle = true): void { this.style.flip = toggle ? this.style.flip | 4 : this.style.flip & ~4; }
-  // Sign panels need per-panel uniforms; they are drawn by SignCanvas instead.
-  rect(): void { /* not instanced */ }
-  setUniform(): void { /* not instanced */ }
-  setUniforms(): void { /* not instanced */ }
+  // Sign panels need per-panel uniforms: not instanced, but captured for replayPanels while panelTag >= 0.
+  rect(width = 1, height = width): void {
+    if (this.panelTag < 0) return;
+    const command = this.panel(2), s = this.style;
+    command.matrix.set(this.matrix); command.width = width; command.height = height;
+    for (let channel = 0; channel < 4; channel++) { command.ink[channel] = s.ink[channel] * 255; command.paper[channel] = s.paper[channel] * 255; }
+  }
+  setUniform(name: string, value: TextmodeUniformValue): void {
+    if (this.panelTag < 0) return;
+    const command = this.panel(1); command.name = name; command.value = value; command.uniforms = null;
+  }
+  setUniforms(uniforms: Record<string, TextmodeUniformValue>): void {
+    if (this.panelTag < 0) return;
+    this.panel(0).uniforms = { ...uniforms };
+  }
 
   private emit(mesh: number, sx: number, sy: number, sz: number, radius: number, tube: number): void {
     let data = this.data[mesh];

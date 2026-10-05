@@ -1,7 +1,7 @@
 import type { TextmodeShader } from "textmode.js";
 import { BLOCK_SIZE, type CityWorld } from "./world";
 import { buildingParts } from "./architecture";
-import { cityMaterial } from "./materials";
+import { SURFACES, cityMaterial } from "./materials";
 
 // Every building part in the city lives in one static instance buffer, uploaded once and grouped
 // by city block. Each frame the engine picks the blocks in range and in view and draws them
@@ -35,7 +35,8 @@ void main() {
   v_glyphColor=a_ink; v_cellColor=a_paper; v_glyphFlags=vec4(0); v_surface=a_surfaceRange.x;
   v_center=a_center; v_dims=dims;
 }`;
-export const BUILDING_MATERIAL = cityMaterial({ batch: true, ground: false });
+/** The prop batch's material: lit props only (PropRecorder.surface), so it compiles quickly. */
+export const BUILDING_MATERIAL = cityMaterial({ batch: true, ground: false, surfaces: SURFACES.props });
 /** Buildings never dissolve, so their program is compiled without discard: early depth rejection stays on. */
 export const FACADE_MATERIAL = cityMaterial({ batch: true, opaque: true, architecture: true });
 

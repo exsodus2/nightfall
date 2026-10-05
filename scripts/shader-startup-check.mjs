@@ -111,6 +111,9 @@ assert.ok(Number.isInteger(repeat) && repeat >= 1 && repeat <= 5);
 if (compare) assert.ok(versions.indexOf("baseline") >= 0 && versions.indexOf("current") > versions.indexOf("baseline"), "Comparison requires baseline before current in --versions");
 const options = {
   main: { reflections: true }, reflection: {}, batched: { batch: true }, opaque: { batch: true, opaque: true }, architecture: { batch: true, opaque: true },
+  // The variants the engine actually compiles on a visit (materials.ts SURFACES): the main pass,
+  // the mirrored pass and the prop batch, each with only the surfaces it draws.
+  scene: { reflections: true, surfaces: [1, 2, 3, 4, 5, 7, 8] }, mirror: { ground: false, surfaces: [2, 3, 4, 5, 7, 8] }, props: { batch: true, ground: false, surfaces: [2] },
 };
 const factories = new Map();
 for (const version of versions) {
