@@ -32,7 +32,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
   const [server, setServer] = useState(() => defaultServerUrl(location, ENV_URL, stored(SERVER_KEY)) ?? "");
   const [copied, setCopied] = useState(false);
   const serverUrl = normalizeServerUrl(server);
-  const busy = view.status === "connecting";
+  const busy = view.status === "connecting" || view.status === "reconnecting";
   const connected = view.status === "connected";
 
   useEffect(() => {
@@ -62,7 +62,8 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
     const display = sanitizeName(name);
     store(NAME_KEY, display); store(SERVER_KEY, serverUrl);
     setCopied(false);
-    await onConnect({ serverUrl, name: display, code: join ? code : undefined, pose });
+    // Create with a code typed in reopens that room (it closed, or the server restarted).
+    await onConnect({ serverUrl, name: display, code: code || undefined, create: !join, pose });
   }
 
   async function copyInvite() {
@@ -110,7 +111,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
         </details>
       </>}
 
-      {busy ? <p className={styles.status} role="status">Connecting to {view.serverUrl}…</p> : null}
+      {busy ? <p className={styles.status} role="status">{view.status === "reconnecting" ? <>Connection lost. Reconnecting to room {view.code}… <button type="button" className={styles.button} onClick={onLeave}>Stop</button></> : `Connecting to ${view.serverUrl}…`}</p> : null}
       {view.status === "error" && view.error ? <p className={`${styles.status} ${styles.statusError}`} role="alert">{view.error}</p> : null}
       {!connected ? <button className="primary-button panel-resume" onClick={onResume}>Keep exploring solo <span aria-hidden="true">↗</span></button> : null}
     </section>

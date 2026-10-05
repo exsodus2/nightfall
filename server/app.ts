@@ -44,6 +44,10 @@ export function createNightfallServer(options: NightfallServerOptions = {}): { g
   }
   const transport = new WebSocketTransport({
     server: httpServer,
+    // The default (ping every 3 s, drop after 2 missed) cuts players off on a ~6 s stall, which
+    // tunnels and Wi-Fi produce routinely. Tolerate ~20 s; dropped players can reconnect anyway.
+    pingInterval: 5000,
+    pingMaxRetries: 4,
     verifyClient: (info: { origin: string }) => allowed(info.origin || undefined),
   });
   const gameServer = new Server({ transport, greet: options.greet ?? false });

@@ -2,10 +2,10 @@
 // party quest state and shared waypoints. The engine sees it only as a MultiplayerLink; React
 // subscribes to a small immutable view. colyseus.js is imported on demand, so solo play never
 // downloads it and a missing server can only produce an error message.
-import type { Room } from "colyseus.js";
+import type { Client, Room } from "colyseus.js";
 import type { QuestBookState } from "../city/quests";
 import { ServerClock, SnapshotBuffer } from "./interpolation.ts";
-import { CHAT_MAX, INTERPOLATION_DELAY, ROOM_NAME, SEND_INTERVAL, hexToRgb, isMode, normalizeCode, sanitizeText, type ChatMessage, type Mode, type QuestEventMessage, type WaypointMessage } from "./protocol.ts";
+import { CHAT_MAX, INTERPOLATION_DELAY, RECONNECT_SECONDS, ROOM_NAME, SEND_INTERVAL, hexToRgb, isMode, normalizeCode, sanitizeText, type ChatMessage, type Mode, type QuestEventMessage, type WaypointMessage } from "./protocol.ts";
 import type { FriendPosition, LocalPose, MultiplayerLink, PartyQuestSync, RemoteAvatar } from "./types";
 import { EXTERIOR_PLACE, normalizePlace, samePlace } from "./presence.ts";
 import { parseTrainCarrier, railPose, sameCarrier, type TrainCarrier } from "./rail.ts";
@@ -17,24 +17,29 @@ interface QuestView { status: string; step: number }
 interface WaypointView { id: string; x: number; z: number; label: string; color: string; owner: string; shared: boolean; createdAt: number }
 interface StateView { players?: MapView<PlayerView>; quests?: MapView<QuestView>; credits?: number; questRevision?: number; waypoints?: MapView<WaypointView>; worldTimeMs?: number }
 
-export type SessionStatus = "idle" | "connecting" | "connected" | "error";
+/** "reconnecting": the connection dropped and the session is getting back into the same room. */
+export type SessionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
 export interface ChatLine { id: string; kind: "chat" | "system" | "notice"; name: string; color: string; text: string; self: boolean; history?: boolean }
 export interface RosterEntry { id: string; name: string; color: string; mode: Mode; self: boolean; place: string }
 export interface SessionView { status: SessionStatus; error: string | null; code: string | null; serverUrl: string | null; selfId: string | null; roster: readonly RosterEntry[]; chat: readonly ChatLine[] }
 /** One-off notifications for toasts. */
 export interface SessionEvent { kind: "quest" | "notice" | "disconnected"; text: string }
 export interface SharedWaypoint { id: string; x: number; z: number; label: string; color: string; owner: string; ownerName: string; mine: boolean; createdAt: number }
-export interface ConnectRequest { serverUrl: string; name: string; code?: string; pose?: LocalPose }
+/** `create` with a `code` reopens a room under that code (e.g. after the server restarted). */
+export interface ConnectRequest { serverUrl: string; name: string; code?: string; create?: boolean; pose?: LocalPose }
 
 interface RemoteEntry { id: string; name: string; hex: string; buffer: SnapshotBuffer; lastT: number; stride: number; lastNow: number; latest: PlayerView }
 
 const CHAT_KEEP = 60;
+/** Keep trying a little past the server's reconnection window: after it, the room may need reopening. */
+const RECOVER_MS = (RECONNECT_SECONDS + 30) * 1000;
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const round = (value: number, digits = 100) => Math.round(value * digits) / digits;
 
 function describeError(error: unknown, serverUrl: string, joining: boolean): string {
   const code = typeof error === "object" && error && "code" in error ? Number((error as { code: unknown }).code) : NaN;
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  if (code === 4212 || /not found|invalid room/i.test(message)) return joining ? "No room with that code. Check the code, or create a new room." : message;
+  if (code === 4212 || /not found|invalid room/i.test(message)) return joining ? "No room with that code. Check the code, or press Create room to open it under this code." : message;
   if (/full|locked/i.test(message)) return "That room is full.";
   if (message && !/^(Failed to fetch|Network|xhr|undefined)/i.test(message) && Number.isFinite(code)) return message;
   return `Couldn't reach the multiplayer server at ${serverUrl}. Is \`npm run server\` running, and is the address (or tunnel) right?`;
@@ -42,6 +47,9 @@ function describeError(error: unknown, serverUrl: string, joining: boolean): str
 
 export class MultiplayerSession implements MultiplayerLink {
   private room: Room<StateView> | null = null;
+  /** What's needed to get back into the room after a dropped connection. */
+  private link: { client: Client; request: ConnectRequest } | null = null;
+  private lastPose: LocalPose | null = null;
   private view: SessionView = { status: "idle", error: null, code: null, serverUrl: null, selfId: null, roster: [], chat: [] };
   private readonly listeners = new Set<() => void>();
   private readonly eventListeners = new Set<(event: SessionEvent) => void>();
@@ -78,12 +86,12 @@ export class MultiplayerSession implements MultiplayerLink {
   private addChat(line: ChatLine): void { this.update({ chat: [...this.view.chat, line].slice(-CHAT_KEEP) }); }
 
   // ---- Connection ---------------------------------------------------------------------------
-  /** Creates a room (no code) or joins one by code. Never throws: failures land in the view. */
+  /** Creates a room (no code, or `create`) or joins one by code. Never throws: failures land in the view. */
   async connect(request: ConnectRequest): Promise<boolean> {
     const attempt = ++this.attempt;
     await this.closeRoom(attempt);
     if (attempt !== this.attempt) return false;
-    const joining = !!request.code;
+    const joining = !!request.code && !request.create;
     this.update({ status: "connecting", error: null, serverUrl: request.serverUrl, chat: [] });
     if (attempt !== this.attempt) return false;
     try {
@@ -93,8 +101,10 @@ export class MultiplayerSession implements MultiplayerLink {
       const headers: Record<string, string> = /ngrok/i.test(request.serverUrl) ? { "ngrok-skip-browser-warning": "1" } : {};
       const client = new Client(request.serverUrl, { headers });
       const options = { name: request.name, pose: request.pose };
-      const room = joining ? await client.joinById<StateView>(normalizeCode(request.code ?? ""), options) : await client.create<StateView>(ROOM_NAME, options);
+      const code = normalizeCode(request.code ?? "");
+      const room = joining ? await client.joinById<StateView>(code, options) : await client.create<StateView>(ROOM_NAME, code ? { ...options, code } : options);
       if (attempt !== this.attempt) { void room.leave(true).catch(() => undefined); return false; }
+      this.link = { client, request };
       this.attach(room);
       this.update({ status: "connected", code: room.roomId, selfId: room.sessionId, error: null });
       return attempt === this.attempt && this.room === room;
@@ -112,6 +122,7 @@ export class MultiplayerSession implements MultiplayerLink {
   private async closeRoom(attempt: number): Promise<void> {
     const room = this.room;
     this.detach();
+    this.link = null;
     if (attempt === this.attempt) this.update({ status: "idle", code: null, selfId: null, roster: [], error: null });
     if (room) await room.leave(true).catch(() => undefined);
   }
@@ -146,13 +157,52 @@ export class MultiplayerSession implements MultiplayerLink {
       const attempt = ++this.attempt;
       this.detach();
       if (attempt !== this.attempt) return;
-      const consented = code === 4000;
-      this.update({ status: consented ? "idle" : "error", code: null, selfId: null, roster: [], error: consented ? null : "Disconnected from the room. The server may have stopped; you can rejoin with the same code." });
-      if (!consented && attempt === this.attempt) this.emit({ kind: "disconnected", text: "Multiplayer disconnected. Still exploring solo." });
+      if (code === 4000 || !this.link) {
+        this.link = null;
+        this.update({ status: "idle", code: null, selfId: null, roster: [], error: null });
+        return;
+      }
+      // Dropped, not left: keep the code on screen and get back in.
+      this.update({ status: "reconnecting", roster: [], error: null });
+      this.emit({ kind: "notice", text: `Connection lost. Reconnecting to room ${room.roomId}…` });
+      void this.recover(attempt, this.link, room.roomId, room.reconnectionToken);
     });
     room.onError((_code, message) => {
       if (this.room === room) this.emit({ kind: "notice", text: `Multiplayer error: ${sanitizeText(message ?? "unknown", 120)}` });
     });
+  }
+
+  /** Back into the same room: reclaim the seat while the server holds it, else join by code, else
+   * (the server restarted and the room is gone) reopen it under the same code. */
+  private async recover(attempt: number, link: { client: Client; request: ConnectRequest }, code: string, token: string): Promise<void> {
+    const deadline = performance.now() + RECOVER_MS;
+    const options = () => ({ name: link.request.name, pose: this.lastPose ?? link.request.pose });
+    for (let tries = 0; ; tries++) {
+      await sleep(Math.min(500 * 2 ** tries, 5000));
+      if (attempt !== this.attempt) return;
+      let room: Room<StateView> | null = null;
+      try { room = await link.client.reconnect<StateView>(token); }
+      catch {
+        try { room = await link.client.joinById<StateView>(code, options()); }
+        catch (error) {
+          const missing = /not found|invalid room/i.test(error instanceof Error ? error.message : String(error));
+          if (missing) room = await link.client.create<StateView>(ROOM_NAME, { ...options(), code }).catch(() => null);
+        }
+      }
+      if (attempt !== this.attempt) { if (room) void room.leave(true).catch(() => undefined); return; }
+      if (room) {
+        this.attach(room);
+        this.update({ status: "connected", code: room.roomId, selfId: room.sessionId, error: null });
+        this.emit({ kind: "notice", text: `Reconnected to room ${room.roomId}.` });
+        return;
+      }
+      if (performance.now() > deadline) {
+        this.link = null;
+        this.update({ status: "error", code: null, selfId: null, roster: [], error: `Lost the connection to ${link.request.serverUrl} and couldn't get back in. Enter ${code} and join (or create) to try again.` });
+        this.emit({ kind: "disconnected", text: "Multiplayer disconnected. Still exploring solo." });
+        return;
+      }
+    }
   }
 
   private detach(): void {
@@ -227,6 +277,7 @@ export class MultiplayerSession implements MultiplayerLink {
   // ---- MultiplayerLink (engine) ---------------------------------------------------------------
   publish(pose: LocalPose, now: number): void {
     if (!this.room) return;
+    this.lastPose = pose;
     const place = normalizePlace(pose.place);
     if (place === null) return;
     const carrier = parseTrainCarrier(pose.carrier);

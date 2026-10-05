@@ -1,11 +1,11 @@
 // The Nightfall party room. Authoritative for chat, quests and waypoints; for movement it accepts
 // client poses (there is no server physics) but clamps them to the world and to plausible speeds.
-import { Room, type Client } from "colyseus";
+import { ErrorCode, Room, ServerError, type Client, type RoomException } from "colyseus";
 import { QuestBook } from "../src/city/quests.ts";
 import { npcById } from "../src/city/npcs.ts";
 import {
-  CHAT_HISTORY, CHAT_MAX, MAX_PLAYERS, PLAYER_COLORS, QUEST_REACH, WAYPOINTS_PER_PLAYER, RateLimiter,
-  checkMove, generateCode, parsePose, parseQuestIntent, parseWaypoint, parseWaypointId, sanitizeName, sanitizeText, uniqueName, waypointKey,
+  CHAT_HISTORY, CHAT_MAX, MAX_PLAYERS, PLAYER_COLORS, QUEST_REACH, RECONNECT_SECONDS, WAYPOINTS_PER_PLAYER, RateLimiter,
+  checkMove, generateCode, isRoomCode, parsePose, parseQuestIntent, parseWaypoint, parseWaypointId, sanitizeName, sanitizeText, uniqueName, waypointKey,
   type ChatMessage, type PoseMessage, type QuestEventMessage, type WaypointMessage,
 } from "../src/multiplayer/protocol.ts";
 import { NightfallState, PlayerState, QuestProgressState, WaypointState } from "./state.ts";
@@ -13,9 +13,12 @@ import { EXTERIOR_PLACE, STREET_INTERACTION_HEIGHT, samePlace, validPresence, va
 import { railPose, validRailPresence, validRailTransition } from "../src/multiplayer/rail.ts";
 
 interface JoinOptions { name?: unknown; pose?: unknown }
+/** `code`: reopen a room under a code a player already shared (e.g. after the server restarted). */
+interface CreateOptions extends JoinOptions { code?: unknown }
 interface PlayerMeta { pose: PoseMessage | null; poseTime: number; teleportTime: number; poses: RateLimiter; chat: RateLimiter; actions: RateLimiter; waypoints: RateLimiter; waypointNotices: RateLimiter; pendingWaypoints: Map<string, WaypointMessage> }
 
-const CODES_KEY = "$nightfall-room-codes";
+// Codes of open rooms. Claimed synchronously so two simultaneous creates can't share one.
+const openCodes = new Set<string>();
 const SPAWN_POSE: PoseMessage = { x: 0, y: 0, z: 78, yaw: 0.12, pitch: -0.13, heading: 0.12, speed: 0, mode: "walk", car: 0 };
 
 export class NightfallRoom extends Room<NightfallState> {
@@ -30,12 +33,14 @@ export class NightfallRoom extends Room<NightfallState> {
   /** Milliseconds since the room opened (player `t` stamps and chat times). */
   private now(): number { return performance.now() - this.opened; }
 
-  async onCreate(): Promise<void> {
+  onCreate(options?: CreateOptions): void {
     // Short, human-friendly room codes (players join with client.joinById(code)).
-    const taken = new Set(await this.presence.smembers(CODES_KEY));
     let code = generateCode();
-    while (taken.has(code)) code = generateCode();
-    await this.presence.sadd(CODES_KEY, code);
+    if (isRoomCode(options?.code)) {
+      if (openCodes.has(options.code)) throw new ServerError(ErrorCode.APPLICATION_ERROR, `Room ${options.code} is already open. Join it instead.`);
+      code = options.code;
+    } else while (openCodes.has(code)) code = generateCode();
+    openCodes.add(code);
     this.roomId = code;
     // schema() leaves primitive fields undefined until assigned.
     this.state.credits = 0;
@@ -72,7 +77,13 @@ export class NightfallRoom extends Room<NightfallState> {
     this.system(`${player.name} joined the room`);
   }
 
-  onLeave(client: Client): void {
+  async onLeave(client: Client, consented: boolean): Promise<void> {
+    // A dropped connection (tunnel blip, Wi-Fi, sleeping laptop) keeps its seat for a while; the
+    // room stays open even if that was the last player, so the client can reconnect into it.
+    if (!consented && this.meta.has(client.sessionId)) {
+      try { await this.allowReconnection(client, RECONNECT_SECONDS); return; }
+      catch { /* the window expired: leave for real */ }
+    }
     const player = this.state.players.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.meta.delete(client.sessionId);
@@ -82,8 +93,19 @@ export class NightfallRoom extends Room<NightfallState> {
     if (player) this.system(`${player.name} left the room`);
   }
 
-  async onDispose(): Promise<void> {
-    await this.presence.srem(CODES_KEY, this.roomId);
+  onDispose(): void {
+    openCodes.delete(this.roomId);
+    // Seats still held for dropped players: release them now, not when their window would end.
+    for (const timeout of Object.values(this.reservedSeatTimeouts)) clearTimeout(timeout);
+    for (const [, reconnection] of Object.values(this._reconnections)) reconnection.reject(false);
+  }
+
+  // Without this, an exception in a message handler or timer is uncaught and stops the whole
+  // process, closing every room. Log it and keep the room running.
+  onUncaughtException(error: RoomException<this>, methodName: string): void {
+    const cause = error.cause ?? error;
+    if (cause instanceof ServerError) return; // deliberate refusals (e.g. a code already open)
+    console.error(`Room ${this.roomId}: ${methodName} failed:`, cause);
   }
 
   private handlePose(client: Client, message: unknown): void {

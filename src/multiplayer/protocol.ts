@@ -27,6 +27,8 @@ export const QUEST_REACH = 14;
 export const CODE_LENGTH = 5;
 /** No 0/O, 1/I/L: codes are read aloud and typed from chat. */
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/** A dropped connection keeps its seat (and the room, if it was the last player) this long. */
+export const RECONNECT_SECONDS = 45;
 export const PLAYER_COLORS: readonly string[] = ["#6ff0d0", "#ff5fb4", "#ffb347", "#8fa8ff", "#b6ff6a", "#ff6f61", "#f4e76e", "#c792ff"];
 
 export const MODES = ["walk", "fly", "metro", "taxi", "sky", "drive"] as const satisfies readonly TravelMode[];
@@ -69,6 +71,10 @@ export function uniqueName(name: string, taken: readonly string[]): string {
 }
 export function normalizeCode(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+}
+/** A code a client may ask to (re)open a room under: already normalized, 4-12 characters. */
+export function isRoomCode(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 4 && normalizeCode(value) === value;
 }
 export function generateCode(random: () => number = Math.random): string {
   let code = "";
