@@ -5,7 +5,7 @@ import { QuestBook, QUESTS } from "../src/city/quests.ts";
 import { NPCS } from "../src/city/npcs.ts";
 import { SnapshotBuffer, ServerClock, TELEPORT_DISTANCE, lerpAngle, type PoseSample } from "../src/multiplayer/interpolation.ts";
 import {
-  CHAT_MAX, NAME_MAX, RateLimiter, checkMove, defaultServerUrl, generateCode, inviteLink, normalizeCode, normalizeServerUrl,
+  CHAT_MAX, NAME_MAX, RateLimiter, autoJoinServerUrl, checkMove, defaultServerUrl, generateCode, inviteLink, normalizeCode, normalizeServerUrl,
   parsePose, parseQuestIntent, parseWaypoint, sanitizeName, sanitizeText, uniqueName, CODE_ALPHABET, CODE_LENGTH, TELEPORT_COOLDOWN, type PoseMessage,
 } from "../src/multiplayer/protocol.ts";
 import { localPose, mergeRemoteHeadlights } from "../src/multiplayer/engine-hooks.ts";
@@ -155,6 +155,17 @@ test("server URLs: explicit, env, remembered, same-host for local pages, nothing
   assert.equal(normalizeServerUrl("ftp://nope"), null);
   assert.equal(inviteLink(local, "ABCDE", "ws://127.0.0.1:2567", undefined), "http://127.0.0.1:3000/?room=ABCDE");
   assert.equal(inviteLink(tunnel, "ABCDE", "wss://mp.trycloudflare.com", undefined), "https://city.trycloudflare.com/?room=ABCDE&server=wss%3A%2F%2Fmp.trycloudflare.com");
+});
+
+test("auto-join: only when the page is served by the multiplayer server itself", () => {
+  const site = { protocol: "https:", hostname: "city.optimisticroc.com", search: "", origin: "https://city.optimisticroc.com", pathname: "/" };
+  const env = "wss://city.optimisticroc.com";
+  assert.equal(autoJoinServerUrl(site, env), "wss://city.optimisticroc.com");
+  assert.equal(autoJoinServerUrl({ ...site, search: "?room=ABCDE" }, env), "wss://city.optimisticroc.com");
+  assert.equal(autoJoinServerUrl(site, undefined), null, "no server configured");
+  assert.equal(autoJoinServerUrl({ protocol: "http:", hostname: "127.0.0.1", search: "", origin: "http://127.0.0.1:3001", pathname: "/" }, env), null, "a local build of the production site");
+  assert.equal(autoJoinServerUrl({ protocol: "http:", hostname: "127.0.0.1", search: "", origin: "http://127.0.0.1:3000", pathname: "/" }, undefined), null, "local dev: server on another port");
+  assert.equal(autoJoinServerUrl({ ...site, hostname: "city.trycloudflare.com", origin: "https://city.trycloudflare.com" }, "wss://mp.trycloudflare.com"), null, "a tunnel to a separate server");
 });
 
 test("the engine pose: feet height per mode, car heading, remote headlights by distance", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { Room } from "colyseus.js";
+import { MAX_PLAYERS } from "../src/multiplayer/protocol.ts";
 
 // One server per file: Colyseus' matchmaker is process-wide and does not restart after a shutdown.
 const until = async (condition: () => boolean | Promise<boolean>, label: string, timeout = 12000) => {
@@ -12,7 +13,7 @@ const until = async (condition: () => boolean | Promise<boolean>, label: string,
   }
 };
 
-test("a dropped connection gets back into the same room, and a room that closed reopens under its code", { timeout: 60000 }, async () => {
+test("dropped connections get back into their room, closed rooms reopen under their code, and the public city room fills before overflowing", { timeout: 60000 }, async () => {
   const { matchMaker } = await import("colyseus");
   const { createNightfallServer } = await import("../server/app.ts");
   const { MultiplayerSession } = await import("../src/multiplayer/session.ts");
@@ -61,6 +62,26 @@ test("a dropped connection gets back into the same room, and a room that closed 
     await until(async () => !(await rooms()).includes(code), "a consented leave closes the empty room");
     assert.ok(await friend.connect({ serverUrl: url, name: "Mira", code, create: true }));
     assert.equal(friend.getView().code, code);
+    await friend.leave();
+
+    // Public city: everyone lands in the same room; private rooms are never matched into.
+    assert.ok(await friend.connect({ serverUrl: url, name: "Mira" }), "a private room");
+    const privateCode = friend.getView().code;
+    const visitors = Array.from({ length: MAX_PLAYERS + 1 }, () => new MultiplayerSession());
+    try {
+      for (const [i, visitor] of visitors.entries()) assert.ok(await visitor.connect({ serverUrl: url, name: `Visitor ${i}`, public: true }));
+      const codes = visitors.map(visitor => visitor.getView().code);
+      assert.ok(!codes.includes(privateCode), "nobody is put in a private room");
+      assert.equal(new Set(codes.slice(0, MAX_PLAYERS)).size, 1, "the city room fills up first");
+      assert.notEqual(codes[MAX_PLAYERS], codes[0], "a full city room overflows into a new one");
+      // After a drop, the city room is reclaimed like any other.
+      drop(visitors[0]);
+      await until(() => visitors[0].getView().status === "reconnecting", "public drop noticed");
+      await until(() => visitors[0].getView().status === "connected", "back in the city");
+      assert.equal(visitors[0].getView().code, codes[0]);
+    } finally {
+      await Promise.all(visitors.map(visitor => visitor.leave()));
+    }
   } finally {
     await friend.leave(); await host.leave();
     await gameServer.gracefullyShutdown(false);

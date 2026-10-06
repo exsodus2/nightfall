@@ -4,15 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { LocalPose } from "@/multiplayer/types";
 import type { ConnectRequest, SessionView } from "@/multiplayer/session";
 import { CODE_LENGTH, NAME_MAX, defaultServerUrl, inviteLink, normalizeCode, normalizeServerUrl, sanitizeName } from "@/multiplayer/protocol";
+import { MULTIPLAYER_ENV_URL as ENV_URL, setPrefersSolo, storeName, storeServer, storedName, storedServer } from "@/multiplayer/preferences";
 import { PlayerList } from "./player-list";
 import styles from "./multiplayer.module.css";
-
-const NAME_KEY = "nightfall:mp-name";
-const SERVER_KEY = "nightfall:mp-server";
-const ENV_URL = process.env.NEXT_PUBLIC_MULTIPLAYER_URL;
-
-function stored(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
-function store(key: string, value: string): void { try { localStorage.setItem(key, value); } catch { /* private mode: not remembered */ } }
 
 interface LobbyProps {
   view: SessionView;
@@ -27,9 +21,9 @@ interface LobbyProps {
  * Mounted only while open (client-side), so it can read the address bar and storage directly. */
 export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onResume }: LobbyProps) {
   const dialogRef = useRef<HTMLElement>(null);
-  const [name, setName] = useState(() => stored(NAME_KEY) ?? "");
+  const [name, setName] = useState(() => storedName() ?? "");
   const [code, setCode] = useState(() => normalizeCode(new URLSearchParams(location.search).get("room") ?? ""));
-  const [server, setServer] = useState(() => defaultServerUrl(location, ENV_URL, stored(SERVER_KEY)) ?? "");
+  const [server, setServer] = useState(() => defaultServerUrl(location, ENV_URL, storedServer()) ?? "");
   const [copied, setCopied] = useState(false);
   const serverUrl = normalizeServerUrl(server);
   const busy = view.status === "connecting" || view.status === "reconnecting";
@@ -57,13 +51,14 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
     };
   }, [onClose]);
 
-  async function connect(join: boolean) {
+  /** "city": the public room everyone shares; "join": the room code typed in; "create": a private
+   * room (under the typed code if there is one, which reopens a room that closed). */
+  async function connect(how: "city" | "join" | "create") {
     if (!serverUrl) return;
     const display = sanitizeName(name);
-    store(NAME_KEY, display); store(SERVER_KEY, serverUrl);
+    storeName(display); storeServer(serverUrl); setPrefersSolo(false);
     setCopied(false);
-    // Create with a code typed in reopens that room (it closed, or the server restarted).
-    await onConnect({ serverUrl, name: display, code: code || undefined, create: !join, pose });
+    await onConnect(how === "city" ? { serverUrl, name: display, public: true, pose } : { serverUrl, name: display, code: code || undefined, create: how === "create", pose });
   }
 
   async function copyInvite() {
@@ -88,7 +83,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
         <PlayerList roster={view.roster} />
         <p className={styles.hint}>Press <kbd>Enter</kbd> in the city to chat. Friends appear on your minimap and atlas.</p>
         <div className={styles.actions}>
-          <button type="button" className={styles.button} onClick={onLeave}>Leave room<span aria-hidden="true">↩</span></button>
+          <button type="button" className={styles.button} onClick={() => { setPrefersSolo(true); onLeave(); }}>Leave room<span aria-hidden="true">↩</span></button>
           <button type="button" className={`${styles.button} ${styles.buttonPrimary}`} onClick={onResume}>Back to the city<span aria-hidden="true">↗</span></button>
         </div>
       </> : <>
@@ -96,11 +91,13 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
           <input value={name} maxLength={NAME_MAX * 2} placeholder="Runner" autoComplete="nickname" onChange={(event) => setName(event.target.value)} />
         </label>
         <label className={`${styles.field} ${styles.code}`}><span>Room code</span>
-          <input value={code} maxLength={12} placeholder={"·".repeat(CODE_LENGTH)} autoComplete="off" spellCheck={false} onChange={(event) => setCode(normalizeCode(event.target.value))} onKeyDown={(event) => { if (event.key === "Enter" && code && serverUrl && !busy) void connect(true); }} />
+          <input value={code} maxLength={12} placeholder={"·".repeat(CODE_LENGTH)} autoComplete="off" spellCheck={false} onChange={(event) => setCode(normalizeCode(event.target.value))} onKeyDown={(event) => { if (event.key === "Enter" && code && serverUrl && !busy) void connect("join"); }} />
         </label>
         <div className={styles.actions}>
-          <button type="button" className={`${styles.button} ${code ? styles.buttonPrimary : ""}`} disabled={busy || !serverUrl || !code} onClick={() => void connect(true)}>Join room<span aria-hidden="true">→</span></button>
-          <button type="button" className={`${styles.button} ${code ? "" : styles.buttonPrimary}`} disabled={busy || !serverUrl} onClick={() => void connect(false)}>Create room<span aria-hidden="true">+</span></button>
+          {code
+            ? <button type="button" className={`${styles.button} ${styles.buttonPrimary}`} disabled={busy || !serverUrl} onClick={() => void connect("join")}>Join room<span aria-hidden="true">→</span></button>
+            : <button type="button" className={`${styles.button} ${styles.buttonPrimary}`} disabled={busy || !serverUrl} onClick={() => void connect("city")}>Join the city<span aria-hidden="true">→</span></button>}
+          <button type="button" className={styles.button} disabled={busy || !serverUrl} onClick={() => void connect("create")}>Create private room<span aria-hidden="true">+</span></button>
         </div>
         <details className={styles.details} open={!serverUrl}>
           <summary>Server address {serverUrl ? `· ${serverUrl}` : "· needed"}</summary>

@@ -18,6 +18,9 @@ import { Radio } from "./radio"; // Radio: Nightride FM widget + hotkeys (self-c
 // Multiplayer: Colyseus room (optional), lobby, chat and roster (src/multiplayer, server/).
 import { useMultiplayer } from "@/multiplayer/use-multiplayer";
 import { MultiplayerLobby } from "./multiplayer-lobby";
+import { MULTIPLAYER_ENV_URL, prefersSolo, storedName } from "@/multiplayer/preferences";
+import { autoJoinServerUrl, normalizeCode, sanitizeName } from "@/multiplayer/protocol";
+import type { LocalPose } from "@/multiplayer/types";
 import { ChatPanel } from "./chat-panel";
 import { ChatAttention } from "./chat-attention";
 // World map: WoW-style map overlay on M (city keeps running), waypoints, compass HUD, heading-up minimap.
@@ -54,6 +57,11 @@ function Toggle({ label, description, checked, onChange }: { label: string; desc
   </button>;
 }
 
+/** Where the player is, as the multiplayer room needs it on joining. */
+function presencePose(snapshot: CitySnapshot): LocalPose {
+  return snapshot.presence ?? { x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin };
+}
+
 function coordinate(value: number): string { return `${value < 0 ? "−" : ""}${Math.abs(Math.round(value)).toString().padStart(4, "0")}`; }
 
 export function CityExperience() {
@@ -84,8 +92,21 @@ export function CityExperience() {
   const [chatAttention] = useState(() => new ChatAttention());
   const toast = useCallback((message: string) => { const item = createToast(message); setToasts((current) => enqueueToast(current, item)); }, []);
   const multiplayer = useMultiplayer(engine, toast);
+  // Multiplayer: on the public site, players start in the shared city room (or the room an invite
+  // names) unless they left it before. Once per page load, as soon as the city is ready.
+  const autoJoined = useRef(false);
+  const { connect: connectMultiplayer } = multiplayer;
   const district = DISTRICTS[snapshot.district];
   const ready = phase !== "loading" && phase !== "error" && phase !== "lost";
+  useEffect(() => {
+    if (!ready || autoJoined.current) return;
+    autoJoined.current = true;
+    const serverUrl = autoJoinServerUrl(location, MULTIPLAYER_ENV_URL);
+    const code = normalizeCode(new URLSearchParams(location.search).get("room") ?? "");
+    if (!serverUrl || (!code && prefersSolo())) return;
+    void connectMultiplayer({ serverUrl, name: sanitizeName(storedName()), code: code || undefined, public: !code, pose: presencePose(snapshot) })
+      .then((joined) => { if (!joined) toast(code ? `Couldn't join room ${code}. Exploring solo; open Online to retry.` : "Couldn't join the city room. Exploring solo; open Online to retry."); });
+  }, [ready, snapshot, connectMultiplayer, toast]);
   // Mobile: touch UI, radio widget folded into the touch drawer, and engine rebuilds after a lost context.
   const touchUi = useTouchUi();
   const [radioOpen, setRadioOpen] = useState(false);
@@ -118,7 +139,7 @@ export function CityExperience() {
         const initial: CitySettings = settingsRef.current && bootKey > 0 ? settingsRef.current : { ...DEFAULT_SETTINGS, quality: isTouchFirst() ? "auto" : DEFAULT_SETTINGS.quality }; // Mobile: phones start on Auto
         setSettings(initial);
         city = createCity(canvas, initial, {
-          onReady: () => { if (!cancelled) { recovering.current = false; rebuildPending.current = false; if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room")) setLobby(true); } }, // Multiplayer: invite links open the lobby
+          onReady: () => { if (!cancelled) { recovering.current = false; rebuildPending.current = false; if (rebuild) { if (rebuild.cabin) city?.restorePassenger(rebuild.cabin, rebuild.metroTime); else city?.travel(rebuild.x, rebuild.z, rebuild.yaw); city?.duckAmbience(radioAudible.current ? 0.4 : 1); } setPhase(rebuild ? "paused" : "intro"); if (!rebuild && new URLSearchParams(location.search).has("room") && !autoJoinServerUrl(location, MULTIPLAYER_ENV_URL)) setLobby(true); } }, // Multiplayer: invite links open the lobby (the public site joins them directly)
           onBootStage: (stage) => { if (!cancelled) setBootStage(stage); },
           onContextLost: () => {
             if (cancelled) return;
@@ -338,7 +359,7 @@ export function CityExperience() {
     {ready ? <RpgScreens ui={rpgUi} place={district.name} /> : null}{/* RPG UI: inventory / vendor / death */}
     {questLog ? <QuestLog quests={snapshot.quests} onTrack={(quest) => controller.current?.rpgAction({ kind: "trackQuest", quest })} onClose={closeQuestLog} onResume={() => { setQuestLog(false); enter(); }} /> : null}
     {/* Multiplayer: Online panel, and room chat + roster while connected. */}
-    {lobby ? <MultiplayerLobby view={multiplayer.view} pose={snapshot.presence ?? { x: snapshot.x, y: Math.max(0, snapshot.altitude - (snapshot.cabin ? TRAIN_EYE_HEIGHT : WALK_HEIGHT)), z: snapshot.z, yaw: snapshot.yaw, pitch: snapshot.pitch, heading: snapshot.yaw, speed: 0, mode: snapshot.mode, car: 0, place: snapshot.interior?.id ?? "", carrier: snapshot.cabin }} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
+    {lobby ? <MultiplayerLobby view={multiplayer.view} pose={presencePose(snapshot)} onConnect={multiplayer.connect} onLeave={multiplayer.leave} onClose={closeLobby} onResume={() => { setLobby(false); enter(); }} /> : null}
     {ready && multiplayer.view.status === "connected" && !panel && !questLog && !lobby ? <ChatPanel attention={chatAttention} view={multiplayer.view} enabled={phase === "playing" && !dialogue} onSend={multiplayer.sendChat} /> : null}
     {/* World map: large overlay; the city keeps running behind it when opened while playing. */}
     {worldMap.open && world ? <WorldMap world={world} snapshot={snapshot} live={worldMap.live} onClose={worldMap.closeMap} /> : null}

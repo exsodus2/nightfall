@@ -215,7 +215,7 @@ try {
   let immediateOpen;
   try {
     await delay(850);
-    immediateOpen = await evaluate("(async () => { const started=performance.now(), online=[...document.querySelectorAll('button')].find(button=>button.textContent.trim().startsWith('Online')); if (!online) throw Error('Missing Online button'); online.click(); for (let attempt=0;attempt<40;attempt++) { await new Promise(resolve=>setTimeout(resolve,0)); const create=[...document.querySelectorAll('button')].find(button=>button.textContent.trim().startsWith('Create room')); if (create&&!create.disabled) { create.click(); return {elapsedMs:performance.now()-started}; } } throw Error('Create room did not open immediately'); })()");
+    immediateOpen = await evaluate("(async () => { const started=performance.now(), online=[...document.querySelectorAll('button')].find(button=>button.textContent.trim().startsWith('Online')); if (!online) throw Error('Missing Online button'); online.click(); for (let attempt=0;attempt<40;attempt++) { await new Promise(resolve=>setTimeout(resolve,0)); const create=[...document.querySelectorAll('button')].find(button=>button.textContent.trim().startsWith('Create private room')); if (create&&!create.disabled) { create.click(); return {elapsedMs:performance.now()-started}; } } throw Error('Create room did not open immediately'); })()");
   } finally { await call("Input.dispatchKeyEvent", { type: "keyUp", code: "KeyW", key: "w" }); }
   await waitFor(() => report.joins.length === 3, "immediate paused create-room request");
   const immediateJoin = report.joins[2];

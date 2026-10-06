@@ -51,7 +51,8 @@ export function createNightfallServer(options: NightfallServerOptions = {}): { g
     verifyClient: (info: { origin: string }) => allowed(info.origin || undefined),
   });
   const gameServer = new Server({ transport, greet: options.greet ?? false });
-  gameServer.define(ROOM_NAME, NightfallRoom);
+  // Players auto-joining the public city land in the busiest room with a free seat.
+  gameServer.define(ROOM_NAME, NightfallRoom).sortBy({ clients: -1 });
   return { gameServer, httpServer };
 }
 

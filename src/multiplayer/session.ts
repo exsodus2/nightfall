@@ -25,8 +25,9 @@ export interface SessionView { status: SessionStatus; error: string | null; code
 /** One-off notifications for toasts. */
 export interface SessionEvent { kind: "quest" | "notice" | "disconnected"; text: string }
 export interface SharedWaypoint { id: string; x: number; z: number; label: string; color: string; owner: string; ownerName: string; mine: boolean; createdAt: number }
-/** `create` with a `code` reopens a room under that code (e.g. after the server restarted). */
-export interface ConnectRequest { serverUrl: string; name: string; code?: string; create?: boolean; pose?: LocalPose }
+/** `create` with a `code` reopens a room under that code (e.g. after the server restarted).
+ * `public` (no code): join the shared city room, or open one if they're all full. */
+export interface ConnectRequest { serverUrl: string; name: string; code?: string; create?: boolean; public?: boolean; pose?: LocalPose }
 
 interface RemoteEntry { id: string; name: string; hex: string; buffer: SnapshotBuffer; lastT: number; stride: number; lastNow: number; latest: PlayerView }
 
@@ -86,7 +87,8 @@ export class MultiplayerSession implements MultiplayerLink {
   private addChat(line: ChatLine): void { this.update({ chat: [...this.view.chat, line].slice(-CHAT_KEEP) }); }
 
   // ---- Connection ---------------------------------------------------------------------------
-  /** Creates a room (no code, or `create`) or joins one by code. Never throws: failures land in the view. */
+  /** Creates a room (no code, or `create`), joins one by code, or joins the public city room. Never
+   * throws: failures land in the view. */
   async connect(request: ConnectRequest): Promise<boolean> {
     const attempt = ++this.attempt;
     await this.closeRoom(attempt);
@@ -102,7 +104,9 @@ export class MultiplayerSession implements MultiplayerLink {
       const client = new Client(request.serverUrl, { headers });
       const options = { name: request.name, pose: request.pose };
       const code = normalizeCode(request.code ?? "");
-      const room = joining ? await client.joinById<StateView>(code, options) : await client.create<StateView>(ROOM_NAME, code ? { ...options, code } : options);
+      const room = joining ? await client.joinById<StateView>(code, options)
+        : request.public && !code ? await client.joinOrCreate<StateView>(ROOM_NAME, { ...options, public: true })
+        : await client.create<StateView>(ROOM_NAME, code ? { ...options, code } : options);
       if (attempt !== this.attempt) { void room.leave(true).catch(() => undefined); return false; }
       this.link = { client, request };
       this.attach(room);
@@ -186,7 +190,7 @@ export class MultiplayerSession implements MultiplayerLink {
         try { room = await link.client.joinById<StateView>(code, options()); }
         catch (error) {
           const missing = /not found|invalid room/i.test(error instanceof Error ? error.message : String(error));
-          if (missing) room = await link.client.create<StateView>(ROOM_NAME, { ...options(), code }).catch(() => null);
+          if (missing) room = await link.client.create<StateView>(ROOM_NAME, { ...options(), code, public: link.request.public === true }).catch(() => null);
         }
       }
       if (attempt !== this.attempt) { if (room) void room.leave(true).catch(() => undefined); return; }

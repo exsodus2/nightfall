@@ -13,8 +13,9 @@ import { EXTERIOR_PLACE, STREET_INTERACTION_HEIGHT, samePlace, validPresence, va
 import { railPose, validRailPresence, validRailTransition } from "../src/multiplayer/rail.ts";
 
 interface JoinOptions { name?: unknown; pose?: unknown }
-/** `code`: reopen a room under a code a player already shared (e.g. after the server restarted). */
-interface CreateOptions extends JoinOptions { code?: unknown }
+/** `code`: reopen a room under a code a player already shared (e.g. after the server restarted).
+ * `public`: the city room everyone is put in (joinOrCreate); other rooms are private, joined by code. */
+interface CreateOptions extends JoinOptions { code?: unknown; public?: unknown }
 interface PlayerMeta { pose: PoseMessage | null; poseTime: number; teleportTime: number; poses: RateLimiter; chat: RateLimiter; actions: RateLimiter; waypoints: RateLimiter; waypointNotices: RateLimiter; pendingWaypoints: Map<string, WaypointMessage> }
 
 // Codes of open rooms. Claimed synchronously so two simultaneous creates can't share one.
@@ -33,7 +34,7 @@ export class NightfallRoom extends Room<NightfallState> {
   /** Milliseconds since the room opened (player `t` stamps and chat times). */
   private now(): number { return performance.now() - this.opened; }
 
-  onCreate(options?: CreateOptions): void {
+  async onCreate(options?: CreateOptions): Promise<void> {
     // Short, human-friendly room codes (players join with client.joinById(code)).
     let code = generateCode();
     if (isRoomCode(options?.code)) {
@@ -42,6 +43,7 @@ export class NightfallRoom extends Room<NightfallState> {
     } else while (openCodes.has(code)) code = generateCode();
     openCodes.add(code);
     this.roomId = code;
+    if (options?.public !== true) await this.setPrivate(true);
     // schema() leaves primitive fields undefined until assigned.
     this.state.credits = 0;
     this.state.questRevision = 0;

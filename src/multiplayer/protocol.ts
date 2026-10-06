@@ -208,6 +208,14 @@ export function defaultServerUrl(page: PageLocation, env: string | undefined, re
   return null;
 }
 
+/** Server to join automatically: only when the page is served by the multiplayer server itself
+ * (the public site, e.g. city.optimisticroc.com). Local and tunnel setups keep the opt-in lobby. */
+export function autoJoinServerUrl(page: PageLocation, env: string | undefined): string | null {
+  const url = defaultServerUrl(page, env, null);
+  if (!url) return null;
+  try { return new URL(url).host === new URL(page.origin).host ? url : null; } catch { return null; }
+}
+
 /** Invite link: this page plus the room code, and the server URL unless the friend would work it out anyway. */
 export function inviteLink(page: PageLocation, code: string, serverUrl: string, env: string | undefined): string {
   const params = new URLSearchParams({ room: code });
