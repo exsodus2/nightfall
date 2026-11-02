@@ -29,7 +29,7 @@ html, body { overscroll-behavior: none; }
   .error-state .reset-position { max-width: 260px; margin: 8px auto; }
   .touch-settings { margin-top: 26px; padding-top: 6px; border-top: 1px solid #53786333; }
   .touch-settings h3 { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
-  .touch-settings-intro { font-size: 10px; line-height: 1.7; color: #6f9586; margin: 0 0 4px; }
+  .touch-settings-intro { font-size: 12px; line-height: 1.6; color: #93b1a3; margin: 0 0 4px; }
   .touch-settings .sensitivity-setting { margin: 18px 0 6px; }
   .segmented-control button { min-height: 40px; }
 
@@ -40,7 +40,7 @@ html, body { overscroll-behavior: none; }
   .city-experience[data-phase="playing"][data-mode="drive"] .travel-hud { display: none; }
   .city-experience [aria-label="Driving controls"] { display: none !important; } /* keyboard hints; the touch HUD shows gear + speed */
 
-  .city-experience[data-phase="playing"] .location-strip { top: calc(var(--sat) + 12px); left: calc(var(--sal) + 16px); font-size: 10px; }
+  .city-experience[data-phase="playing"] .location-strip { top: calc(var(--sat) + 10px); left: calc(var(--sal) + 16px); font-size: 11px; padding: 2px 8px 2px 6px; }
   .city-experience[data-phase="playing"] .location-description, .city-experience[data-phase="playing"] .location-divider { display: none; }
   .city-experience .quest-hud { top: calc(var(--sat) + 34px); left: calc(var(--sal) + 16px); width: min(250px, 38vw); gap: 6px; }
   .city-experience .quest-tracker { grid-template-columns: 24px 1fr; gap: 9px; padding: 7px 9px; }
@@ -52,7 +52,7 @@ html, body { overscroll-behavior: none; }
 
   /* Minimap under the pause / menu buttons, top right. */
   .city-experience .navigation-widget { top: calc(var(--sat) + 64px); right: calc(var(--sar) + 12px); bottom: auto; width: 104px; }
-  .city-experience .map-heading { font-size: 9px; margin-bottom: 6px; }
+  .city-experience .map-heading { font-size: 10px; letter-spacing: -.02em; margin-bottom: 5px; padding: 2px 4px; }
   .city-experience .map-caption { display: none; }
   .city-experience[data-phase="intro"] .navigation-widget, .city-experience[data-phase="paused"] .navigation-widget { top: auto; bottom: calc(var(--sab) + 56px); }
 
@@ -84,7 +84,7 @@ html, body { overscroll-behavior: none; }
   .header-controls { gap: 16px; }
   .header-controls kbd { display: none; }
   .entry-panel { bottom: calc(var(--sab) + 10%); }
-  .touch-instructions { display: block; font-size: 10px; max-width: 300px; margin-top: 12px; }
+  .touch-instructions { display: block; font-size: 11px; max-width: 320px; margin-top: 12px; }
   .city-experience .quest-objective { display: none; }
   .city-experience section[aria-label="Radio"] :is([class*="track"], [class*="meterRow"], [class*="credit"]) { display: none; }
 }
@@ -92,7 +92,7 @@ html, body { overscroll-behavior: none; }
 /* Phone portrait. */
 @media (pointer: coarse) and (orientation: portrait) {
   .city-experience .quest-hud { width: calc(100% - var(--sal) - var(--sar) - 150px); max-width: 280px; }
-  .city-experience > section[aria-label="Radio"] { top: calc(var(--sat) + 196px); right: calc(var(--sar) + 12px); }
+  .city-experience > section[aria-label="Radio"] { top: calc(var(--sat) + 206px); right: calc(var(--sar) + 12px); } /* clears the square room map indoors */
   .quest-toasts { top: calc(var(--sat) + 200px); width: calc(100% - 32px); }
   .city-experience [data-waypoint-hud] { top: calc(var(--sat) + 150px); width: calc(100% - 150px); left: calc(var(--sal) + 16px); right: auto; margin-inline: 0; align-items: flex-start; }
   .travel-hud, .city-experience[data-mode="walk"] .travel-hud { bottom: calc(var(--sab) + 190px); width: calc(100% - 32px); }

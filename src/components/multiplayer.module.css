@@ -2,12 +2,12 @@
 
 .lobby { font-size: 12px; }
 .field { display: block; margin: 18px 0 0; }
-.field > span { display: flex; justify-content: space-between; font: 9px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: #7f9c98; margin-bottom: 8px; }
+.field > span { display: flex; justify-content: space-between; font: 10px var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: #9ab4af; margin-bottom: 8px; }
 .field input { width: 100%; padding: 12px 13px; background: #07141a; border: 1px solid #7fb3ab2e; border-radius: 3px; color: #e8eddf; font: 13px var(--font-mono); outline: none; }
 .field input:focus { border-color: #baf5d7aa; }
-.field input::placeholder { color: #56706c; }
+.field input::placeholder { color: #6f8a86; }
 .code input { text-transform: uppercase; letter-spacing: .35em; font-size: 16px; }
-.hint { margin: 8px 0 0; font: 10px/1.6 var(--font-mono); color: #6f8f89; }
+.hint { margin: 8px 0 0; font: 11px/1.55 var(--font-mono); color: #94b1ab; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 22px; }
 .button { padding: 13px 12px; background: #102129; border: 1px solid #50726d44; color: #cfe0d6; font-size: 12px; border-radius: 3px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .button:hover { background: #1c353a; }
@@ -17,36 +17,43 @@
 .status { margin: 20px 0 0; padding: 11px 13px; font: 11px/1.6 var(--font-mono); border: 1px solid #7fb3ab24; border-left: 2px solid #baf5d7; background: #081418c4; color: #cfe0d6; overflow-wrap: anywhere; }
 .statusError { border-left-color: #ff6f61; color: #ffc9c2; }
 .room { margin-top: 24px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #7fb3ab1f; }
-.room small { display: block; font: 9px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: #7f9c98; margin-bottom: 6px; }
+.room small { display: block; font: 10px var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: #9ab4af; margin-bottom: 6px; }
 .room strong { font: 500 30px var(--font-mono); letter-spacing: .3em; color: #f0c98d; }
 .details { margin-top: 18px; }
-.details summary { cursor: pointer; font: 10px var(--font-mono); color: #8caaa3; }
+.details summary { cursor: pointer; font: 11px var(--font-mono); color: #a7c0ba; }
 
 /* Roster (lobby and HUD) */
 .roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.roster li { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 9px; font: 11px var(--font-mono); color: #d6e2da; }
+.roster li { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 9px; font: 12px var(--font-mono); color: #e0eae3; }
 .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 8px currentColor; background: currentColor; }
-.mode { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; letter-spacing: .08em; color: #7f9c98; }
-.you { color: #7f9c98; margin-left: 6px; font-size: 9px; }
+.mode { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; letter-spacing: .04em; color: #9ab4af; }
+.you { color: #9ab4af; margin-left: 6px; font-size: 10px; }
 
 /* In-game chat + roster column, bottom left above the walking hint. */
 .chat { position: absolute; z-index: 4; left: 39px; bottom: 112px; width: min(380px, calc(100% - 78px)); display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); pointer-events: none; }
-.chatHead { display: flex; align-items: center; gap: 10px; font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: #7f9c98; }
+/* Driving: the controls strip (drive-hud.tsx) replaces the walking hint and is taller, so the chat
+   column moves up past it instead of stacking on the same corner. */
+:global(.city-experience)[data-mode="drive"] .chat { bottom: 176px; }
+/* Below ~1180px the strip is squeezed between the corner and the travel HUD and wraps to a third row. */
+@media (max-width: 1180px) and (pointer: fine) { :global(.city-experience)[data-mode="drive"] .chat { bottom: 200px; } }
+@media (max-height: 760px) { :global(.city-experience)[data-mode="drive"] .chat .log { max-height: 132px; } }
+.chatHead { display: flex; align-items: center; gap: 10px; align-self: stretch; padding: 3px 8px; background: var(--hud-plate); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #a3bcb7; }
 .chatHead strong { color: #f0c98d; font-weight: 500; letter-spacing: .3em; }
 .chatHead .rule { flex: 1; height: 1px; background: linear-gradient(90deg, #7fb3ab33, transparent); }
-.hudRoster { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: #c8d6ce; }
+.hudRoster { display: flex; flex-wrap: wrap; gap: 4px 12px; align-self: flex-start; padding: 2px 8px; background: var(--hud-plate); font-size: 11px; color: #d6e2db; }
 .hudRoster span { display: inline-flex; align-items: center; gap: 6px; }
 .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 176px; overflow: hidden; mask-image: linear-gradient(0deg, #000 70%, transparent); }
 .chatOpen .log { max-height: 260px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; scrollbar-color: #47625e transparent; mask-image: none; background: #050d11b8; padding: 8px 10px; border: 1px solid #7fb3ab1f; }
-.line { font-size: 11px; line-height: 1.5; color: #dbe6de; text-shadow: 0 1px 2px #000c; overflow-wrap: anywhere; }
+.line { align-self: flex-start; max-width: 100%; padding: 1px 8px; background: var(--hud-plate); font-size: 12px; line-height: 1.5; color: #e3ece6; text-shadow: 0 1px 2px #000c; overflow-wrap: anywhere; }
+.chatOpen .line { padding: 0; background: transparent; }
 .line b { font-weight: 600; margin-right: 7px; }
-.system { color: #8fa9a3; font-style: italic; }
+.system { color: #a7bfb9; font-style: italic; }
 .notice { color: #f0c98d; }
 .entry { pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #050d11e6; border: 1px solid #baf5d766; border-left: 2px solid #baf5d7; }
-.entry label { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #baf5d7; }
-.entry input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #eef1e2; font: 12px var(--font-mono); }
-.entry small { font-size: 9px; color: #6f8f89; }
-.prompt { font-size: 9px; color: #7f9c98; display: flex; align-items: center; gap: 6px; }
+.entry label { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #baf5d7; }
+.entry input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #eef1e2; font: 13px var(--font-mono); }
+.entry small { font-size: 10px; color: #8ea9a3; }
+.prompt { align-self: flex-start; padding: 2px 8px 2px 2px; background: var(--hud-plate); font-size: 11px; color: #a3bcb7; display: flex; align-items: center; gap: 6px; }
 .mobileSummary, .chatSend { display: none; }
 .chatLauncher { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid #a5c9bc55; border-radius: 50%; background: #07161bf2; color: #d4efe1; pointer-events: auto; touch-action: manipulation; }
 .chatLauncher:active, .chatClose:active, .chatSend:active { background: #1f4841; }
@@ -54,7 +61,7 @@
 .unread { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: #f0c98d; color: #07141a; font: 600 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .chatPreview { position: absolute; top: 0; right: 52px; display: flex; flex-direction: column; justify-content: center; gap: 3px; width: min(260px, max(0px, calc(100vw - var(--sal) - var(--sar) - 184px))); height: 44px; padding: 5px 10px; border: 1px solid #7fb3ab44; border-left: 2px solid #95e0c0; background: #07141af2; color: #dbe6de; font: 11px/1.2 var(--font-mono); text-align: left; pointer-events: auto; touch-action: manipulation; animation: chat-preview-in .16s ease-out both; }
 .chatPreview b, .chatPreview span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chatPreview b { font-size: 10px; font-weight: 600; }
+.chatPreview b { font-size: 11px; font-weight: 600; }
 .announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .chatClose { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; background: #07141a; color: #cfe0d6; border: 1px solid #7fb3ab44; font: 19px/1 var(--font-mono); pointer-events: auto; touch-action: manipulation; }
 @keyframes chat-preview-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }

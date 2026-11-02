@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CityPopulation, pavementPoint, pavementRoute, pedestrianGreen, trafficGreen } from "../src/city/people.ts";
 import { CityWorld } from "../src/city/world.ts";
-import { BENCH, PLATFORM_HEIGHT, SEATS, localToWorld, seatedYaw, trainAt } from "../src/city/metro.ts";
+import { BENCH, LINES, SEATS, STATIONS, TRAIN_COUNT, floorHeight, localToWorld, seatedYaw, trainAt } from "../src/city/metro.ts";
 import { AVENUE_STOP_LINE, CityTraffic, STOP_LINE, spawnAlong, stopDistance } from "../src/city/traffic.ts";
 
 test("pavement routes stay outside building footprints and cross only at corners", () => {
@@ -41,7 +41,8 @@ test("commuters board open doors, ride, alight, use lifts and return for another
     population.update(0.1, time, time, { x: 9999, z: 9999 });
     population.commuters.forEach((p, i) => {
       seen.add(p.state);
-      assert.ok(p.y >= 0 && p.y <= PLATFORM_HEIGHT);
+      assert.ok(p.y >= 0 && p.y <= LINES[STATIONS[p.station].line].floorRange[1]);
+      if (p.train !== null) assert.ok(Math.abs(p.y - floorHeight(trainAt(time, p.train), p.v)) < 1e-9, "aboard, on the carriage floor");
       assert.ok(Math.hypot(p.x - previous[i].x, p.z - previous[i].z) < 4.1, "Commuters must move continuously");
       if (previous[i].train === null && p.train !== null) {
         const train = trainAt(time, p.train);
@@ -154,7 +155,7 @@ test("every rider has a seat of their own and stays on it through stops, straigh
       if (!p.seated) { assert.notEqual(p.state, "riding"); continue; }
       assert.ok(p.seat >= 0 && p.train !== null);
       const seat = SEATS[p.seat], train = trainAt(time, p.train);
-      assert.equal(p.y, PLATFORM_HEIGHT);
+      assert.equal(p.y, floorHeight(train, p.v), "seated riders rise and dip with their carriage floor");
       assert.ok(Math.abs(angle(p.yaw - seatedYaw(train.yaw, seat.side))) < 1e-9, "seated riders face the aisle");
       const at = localToWorld(train, p.u, p.v);
       assert.ok(Math.hypot(at.x - p.x, at.z - p.z) < 1e-9, "riders move and turn with their carriage");
@@ -170,6 +171,6 @@ test("every rider has a seat of their own and stays on it through stops, straigh
       }
     }
   }
-  assert.equal(trains.size, 4, "riders sit in all four trains");
+  assert.equal(trains.size, TRAIN_COUNT, "riders sit in every train of both lines");
   assert.ok(curving > 0 && sitting > 0 && riding > 1000, `${riding} riding, ${curving} on curves, ${sitting} sitting down`);
 });

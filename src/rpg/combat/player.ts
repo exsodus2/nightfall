@@ -5,6 +5,7 @@
 
 import type { ConsumableStats, ItemDefinition, PlayerCombatView, WeaponSlot, WeaponStats } from "../types.ts";
 import { FISTS, clampArmor, isRanged } from "./constants.ts";
+import { HIT_STOP } from "./forms.ts";
 import { hasLineOfSight, raycastWorld } from "./raycast.ts";
 import type { Enemy, Sim, TickInput } from "./sim.ts";
 import { TICK, angleDiff, clamp, jitter, rayCylinder, rotateToward, viewDirection, yawTo, type Vec3 } from "./util.ts";
@@ -53,6 +54,8 @@ export class PlayerCombat {
   hotRate = 0; hotUntil = -Infinity; focusUntil = -Infinity; hasteUntil = -Infinity;
   knockX = 0; knockZ = 0;
   lock: Enemy | null = null;
+  /** Hit-stop: a melee swing that connects holds its pose until then (<= 60 ms; the camera never moves). */
+  hitStopUntil = -Infinity;
   private prevHeld = false;
   private lastAmmoMessage = -Infinity;
 
@@ -115,7 +118,9 @@ export class PlayerCombat {
     if (input.quick && this.action !== "dodge" && ch) this.applyConsumable(sim, ch.useQuick(input.quick));
     if (input.dodge) this.tryDodge(sim, input);
 
-    this.actionT += TICK;
+    // Hit-stop holds only the connecting swing (the world, the camera and dodges keep running).
+    const stopped = now < this.hitStopUntil && (this.action === "light" || this.action === "heavy");
+    if (!stopped) this.actionT += TICK;
     const melee = this.melee(sim);
     switch (this.action) {
       case "dodge": {
@@ -138,7 +143,8 @@ export class PlayerCombat {
         }
         break;
       case "light": case "heavy":
-        this.tickSwing(sim, pressed);
+        if (!stopped) this.tickSwing(sim, pressed);
+        else if (pressed && this.swing && !this.swing.heavy && this.swing.combo < 2) this.swing.buffered = true;
         break;
       case "charge":
         if (released || !held || this.actionT >= 2) this.releaseCharge(sim);
@@ -271,7 +277,8 @@ export class PlayerCombat {
   private meleeHits(sim: Sim, swing: Swing): void {
     const w = this.stats(sim), arc = (w.arc ?? 45) * Math.PI / 180;
     for (const e of sim.enemies) {
-      if (e.deathTime >= 0 || swing.hits.has(e)) continue;
+      // Hovering drones sit above any swing: they have to be shot.
+      if (e.deathTime >= 0 || swing.hits.has(e) || e.base > 0) continue;
       const dx = e.x - sim.px, dz = e.z - sim.pz, d = Math.hypot(dx, dz);
       if (d - e.radius > w.range) continue;
       const tolerance = arc + Math.asin(Math.min(1, e.radius / Math.max(d, 1e-3)));
@@ -280,8 +287,11 @@ export class PlayerCombat {
       const dirX = d > 1e-3 ? dx / d : Math.sin(swing.yaw), dirZ = d > 1e-3 ? dz / d : -Math.cos(swing.yaw);
       const crit = this.rollCrit(sim, w, e);
       const amount = swing.damage * (crit ? w.critMultiplier ?? 1.8 : 1) * (1 - clampArmor(e.arch.armor));
-      sim.damageEnemy(e, amount, { critical: crit, byPlayer: true, stagger: swing.stagger, knockback: swing.knockback, dirX, dirZ, heavy: swing.heavy });
-      sim.addFx({ kind: "spark", x: e.x - dirX * e.radius, y: e.height * 0.6, z: e.z - dirZ * e.radius, age: 0, color: crit ? [255, 220, 90] : [255, 90, 70] }, 0.3);
+      const blocked = sim.shieldGuard(e, { dirX, dirZ, heavy: swing.heavy }) === "blocked";
+      const hitStop = swing.heavy ? HIT_STOP.heavy : HIT_STOP.light;
+      sim.damageEnemy(e, amount, { critical: crit, byPlayer: true, stagger: swing.stagger, knockback: swing.knockback, dirX, dirZ, heavy: swing.heavy, hitStop });
+      this.hitStopUntil = Math.max(this.hitStopUntil, sim.time + hitStop);
+      if (!blocked) sim.addFx({ kind: "spark", x: e.x - dirX * e.radius, y: e.height * 0.6, z: e.z - dirZ * e.radius, age: 0, color: crit ? [255, 220, 90] : [255, 90, 70] }, 0.3);
       sim.noise(sim.px, sim.pz, 0.3);
     }
   }
@@ -321,7 +331,8 @@ export class PlayerCombat {
     // Aim assist: bend the shot a few degrees toward the soft-locked target's chest.
     const target = this.lock;
     if (target && target.deathTime < 0) {
-      const tx = target.x - origin.x, ty = target.height * 0.6 - origin.y, tz = target.z - origin.z, tl = Math.hypot(tx, ty, tz);
+      const chest = target.base > 0 ? (target.base + target.height) * 0.5 : target.height * 0.6;
+      const tx = target.x - origin.x, ty = chest - origin.y, tz = target.z - origin.z, tl = Math.hypot(tx, ty, tz);
       const to = { x: tx / tl, y: ty / tl, z: tz / tl };
       const offset = Math.acos(clamp(dir.x * to.x + dir.y * to.y + dir.z * to.z, -1, 1));
       if (offset < 0.35) dir = rotateToward(dir, to, 0.05 + 0.03 * (1 - this.aim));
@@ -337,7 +348,7 @@ export class PlayerCombat {
       let best = wall ? wall.distance : maxDistance, victim: Enemy | null = null;
       for (const e of sim.enemies) {
         if (e.deathTime >= 0) continue;
-        const t = rayCylinder(origin, d, e.x, e.z, e.radius, e.height, best);
+        const t = rayCylinder(origin, d, e.x, e.z, e.radius, e.height, best, e.base);
         if (t !== null && t < best) { best = t; victim = e; }
       }
       const end = { x: origin.x + d.x * best, y: origin.y + d.y * best, z: origin.z + d.z * best };
@@ -352,8 +363,9 @@ export class PlayerCombat {
       const crit = this.rollCrit(sim, w, e);
       const amount = hit.amount * (sim.character?.damageBonus ?? 1) * (crit ? w.critMultiplier ?? 1.8 : 1) * (1 - clampArmor(e.arch.armor));
       const dl = Math.hypot(hit.dirX, hit.dirZ) || 1;
+      const blocked = sim.shieldGuard(e, { dirX: hit.dirX / dl, dirZ: hit.dirZ / dl }) === "blocked";
       sim.damageEnemy(e, amount, { critical: crit, byPlayer: true, stagger: w.stagger, knockback: w.knockback, dirX: hit.dirX / dl, dirZ: hit.dirZ / dl });
-      sim.addFx({ kind: "spark", x: e.x, y: e.height * 0.6, z: e.z, age: 0, color: crit ? [255, 220, 90] : [255, 90, 70] }, 0.3);
+      if (!blocked) sim.addFx({ kind: "spark", x: e.x, y: e.base > 0 ? (e.base + e.height) * 0.5 : e.height * 0.6, z: e.z, age: 0, color: crit ? [255, 220, 90] : [255, 90, 70] }, 0.3);
     }
     this.bloom = Math.min(1.5, this.bloom + ((w.automatic ?? 0) > 0 ? 0.2 : 0.35));
     this.lastShot = sim.time; sim.lastCombatAt = sim.time;
@@ -433,6 +445,14 @@ export class PlayerCombat {
     this.health = 0; this.dead = true; this.swing = null; this.blocking = false; this.lock = null;
     this.action = "idle"; this.knockX = this.knockZ = 0;
     sim.emit({ type: "playerDied" });
+  }
+
+  /** Ground-life rest: heals a fraction of max health and refills stamina (no-op while dead). */
+  rest(healthFraction: number): void {
+    if (this.dead) return;
+    const now = Math.max(0, this.health);
+    this.health = Math.min(this.maxHealth, now + this.maxHealth * Math.max(0, healthFraction));
+    this.stamina = this.maxStamina;
   }
 
   respawn(): void {

@@ -2,7 +2,7 @@
 // server (server/, run by Node with type stripping) and the browser client. No DOM, no
 // Colyseus imports, `.ts` specifiers only, so both sides load the exact same rules.
 import { WORLD_EDGE } from "../city/world.ts";
-import type { TravelMode } from "../city/locomotion";
+import type { TravelMode } from "../city/locomotion.ts";
 import { normalizePlace, validPresence } from "./presence.ts";
 import { CARRIER_WALK_SPEED, parseTrainCarrier, validRailPresence, type TrainCarrier } from "./rail.ts";
 

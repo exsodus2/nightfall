@@ -9,7 +9,10 @@ export interface RenderProfile {
   cell: number;
   /** Highest pixel density rendered (a DPR 3 phone renders at 2). */
   maxDensity: number;
-  /** Base draw distance in city blocks (altitude adds to it). */
+  /** Base draw distance in city blocks (altitude adds to it). Desktop presets see across most of
+   *  the 24-block city (20 / 16 / 7); distant blocks cost little: building detail retracts by
+   *  distance, props, people and signs keep their own short ranges, and the puddle reflection
+   *  only draws blocks within MIRROR_REACH (engine.ts). */
   baseRadius: number;
   /** Shorter prop / resident / traffic ranges and no wheel detail (the engine's `view.low`). */
   low: boolean;
@@ -26,9 +29,9 @@ export interface RenderProfile {
 }
 
 const DESKTOP: Record<Exclude<QualityPreset, "auto">, RenderProfile> = {
-  high: { cell: 8, maxDensity: 2, baseRadius: 11, low: false, holograms: true, atmosphere: true, reflections: true, bloom: true, rain: 38 },
-  balanced: { cell: 12, maxDensity: 2, baseRadius: 9, low: false, holograms: true, atmosphere: true, reflections: true, bloom: true, rain: 38 },
-  low: { cell: 16, maxDensity: 2, baseRadius: 5, low: true, holograms: false, atmosphere: false, reflections: true, bloom: false, rain: 18 },
+  high: { cell: 8, maxDensity: 2, baseRadius: 20, low: false, holograms: true, atmosphere: true, reflections: true, bloom: true, rain: 38 },
+  balanced: { cell: 12, maxDensity: 2, baseRadius: 16, low: false, holograms: true, atmosphere: true, reflections: true, bloom: true, rain: 38 },
+  low: { cell: 16, maxDensity: 2, baseRadius: 7, low: true, holograms: false, atmosphere: false, reflections: true, bloom: false, rain: 18 },
 };
 
 /** "Auto" levels, best first. Cells: landscape / portrait (portrait keeps ~49 columns on a phone). */
@@ -44,6 +47,25 @@ export function renderProfile(quality: QualityPreset, level: number, portrait: b
   if (quality !== "auto") return DESKTOP[quality];
   const { portraitCell, ...profile } = AUTO_LEVELS[Math.max(0, Math.min(AUTO_LEVELS.length - 1, Math.round(level)))];
   return portrait ? { ...profile, cell: portraitCell } : profile;
+}
+
+/**
+ * Desktop presets keep their cell size and effects; when a desktop cannot hold the frame rate the
+ * engine runs a second QualityGovernor over DESKTOP_LEVELS and gives up draw distance first (the
+ * cost the long view added: distant blocks, holograms and far signs), then full puddle
+ * reflections. The draw distance eases (engine.ts), so a step is a slow fog shift, never a pop.
+ */
+export const DESKTOP_LEVELS: readonly { radius: number; reflections: boolean }[] = [
+  { radius: 0, reflections: true },
+  { radius: -4, reflections: true },
+  { radius: -7, reflections: true },
+  { radius: -7, reflections: false },
+];
+/** A desktop preset at desktop governor `level` (0 = as configured). Phones ("auto") are unchanged. */
+export function desktopProfile(profile: RenderProfile, level: number): RenderProfile {
+  const step = DESKTOP_LEVELS[Math.max(0, Math.min(DESKTOP_LEVELS.length - 1, Math.round(level)))];
+  if (step.radius === 0 && step.reflections) return profile;
+  return { ...profile, baseRadius: Math.max(5, profile.baseRadius + step.radius), reflections: profile.reflections && step.reflections };
 }
 
 /** Tunables (exported for tests). Frame times are wall-clock intervals between rendered frames. */

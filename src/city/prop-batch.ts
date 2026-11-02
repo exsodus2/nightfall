@@ -1,6 +1,6 @@
 import type { TextmodeShader } from "textmode.js";
-import { MESH_BOX, MESH_SPHERE, MESH_TORUS, PROP_STRIDE, type PropRecorder } from "./prop-canvas";
-import { applyBatchUniforms, BATCH_UNIFORMS, withBatchState, type BatchCamera, type BatchFrame } from "./building-batch";
+import { MESH_TORUS, PROP_STRIDE, type PropRecorder } from "./prop-canvas.ts";
+import { applyBatchUniforms, BATCH_UNIFORMS, BatchUniformCache, withBatchState, type BatchCamera, type BatchFrame } from "./building-batch.ts";
 
 // Props (people, cars, street furniture, stations, NPCs) recorded by PropRecorder and drawn with
 // one instanced call per mesh into textmode's native character/colour framebuffer, using the same
@@ -74,6 +74,10 @@ export class PropBatch {
   private readonly shader: TextmodeShader;
   private readonly meshes: MeshSet[] = [];
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>();
+  /** Perf: skips batch uniforms unchanged since this program's last draw (see BatchUniformCache). */
+  private readonly uniformCache = new BatchUniformCache();
+  /** The u_mesh value last sent to this program (-1: never). */
+  private meshSent = -1;
   constructor(canvas: HTMLCanvasElement, shader: TextmodeShader) {
     const gl = canvas.getContext("webgl2"); if (!gl) throw Error("WebGL2 unavailable");
     this.gl = gl; this.shader = shader;
@@ -100,25 +104,28 @@ export class PropBatch {
     const gl = this.gl;
     // ARRAY_BUFFER_BINDING is answered client-side (no GPU round trip); restore it for textmode.
     const previous = gl.getParameter(gl.ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
-    [MESH_BOX, MESH_SPHERE, MESH_TORUS].forEach(kind => {
+    // Perf: a plain loop (no per-frame array and closure); meshes[kind] is MESH_BOX, MESH_SPHERE, MESH_TORUS (0, 1, 2).
+    for (let kind = 0; kind < this.meshes.length; kind++) {
       const mesh = this.meshes[kind], count = recorder.counts[kind];
       mesh.count = count;
-      if (!count) return;
+      if (!count) continue;
       gl.bindBuffer(gl.ARRAY_BUFFER, mesh.instances);
       if (count > mesh.capacity) { mesh.capacity = Math.max(count, mesh.capacity * 2); gl.bufferData(gl.ARRAY_BUFFER, mesh.capacity * PROP_STRIDE * 4, gl.DYNAMIC_DRAW); }
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, recorder.data[kind], 0, count * PROP_STRIDE);
-    });
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, previous);
   }
   draw(camera: BatchCamera, frame: BatchFrame): void {
-    if (!this.meshes.some(mesh => mesh.count > 0)) return;
-    const gl = this.gl;
+    let any = false;
+    for (const mesh of this.meshes) if (mesh.count > 0) any = true;
+    if (!any) return;
+    const gl = this.gl, meshLocation = this.uniforms.get("u_mesh") ?? null;
     withBatchState(gl, this.shader.program, frame, () => {
-      applyBatchUniforms(gl, this.uniforms, camera, frame);
+      applyBatchUniforms(gl, this.uniforms, camera, frame, this.uniformCache);
       for (let kind = 0; kind < this.meshes.length; kind++) {
         const mesh = this.meshes[kind];
         if (!mesh.count) continue;
-        gl.uniform1i(this.uniforms.get("u_mesh") ?? null, kind);
+        if (this.meshSent !== kind) { gl.uniform1i(meshLocation, kind); this.meshSent = kind; }
         gl.bindVertexArray(mesh.vao);
         gl.drawArraysInstanced(gl.TRIANGLES, 0, mesh.vertexCount, mesh.count);
       }

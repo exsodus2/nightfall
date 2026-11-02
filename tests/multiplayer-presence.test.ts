@@ -44,8 +44,8 @@ test("presence identifiers default legacy clients to the street and map indoor f
   }
 });
 
-test("all six rooms accept bounded walking poses and reject forged locations, modes and height", () => {
-  assert.equal(places.length, 6);
+test("all nine rooms accept bounded walking poses and reject forged locations, modes and height", () => {
+  assert.equal(places.length, 9);
   assert.equal(parsePose(pose(0, 78))?.place, EXTERIOR_PLACE);
   assert.equal(parsePose(pose(9000, -9000))?.x, 768);
   assert.equal(parsePose({ ...pose(0, 78), place: null }), null);

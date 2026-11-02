@@ -415,7 +415,38 @@ export interface InteractableDefinition extends Point {
   /** Opens a dialogue instead of (or before) the effects. */
   dialogue?: string;
   once?: boolean;
+  /** Hacking: E opens the breach minigame (src/rpg/hacking) instead of using the object; a
+   * successful breach then uses it (effects, `interacted`, dialogue). ATMs and service doors carry
+   * one (rpg/content/hacking-targets.ts); quest terminals may too. */
+  hack?: HackSpec;
 }
+
+// ---- Hacking (src/rpg/hacking) -----------------------------------------------------------------
+
+/** ATM easy, service door medium, corp terminal hard. */
+export type HackTier = "easy" | "medium" | "hard";
+export interface HackSpec {
+  /** "atm": pays credits; "door": opens a back room (loot); "terminal": only uses the object. */
+  kind: "atm" | "door" | "terminal";
+  tier: HackTier;
+  /** District index (ATM payouts scale with it). */
+  district?: number;
+}
+/** The open hacking screen (RpgSnapshot.hack): the puzzle is built from `seed` and `tier` by
+ * rpg/hacking createHack; `result` is set once the session settled the attempt. */
+export interface HackView {
+  /** Changes on every attempt (the screen remounts its puzzle). */
+  attempt: number;
+  target: string;
+  label: string;
+  kind: HackSpec["kind"];
+  tier: HackTier;
+  seed: number;
+  /** A Splice Deck in the pack: the trace window is wider. */
+  splice: boolean;
+  result: { outcome: "success" | "failed"; title: string; lines: readonly string[]; alarm: boolean } | null;
+}
+export type HackReport = { outcome: "success" | "failed" | "aborted"; trace: number; elapsed: number; mistakes: number };
 
 /** A bundle of content (rpg/content/*): merged at start-up. */
 export interface ContentPack {
@@ -492,6 +523,8 @@ export interface RpgSnapshot {
   boss: { name: string; title: string; health: number; maxHealth: number; phase: number; /** Number of phases (for the HUD's phase pips; rpg/scene). */ phases?: number } | null;
   /** Recent loot and quest messages (newest last). */
   feed: readonly { id: number; text: string; tone: "info" | "quest" | "loot" | "danger" }[];
+  /** Open hacking screen, if any (optional: mocks and older snapshots leave it out). */
+  hack?: HackView | null;
 }
 export type RpgUiAction =
   | { kind: "trackQuest"; quest: string }
@@ -503,4 +536,13 @@ export type RpgUiAction =
   | { kind: "buy"; item: string }
   | { kind: "sell"; item: string; count: number }
   | { kind: "closeVendor" }
-  | { kind: "respawn" };
+  | { kind: "respawn" }
+  /** Hacking: the screen's puzzle ended (success / trace complete / Esc); the session settles it. */
+  | { kind: "hackResult"; attempt: number; report: HackReport }
+  /** Hacking: dismiss the result panel. */
+  | { kind: "closeHack" };
+
+/** A swing or shot the player just started (RpgSession.takePlayerAttack, once each): street life
+ *  checks it against civilians. `yaw` is the attack's heading (engine sense: forward is
+ *  (sin yaw, -cos yaw)); `reach` the weapon's range in metres. */
+export interface PlayerAttack { x: number; z: number; yaw: number; reach: number; ranged: boolean }

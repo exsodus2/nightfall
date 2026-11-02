@@ -1,4 +1,4 @@
-import { ASCII_BITMAPS } from "./glyph-font";
+import { ASCII_BITMAPS } from "./glyph-font.ts";
 
 // The city's glyph atlas: printable ASCII in two weights, rasterised at the exact device cell
 // size so every stroke lands on whole pixels (no resampling blur at any quality or DPI).

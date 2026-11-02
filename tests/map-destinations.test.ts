@@ -90,8 +90,8 @@ test("the shared map layer uses authoritative markers, distinguishes objectives 
   assert.ok(legacy.calls.some(call => call.name === "fillText" && call.values[0] === "Mara Voss"));
 });
 
-test("venue markers use the six real doorway positions, cull off-map rooms and keep minimap labels quiet", () => {
-  assert.equal(places.length, 6);
+test("venue markers use the nine real doorway positions, cull off-map rooms and keep minimap labels quiet", () => {
+  assert.equal(places.length, 9);
   const full = new MapRecorder();
   drawVenueLayer(full.context(), mapView, places);
   assert.deepEqual(full.calls.filter(call => call.name === "fillText").map(call => call.values[0]), places.map(place => place.name));
@@ -106,8 +106,8 @@ test("venue markers use the six real doorway positions, cull off-map rooms and k
   assert.equal(full.calls.filter(call => call.name === "save").length, full.calls.filter(call => call.name === "restore").length);
   const pinned = new MapRecorder();
   drawVenueLayer(pinned.context(), mapView, places, true, [places[0].entrance]);
-  assert.equal(pinned.calls.filter(call => call.name === "fillRect").length, 6);
-  assert.equal(pinned.calls.filter(call => call.name === "fillText").length, 5);
+  assert.equal(pinned.calls.filter(call => call.name === "fillRect").length, 9);
+  assert.equal(pinned.calls.filter(call => call.name === "fillText").length, 8);
   assert.ok(!pinned.calls.some(call => call.name === "fillText" && call.values[0] === places[0].name));
 });
 
@@ -139,7 +139,7 @@ test("directory tracking targets walkable entrances, persists and reuses renamed
     assert.equal(trackVenueEntrance(store, place)?.label, "Meet the night shift");
     assert.equal(store.get(waypoint.id)?.shared, true);
   }
-  assert.equal(store.list().length, 6);
+  assert.equal(store.list().length, 9);
   const restored = new WaypointStore();
   restored.restore(store.serialize());
   for (const place of places) assert.ok(restored.list().some(waypoint => waypointAtEntrance(waypoint, place)));

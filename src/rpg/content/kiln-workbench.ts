@@ -12,33 +12,33 @@ export const KILN_WORKBENCH: InteractableDefinition = {
 
 const quest: QuestDefinition2 = {
   id: QUEST, title: "Ground Before Glow", category: "gig", giver: null,
-  summary: "Calibrate a salvaged shield cell on Kiln Nine's test bench. Read the plate, wire the safe circuit, then run a proof pulse.",
+  summary: "Kiln Nine's night mechanic left a salvaged shield cell on the test bench. Wire it up by the calibration plate, pass the proof pulse, keep the cell.",
   rewardHint: "One Shield Cell and 120 XP", recommendedLevel: 1, start: "earth",
   stages: [
     {
-      id: "earth", journal: "The right-hand machine in Kiln Nine has a calibration plate: EARTH BOND / 12 V AUX / 10 OHM DUMMY LOAD. Ground the bench before applying power.",
-      objectives: [{ id: "earth-bond", kind: "choose", text: "Bond the workbench earth bus inside Kiln Nine", dialogue: DIALOGUE, options: ["bond-earth"], target: { x: -531, z: -247.91 } }],
+      id: "earth", journal: "Kiln Nine's night mechanic left a shield cell on the right-hand test bench inside the workshop (the Foundry). Prove it safe and it's yours. The plate reads EARTH BOND / 12 V AUX / 10 OHM DUMMY LOAD. Step one: earth the bench.",
+      objectives: [{ id: "earth-bond", kind: "choose", text: "Earth the test bench (right-hand machine, Kiln Nine)", dialogue: DIALOGUE, options: ["bond-earth"], target: { x: -531, z: -247.91 } }],
       next: "supply",
     },
     {
-      id: "supply", journal: "The earth bond is solid. The cell's stamped input rating is twelve volts. Select the isolated auxiliary feed, not the furnace mains.",
-      objectives: [{ id: "aux-feed", kind: "choose", text: "Select the rated supply at the workbench", dialogue: DIALOGUE, options: ["aux-feed"], target: { x: -531, z: -247.91 } }],
+      id: "supply", journal: "Earth bonded. The cell is stamped 12 V input. Pick the matching supply switch on the bench.",
+      objectives: [{ id: "aux-feed", kind: "choose", text: "Switch the Kiln Nine bench to the 12 V auxiliary feed", dialogue: DIALOGUE, options: ["aux-feed"], target: { x: -531, z: -247.91 } }],
       next: "load",
     },
     {
-      id: "load", journal: "Twelve volts are stable. The plate calls for a ten-ohm dummy load. The cell must pass on the bench before it goes on anybody's belt.",
-      objectives: [{ id: "test-load", kind: "choose", text: "Attach the safe dummy load", dialogue: DIALOGUE, options: ["dummy-load"], target: { x: -531, z: -247.91 } }],
+      id: "load", journal: "12 V is steady. The plate wants a 10 ohm dummy load on the output before anything live gets connected.",
+      objectives: [{ id: "test-load", kind: "choose", text: "Clip the 10 ohm dummy load to the Kiln Nine bench output", dialogue: DIALOGUE, options: ["dummy-load"], target: { x: -531, z: -247.91 } }],
       next: "proof",
     },
     {
-      id: "proof", journal: "Earth bonded, auxiliary feed selected, test load attached. Everything reads green. Run the proof pulse and claim the certified cell.",
-      objectives: [{ id: "proof-pulse", kind: "choose", text: "Run the workbench proof pulse", dialogue: DIALOGUE, options: ["proof-pulse"], target: { x: -531, z: -247.91 } }],
+      id: "proof", journal: "Earth, supply and load all read green. Run the proof pulse to release the cell.",
+      objectives: [{ id: "proof-pulse", kind: "choose", text: "Run the proof pulse at the Kiln Nine bench", dialogue: DIALOGUE, options: ["proof-pulse"], target: { x: -531, z: -247.91 } }],
       onComplete: [{ outcome: "certified" }],
     },
   ],
   outcomes: {
     certified: {
-      title: "Certified, Not Fried", journal: "The cell held its field through the proof pulse. Kiln Nine let you keep this one. The old machines respond to patience, not force.",
+      title: "Certified, Not Fried", journal: "The cell held its field for the full proof pulse and the cradle let go of it. The mechanic's note was right: one per apprentice, and this one's yours.",
       effects: [{ give: "shield-cell" }, { xp: 120 }, { setFlag: "kiln.bench-certified", value: true }],
     },
   },
@@ -56,38 +56,38 @@ const dialogue: DialogueDefinition = {
   ],
   nodes: [
     node("offer", [
-      "[A salvaged shield cell sits in a guarded cradle. The night mechanic has left a note: PROVE IT SAFE, KEEP IT. ONE PER APPRENTICE.]",
-      "CALIBRATION PLATE: EARTH BOND / 12 V AUX / 10 OHM DUMMY LOAD. Ground before glow.",
+      "[A salvaged shield cell sits in a locked cradle. Taped to the guard, in grease pencil: PROVE IT SAFE, KEEP IT. ONE PER APPRENTICE. - D.]",
+      "CALIBRATION PLATE: EARTH BOND / 12 V AUX / 10 OHM DUMMY LOAD.",
     ], [
-      { id: "accept-calibration", label: "Read the plate and start the calibration.", condition: available(QUEST), effects: [{ startQuest: QUEST }], next: "earth" },
+      { id: "accept-calibration", label: "Start the calibration.", condition: available(QUEST), effects: [{ startQuest: QUEST }], next: "earth" },
       bye("Leave the bench alone."),
     ]),
     node("earth", [
-      "EARTH: OPEN. The green earth bus is unconnected. The painted chassis is insulated from it.",
-      "PLATE: Earth bond first. Which connection do you make?",
+      "EARTH: OPEN. Two places to clip the earth lead: the bare green earth bus, or the painted bench chassis.",
+      "PLATE STEP 1: EARTH BOND.",
     ], [
-      { id: "bond-earth", label: "Bond the lead to the green earth bus.", condition: inStage(QUEST, "earth"), next: "supply" },
+      { id: "bond-earth", label: "Clip the lead to the green earth bus.", condition: inStage(QUEST, "earth"), next: "supply" },
       go("clip-chassis", "Clip it to the painted chassis.", "earth-fault"),
       LEAVE,
     ]),
-    node("earth-fault", ["CONTINUITY: FAIL. Paint is an insulator. The interlock keeps the power off; nothing is damaged.", "Find the exposed green earth bus."], [go("retry-earth", "Try the earth connection again.", "earth"), LEAVE]),
-    node("supply", ["EARTH: BONDED. Cell rating: 12 V. Two supply switches wait under the guard: AUX 12 V and FURNACE 230 V."], [
-      { id: "aux-feed", label: "Select the isolated 12 V auxiliary feed.", condition: inStage(QUEST, "supply"), next: "load" },
-      go("furnace-feed", "Select the 230 V furnace feed.", "supply-fault"),
+    node("earth-fault", ["CONTINUITY: FAIL. The paint insulates the chassis. INTERLOCK: POWER HELD. NO DAMAGE.", "The green earth bus is the bare copper strip along the back."], [go("retry-earth", "Try the earth connection again.", "earth"), LEAVE]),
+    node("supply", ["EARTH: BONDED. CELL INPUT: 12 V. Two switches under the guard: AUX 12 V and FURNACE 230 V."], [
+      { id: "aux-feed", label: "Throw the AUX 12 V switch.", condition: inStage(QUEST, "supply"), next: "load" },
+      go("furnace-feed", "Throw the FURNACE 230 V switch.", "supply-fault"),
       LEAVE,
     ]),
-    node("supply-fault", ["OVERVOLTAGE INTERLOCK. The bench refuses to connect a twelve-volt cell to furnace mains.", "The cell survived. Your dignity will recover."], [go("retry-supply", "Select the correct supply.", "supply"), LEAVE]),
-    node("load", ["AUX: 12 V STABLE. The plate specifies a 10 OHM DUMMY LOAD. Beside it hangs a lead marked LIVE BELT RIG."], [
-      { id: "dummy-load", label: "Attach the ten-ohm dummy load.", condition: inStage(QUEST, "load"), next: "proof" },
+    node("supply-fault", ["OVERVOLTAGE INTERLOCK. 230 V REFUSED ON A 12 V CELL. NO DAMAGE.", "Somebody has scratched 'NICE TRY' into the switch plate."], [go("retry-supply", "Select the correct supply.", "supply"), LEAVE]),
+    node("load", ["AUX: 12 V STABLE. OUTPUT: OPEN. Bolted to the bench: a 10 OHM DUMMY LOAD. Hanging next to it: a lead marked LIVE BELT RIG."], [
+      { id: "dummy-load", label: "Clip on the 10 ohm dummy load.", condition: inStage(QUEST, "load"), next: "proof" },
       go("live-rig", "Connect the live belt rig instead.", "load-fault"),
       LEAVE,
     ]),
-    node("load-fault", ["UNVERIFIED LOAD. The cradle latch stays closed. Test equipment first, people second.", "The ten-ohm dummy load is bolted to the bench."], [go("retry-load", "Use the bench test load.", "load"), LEAVE]),
-    node("proof", ["EARTH: BONDED / AUX: 12 V / LOAD: 10 OHM. All three indicators are green.", "One proof pulse. Then the cell is yours."], [
+    node("load-fault", ["UNVERIFIED LOAD. CRADLE LATCH HELD. Below the rig hook: TEST ON THE DUMMY. NOT ON A PERSON.", "The 10 ohm dummy load is the ceramic block bolted to the bench."], [go("retry-load", "Use the bench test load.", "load"), LEAVE]),
+    node("proof", ["EARTH: BONDED / AUX: 12 V / LOAD: 10 OHM. ALL GREEN.", "PROOF PULSE READY. CRADLE RELEASES ON PASS."], [
       { id: "proof-pulse", label: "Run the proof pulse. (Shield Cell + 120 XP)", condition: inStage(QUEST, "proof"), kind: "complete", next: "certified" },
       bye("I'll run the test later."),
     ]),
-    node("certified", ["[A thin blue field blooms around the dummy load, holds, then folds neatly back into the cell. The cradle opens.]", "CERTIFIED. Clip the Shield Cell into a quick slot when you need fifteen seconds of protection."], [LEAVE]),
+    node("certified", ["[A thin blue field swells around the dummy load, holds for fifteen seconds, and folds back into the cell. The cradle clicks open.]", "CERTIFIED. Put it in a quick slot (Q or Z) for fifteen seconds of kinetic shield when it counts."], [LEAVE]),
   ],
 };
 

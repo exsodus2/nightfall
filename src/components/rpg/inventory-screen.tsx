@@ -133,7 +133,7 @@ function InventoryBody({ rpg, act }: { rpg: RpgSnapshot; act: (action: RpgUiActi
           })}
         </div>
       </div>
-      {rows.length === 0 ? <p className={styles.empty}>Nothing here. Enemies drop loot where they fall; press <kbd>E</kbd> over it to pick it up.</p> : null}
+      {rows.length === 0 ? <p className={styles.empty}>Empty. Loot drops where enemies fall: walk over the glyph and press <kbd>E</kbd>. Vendors sell the rest.</p> : null}
       <ul className={styles.list} role="listbox" aria-label="Carried items" ref={listRef} onKeyDown={onListKey}>
         {rows.map((row) => {
           const selected = current?.item === row.item;

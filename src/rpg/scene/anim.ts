@@ -1,9 +1,14 @@
 // Pure timing maths for the RPG's visuals: hit flashes, attack phases, gait tracking, the death
 // dissolve, damage-number ramps and HUD bars. No textmode, no DOM - unit-tested in
-// tests/rpg-scene.test.ts. Comfort rules live here as numbers: nothing blinks faster than ~3 Hz,
-// flashes hold then fade (repeated hits keep them lit instead of strobing).
+// tests/rpg-scene.test.ts and tests/anim-combat.test.ts. Comfort rules live here as numbers: no
+// brightness swell runs faster than MAX_PULSE_HZ (0.4 Hz), warnings brighten with their progress
+// instead of oscillating, flashes hold then fade (repeated hits keep them lit instead of strobing),
+// and stance changes ease (settlePose) instead of stepping.
 import type { EnemyView } from "../types.ts";
 import { RAMP, clamp01, hash3, hashString, smooth } from "./palette.ts";
+
+/** The fastest any brightness swell (pulse, breathe, heartbeat) may run, in Hz. */
+export const MAX_PULSE_HZ = 0.4;
 
 // ---- Hit flash ----------------------------------------------------------------------------------
 /** Seconds a hit flash holds at full strength, then fades over HIT_FADE. */
@@ -16,17 +21,88 @@ export function hitFlash(hitAge: number): number {
   return clamp01(1 - (hitAge - HIT_HOLD) / HIT_FADE);
 }
 
-// ---- Telegraph pulse ------------------------------------------------------------------------------
-/** Telegraph "!" pulse rate (Hz): a smooth brightness swell, never a hard on/off blink. */
-export const TELEGRAPH_HZ = 2;
-/** 0.55..1 brightness of the warning glyph at `time`. */
+// ---- Telegraphs -----------------------------------------------------------------------------------
+/** Idle swell rate (Hz) of telegraphPulse. The combat telegraphs no longer oscillate (they brighten
+ * with their progress, telegraphGlow / telegraphEdge); kept at the comfort ceiling for callers. */
+export const TELEGRAPH_HZ = MAX_PULSE_HZ;
+/** 0.55..1 brightness of a warning glyph at `time` (a slow swell, never a blink). */
 export const telegraphPulse = (time: number): number => 0.775 + 0.225 * Math.sin(time * Math.PI * 2 * TELEGRAPH_HZ);
+/** Brightness of an enemy's overhead "!" through its wind-up (`k` 0..1): it appears clearly lit and
+ * heats monotonically toward the strike - the cue is the rise, not a flicker. */
+export const telegraphGlow = (k: number): number => 0.62 + 0.43 * smooth(0, 1, k);
+/** Pop-in scale of the "!" over the first fifth of the wind-up (eased, so it never appears at full
+ * size in one frame). */
+export const telegraphScale = (k: number): number => 0.55 + 0.45 * (1 - Math.pow(1 - clamp01(k / 0.2), 3));
+/** Outline brightness of a boss ground telegraph at `progress` 0..1: brightens monotonically
+ * toward the impact (the colour also warms over the last 20%). */
+export const telegraphEdge = (progress: number): number => 0.72 + 0.33 * smooth(0, 1, progress);
+
+// ---- Attack heat ------------------------------------------------------------------------------------
+/** 0..1 "heat" an attacking figure glows with: eases up through the wind-up, peaks at the strike and
+ * cools through the recovery - continuous across stage changes (no 0 -> 0.35 jump at the start). */
+export function attackHeat(phase: AttackPhase): number {
+  const k = clamp01(phase.k);
+  switch (phase.stage) {
+    case "windup": return 1 - (1 - k) * (1 - k);
+    case "strike": return 1 - 0.6 * k;
+    case "recover": return 0.4 * (1 - smooth(0, 1, k));
+    default: return 0;
+  }
+}
+
+// ---- Lock-on, heartbeat, flinch ---------------------------------------------------------------------
+/** Lock-on bracket breathe rate (Hz): a steady bracket with a barely-there swell. */
+export const LOCK_BREATHE_HZ = 0.25;
+/** 0..255 ink alpha of the lock-on bracket at `time` (228 +- 20). */
+export const lockAlpha = (time: number): number => 228 + 20 * Math.sin(time * Math.PI * 2 * LOCK_BREATHE_HZ);
+/** Low-health heartbeat rate (Hz): slow; falling health deepens it instead of speeding it up. */
+export const HEARTBEAT_HZ = 0.35;
+/** Brightness multiplier (0.78..1) of the low-health corruption at `time`: a raised-cosine swell
+ * whose depth grows with `low` (0..1, the vignette strength). */
+export function heartbeat(time: number, low: number): number {
+  const depth = 0.06 + 0.16 * clamp01(low);
+  return 1 - depth * (0.5 - 0.5 * Math.cos(time * Math.PI * 2 * HEARTBEAT_HZ));
+}
+/** Seconds the first-person hurt flinch lasts. */
+export const FLINCH_TIME = 0.3;
+/** 0..1 hurt flinch at `hurtAge`: a raised-cosine impulse - eases in over the first 20% (60 ms) and
+ * settles over the rest, so the weapon is nudged, never snapped. */
+export function flinch(hurtAge: number): number {
+  if (!(hurtAge >= 0) || hurtAge >= FLINCH_TIME) return 0;
+  const u = hurtAge / FLINCH_TIME;
+  return u < 0.2 ? 0.5 - 0.5 * Math.cos(Math.PI * u / 0.2) : 0.5 + 0.5 * Math.cos(Math.PI * (u - 0.2) / 0.8);
+}
+
+// ---- Weapon swap ------------------------------------------------------------------------------------
+/** First-person swap: the old weapon lowers (SWAP_LOWER s), the model changes out of view, the new
+ * one rises (SWAP_RAISE s). Together they match the combat system's 0.3 s switch. */
+export const SWAP_LOWER = 0.13, SWAP_RAISE = 0.17;
+/** How far (m) the weapon drops below the view at the bottom of a swap. */
+export const SWAP_DROP = 0.4;
+/** 0..1 depth of the swap at `elapsed` seconds since it started, lowering from `fromDepth` (a swap
+ * started mid-raise lowers from where the weapon was). `lowering` = the old model is still shown. */
+export function swapDepth(elapsed: number, fromDepth = 0): { depth: number; lowering: boolean } {
+  if (!(elapsed >= 0)) return { depth: 0, lowering: false };
+  if (elapsed < SWAP_LOWER) return { depth: fromDepth + (1 - fromDepth) * smooth(0, 1, elapsed / SWAP_LOWER), lowering: true };
+  const u = (elapsed - SWAP_LOWER) / SWAP_RAISE;
+  if (u >= 1) return { depth: 0, lowering: false };
+  return { depth: Math.pow(1 - u, 3), lowering: false }; // ease-out rise
+}
 
 // ---- Death dissolve -------------------------------------------------------------------------------
 /** Seconds the de-rasterise takes (collapse, then characters scatter, fall and fade). */
 export const DEATH_TIME = 1.2;
 /** Phase split: body collapses until DEATH_COLLAPSE, then only the scattered characters remain. */
 export const DEATH_COLLAPSE = 0.32;
+/** Brightness of the collapsing body at `deathAge`: it thins through the ramp, then fades fully out
+ * over the second half of the collapse, so the body is gone (0) by DEATH_COLLAPSE instead of
+ * vanishing while still half lit; the scattered characters carry the rest of the dissolve. */
+export function deathBodyGain(deathAge: number): number {
+  if (!(deathAge >= 0)) return 1;
+  const u = deathAge / DEATH_COLLAPSE;
+  if (u >= 1) return 0;
+  return (1 - 0.45 * smooth(0, 1, u)) * (1 - smooth(0.45, 1, u));
+}
 export interface DeathParticle { x: number; y: number; z: number; glyph: string; fade: number; size: number }
 /** Deterministic scatter of a dead figure's characters (local frame of the figure, y up):
  * `count` cells start on the body volume, burst outward, fall with a bounce, and cool through the
@@ -98,8 +174,45 @@ export function enemyMotion(e: EnemyView, time: number): EnemyMotion {
 /** Call once per frame (drawEnemies does): forgets enemies not seen for ~10 s. */
 export function endEnemyFrame(): void {
   trackFrame++;
-  if (trackFrame % 600 === 0) for (const [id, s] of tracks) if (trackFrame - s.seen > 600) tracks.delete(id);
+  if (trackFrame % 600 === 0) {
+    for (const [id, s] of tracks) if (trackFrame - s.seen > 600) tracks.delete(id);
+    for (const [id, s] of settled) if (trackFrame - s.seen > 600) settled.delete(id);
+  }
 }
+
+// ---- Pose settling ------------------------------------------------------------------------------------
+/** Time constant (s) of the per-enemy pose follow. Stance changes that the pose maths switches
+ * outright (ready crouch, shield up / open, stagger, the strike leaving the wind-up, a cancelled
+ * attack's heat) ease over ~3 tau instead of stepping; short enough to keep strikes snappy and the
+ * gait's swing nearly full. */
+export const SETTLE_TAU = 0.045;
+/** A gap longer than this (s) between draws snaps instead of easing (off-screen, paused). */
+const SETTLE_GAP = 0.25;
+/** values: the last result (at `time`); base: what was drawn the frame before (at `baseTime`). */
+interface Settled { values: Float64Array; base: Float64Array; time: number; baseTime: number; seen: number }
+const settled = new Map<string, Settled>();
+/** Eases the listed numeric fields of `pose` in place from what was drawn for `id` last frame toward
+ * this frame's values (frame-rate independent exponential follow). First sight, a clock going back,
+ * or a long gap snaps. A second pass at the same `time` blends from the same previous frame, so it
+ * gives the same result for the same target (extra passes are harmless). */
+export function settlePose<K extends string>(id: string, pose: Record<K, number>, keys: readonly K[], time: number, tau = SETTLE_TAU): void {
+  let s = settled.get(id);
+  if (!s || s.values.length !== keys.length) {
+    s = { values: new Float64Array(keys.length), base: new Float64Array(keys.length), time: Number.NaN, baseTime: Number.NaN, seen: trackFrame };
+    settled.set(id, s);
+  }
+  if (time !== s.time) { s.base.set(s.values); s.baseTime = s.time; s.time = time; }
+  const dt = time - s.baseTime;
+  const snap = !(dt > 0 && dt <= SETTLE_GAP);
+  const k = snap ? 1 : 1 - Math.exp(-dt / Math.max(1e-4, tau));
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i], v = snap ? pose[key] : s.base[i] + (pose[key] - s.base[i]) * k;
+    s.values[i] = v; pose[key] = v;
+  }
+  s.seen = trackFrame;
+}
+/** Forgets settled poses (tests). */
+export function resetSettledPoses(): void { settled.clear(); }
 
 export type AttackStage = "none" | "windup" | "strike" | "recover";
 export interface AttackPhase { stage: AttackStage; /** 0..1 within the stage */ k: number }

@@ -7,6 +7,7 @@ import { PLAYER_BODY, PLAYER_HEIGHT, isRanged } from "./constants.ts";
 import { hasLineOfSight, raycastWorld } from "./raycast.ts";
 import type { Enemy, EnemyAttack, Sim } from "./sim.ts";
 import { bossDamage, bossSpeed, newAttack, tickBoss } from "./boss.ts";
+import { LUNGE, RUSH } from "./forms.ts";
 import { TICK, angleDiff, clamp, jitter, rayCylinder, turnToward, yawTo } from "./util.ts";
 
 /** Perception runs every PERCEPTION_TICKS ticks per enemy (staggered by enemy). */
@@ -16,6 +17,8 @@ const GIVE_UP = 12;
 
 export function tickEnemy(sim: Sim, e: Enemy): void {
   if (e.deathTime >= 0) return;
+  // Hit-stop: a fresh player melee hit holds the enemy for a beat (<= 60 ms).
+  if (sim.time < e.frozenUntil) return;
   const dt = TICK;
   e.cooldown = Math.max(0, e.cooldown - dt);
   if (e.bark && sim.time >= e.barkUntil) e.bark = null;
@@ -40,7 +43,9 @@ export function tickEnemy(sim: Sim, e: Enemy): void {
   if (e.boss && tickBoss(sim, e)) return;
   if (e.attack) { tickAttack(sim, e); return; }
   if (sim.time < e.fleeUntil) { flee(sim, e); return; }
-  if (isRanged(e.weapon)) rangedBehaviour(sim, e); else meleeBehaviour(sim, e);
+  if (e.form === "drone") droneBehaviour(sim, e);
+  else if (isRanged(e.weapon)) rangedBehaviour(sim, e);
+  else meleeBehaviour(sim, e);
 }
 
 // ---- Perception -------------------------------------------------------------------------------
@@ -132,19 +137,40 @@ function meleeBehaviour(sim: Sim, e: Enemy): void {
     // A turn that isn't used is handed back so a stuck enemy can't hog it.
     if (!e.boss && sim.time - e.tokenSince > 5) { sim.releaseToken(e); e.cooldown = 1; return; }
     const facing = Math.abs(angleDiff(yawTo(sim.px - e.x, sim.pz - e.z), e.yaw)) < 0.6;
+    // Rushers close the last few metres with a crouched, telegraphed lunge.
+    if (e.form === "rusher" && e.cooldown <= 0 && facing && e.seesPlayer && d >= LUNGE.min && d <= LUNGE.max) { startLunge(sim, e); return; }
     if (d <= reach + PLAYER_BODY * 0.5 && e.cooldown <= 0 && facing) { startMelee(sim, e); return; }
     e.state = "chase";
-    sim.steer(e, sim.px, sim.pz, e.arch.speed.run * speed, d < reach + 2 ? "player" : "move", reach * 0.75);
+    sim.steer(e, sim.px, sim.pz, e.arch.speed.run * speed, d < reach + 2 ? "player" : "move", e.form === "rusher" ? LUNGE.min + 0.5 : reach * 0.75);
     return;
   }
-  // Waiting for a turn: circle at a respectful distance, facing the player.
-  const ring = 4.2 + (e.member % 3) * 0.8;
-  if (sim.time >= e.circleFlipAt) { e.circleSide = -e.circleSide; e.circleFlipAt = sim.time + 3 + sim.rng() * 3; }
+  // Waiting for a turn: circle at a respectful distance, facing the player. Rushers prowl closer
+  // and quicker; shield-bearers hold a steady line.
+  const rusher = e.form === "rusher";
+  const ring = (rusher ? 3.6 : 4.2) + (e.member % 3) * 0.8;
+  if (sim.time >= e.circleFlipAt) { e.circleSide = -e.circleSide; e.circleFlipAt = sim.time + (rusher ? 1.6 : 3) + sim.rng() * 3; }
   if (d > ring + 3) { e.state = "chase"; sim.steer(e, sim.px, sim.pz, e.arch.speed.run * speed, "move", ring); return; }
-  const around = yawTo(e.x - sim.px, e.z - sim.pz) + e.circleSide * 0.55;
+  const around = yawTo(e.x - sim.px, e.z - sim.pz) + e.circleSide * (e.form === "shield" ? 0.3 : 0.55);
   const gx = sim.px + Math.sin(around) * ring, gz = sim.pz - Math.cos(around) * ring;
   e.state = "reposition";
-  sim.steer(e, gx, gz, e.arch.speed.walk * 1.3 * speed, "player", 0.3);
+  sim.steer(e, gx, gz, e.arch.speed.walk * (rusher ? 2 : 1.3) * speed, "player", 0.3);
+}
+
+/** Drones: orbit the player at 9-12 m, flip direction every couple of seconds, and fire short
+ * telegraphed bursts when the ranged token comes round. They never back off or flee. */
+function droneBehaviour(sim: Sim, e: Enemy): void {
+  const w = e.weapon, target = targetPoint(sim, e);
+  if (e.ammo <= 0 && e.reloadUntil === -Infinity) { e.reloadUntil = sim.time + (w.reload ?? 2); if (e.token) sim.releaseToken(e); }
+  if (e.reloadUntil !== -Infinity && sim.time >= e.reloadUntil) { e.ammo = w.magazine ?? 8; e.reloadUntil = -Infinity; }
+  if (!target.live) { if (e.token) sim.releaseToken(e); searchLastKnown(sim, e, target.x, target.z); return; }
+  const d = sim.distanceToPlayer(e), reloading = e.reloadUntil !== -Infinity;
+  if (e.token === "ranged" && !reloading && e.seesPlayer && d <= w.range * 1.1 && e.cooldown <= 0 && e.ammo > 0) { startRanged(sim, e); return; }
+  if (e.token === "ranged" && sim.time - e.tokenSince > 4) sim.releaseToken(e);
+  const ring = 9 + (e.member % 3) * 1.5;
+  if (sim.time >= e.circleFlipAt) { e.circleSide = -e.circleSide; e.circleFlipAt = sim.time + 1.4 + sim.rng() * 1.6; }
+  const around = yawTo(e.x - sim.px, e.z - sim.pz) + e.circleSide * 0.7;
+  e.state = d > ring + 6 ? "chase" : "reposition";
+  sim.steer(e, sim.px + Math.sin(around) * ring, sim.pz - Math.cos(around) * ring, d > ring + 6 ? e.arch.speed.run : e.arch.speed.walk * 1.6, "player", 0.4);
 }
 
 function rangedBehaviour(sim: Sim, e: Enemy): void {
@@ -156,6 +182,8 @@ function rangedBehaviour(sim: Sim, e: Enemy): void {
   const d = sim.distanceToPlayer(e);
   const preferred = clamp(w.range * 0.55, 7, 18) * (1.2 - e.arch.aggression * 0.4);
   const reloading = e.reloadUntil !== -Infinity;
+  // Bruisers hold their distance and shoot, then every few seconds drop the head and rush.
+  if (e.form === "bruiser" && e.token === "ranged" && sim.time >= e.nextSpecial && e.cooldown <= 0 && e.seesPlayer && d >= RUSH.min && d <= RUSH.max) { startRush(sim, e); return; }
   if (e.token === "ranged" && !reloading && e.seesPlayer && d <= w.range * 1.1 && e.cooldown <= 0 && e.ammo > 0) { startRanged(sim, e); return; }
   if (e.token === "ranged" && sim.time - e.tokenSince > 4) sim.releaseToken(e);
   if (!e.seesPlayer || d > w.range * 0.95) { e.state = "chase"; sim.steer(e, sim.px, sim.pz, e.arch.speed.run, "move", Math.min(preferred, 5)); return; }
@@ -190,9 +218,25 @@ function startMelee(sim: Sim, e: Enemy): void {
   e.state = "attack";
 }
 
+/** Rusher lunge: a deep crouch (the telegraph), then a dash across the gap with the knife out.
+ * Parryable like any swing; a whiff leaves it standing in a long recovery. */
+function startLunge(sim: Sim, e: Enemy): void {
+  e.attack = newAttack("lunge", LUNGE.windup, LUNGE.active, LUNGE.recovery, e.yaw, e.weapon.damage * 1.25 * bossDamage(e));
+  e.state = "attack";
+}
+
+/** Bruiser rush: head down and a ground line toward the player (the telegraph), then a straight
+ * shoulder charge. Blockable, not parryable; into a wall it stuns the bruiser, open to crits. */
+function startRush(sim: Sim, e: Enemy): void {
+  e.attack = newAttack("rush", RUSH.windup, RUSH.length / RUSH.speed, RUSH.recovery, e.yaw, RUSH.damage * bossDamage(e));
+  e.attack.originX = e.x; e.attack.originZ = e.z;
+  e.state = "attack";
+}
+
 function startRanged(sim: Sim, e: Enemy): void {
   const w = e.weapon, automatic = (w.automatic ?? 0) > 0;
-  const attack = newAttack("ranged", 0.55, 0, 0.35, e.yaw, w.damage * bossDamage(e));
+  // Drones charge their emitter a touch longer: the eye swells before every burst.
+  const attack = newAttack("ranged", e.form === "drone" ? 0.6 : 0.55, 0, 0.35, e.yaw, w.damage * bossDamage(e));
   attack.shots = Math.min(e.ammo, automatic ? 4 : w.class === "shotgun" ? 1 : 2);
   attack.shotTimer = 0;
   e.attack = attack; e.state = "attack";
@@ -213,8 +257,10 @@ function tickAttack(sim: Sim, e: Enemy): void {
   if (!a) return;
   a.t += TICK;
   e.state = "attack";
-  if (a.kind === "melee") tickMeleeAttack(sim, e, a);
+  if (a.kind === "melee" || a.kind === "lunge") tickMeleeAttack(sim, e, a);
   else if (a.kind === "ranged") tickRangedAttack(sim, e, a);
+  else if (a.kind === "rush") tickRush(sim, e, a);
+  else finishAttack(sim, e);
 }
 
 function tickMeleeAttack(sim: Sim, e: Enemy, a: EnemyAttack): void {
@@ -223,7 +269,9 @@ function tickMeleeAttack(sim: Sim, e: Enemy, a: EnemyAttack): void {
   if (a.t < a.windup * 0.65) { e.yaw = turnToward(e.yaw, yawTo(dx, dz), 6 * TICK); a.yaw = e.yaw; }
   const activeStart = a.windup, activeEnd = a.windup + a.active;
   if (a.t > activeStart && a.t <= activeEnd + 1e-9) {
-    if (d > w.range * 0.6) { const to = sim.tryMove(e.x, e.z, Math.sin(a.yaw) * 3 * TICK, -Math.cos(a.yaw) * 3 * TICK); e.x = to.x; e.z = to.z; }
+    // A swing steps in; a lunge dashes the gap (and stops short of the player's body).
+    const dash = a.kind === "lunge" ? LUNGE.speed : 3;
+    if (d > w.range * 0.6) { const to = sim.tryMove(e.x, e.z, Math.sin(a.yaw) * dash * TICK, -Math.cos(a.yaw) * dash * TICK); e.x = to.x; e.z = to.z; }
     if (!a.hit) {
       const arc = (w.arc ?? 45) * Math.PI / 180 + Math.asin(Math.min(1, PLAYER_BODY / Math.max(d, 1e-3)));
       if (d - PLAYER_BODY <= w.range + 0.2 && Math.abs(angleDiff(yawTo(dx, dz), a.yaw)) <= arc && sim.playerPresent) {
@@ -240,6 +288,38 @@ function tickMeleeAttack(sim: Sim, e: Enemy, a: EnemyAttack): void {
     }
   }
   if (a.t >= a.windup + a.active + a.recovery) finishAttack(sim, e);
+}
+
+/** The bruiser's rush. `travelled` counts the run; `shotTimer` holds the time the run ended so the
+ * recovery counts from there. */
+function tickRush(sim: Sim, e: Enemy, a: EnemyAttack): void {
+  if (a.t < a.windup) {
+    // Aims through most of the wind-up, then commits to the line (sidestep late to dodge it).
+    if (a.t < a.windup * 0.75) { e.yaw = turnToward(e.yaw, yawTo(sim.px - e.x, sim.pz - e.z), 5 * TICK); a.yaw = e.yaw; }
+    a.originX = e.x; a.originZ = e.z;
+    return;
+  }
+  if (a.travelled < RUSH.length) {
+    const step = RUSH.speed * TICK, fx = Math.sin(a.yaw), fz = -Math.cos(a.yaw);
+    const to = sim.tryMove(e.x, e.z, fx * step, fz * step), moved = Math.hypot(to.x - e.x, to.z - e.z);
+    e.x = to.x; e.z = to.z; a.travelled += moved;
+    if (!a.hit && sim.playerPresent && Math.hypot(sim.px - e.x, sim.pz - e.z) <= e.radius + PLAYER_BODY + 0.4) {
+      const result = sim.player.receive(sim, { amount: a.damage, source: e, fromX: e.x - fx * 2, fromZ: e.z - fz * 2, blockable: true, parryable: false, stagger: 0.5, knockback: 4 });
+      if (result !== "evaded") { a.hit = true; a.travelled = RUSH.length; }
+    }
+    if (!a.hit && moved < step * 0.5) {
+      // Shoulder-first into a wall: dazed and open.
+      sim.addFx({ kind: "spark", x: e.x + fx * e.radius, y: 1.4, z: e.z + fz * e.radius, age: 0, color: [255, 200, 120] }, 0.4);
+      e.attack = null; sim.releaseToken(e);
+      e.stagger = 1.4; e.critUntil = sim.time + 1.6; e.state = "stagger"; e.lastStaggerAt = sim.time;
+      e.cooldown = 1; e.nextSpecial = sim.time + RUSH.every;
+      return;
+    }
+    if (a.travelled >= RUSH.length || a.t > a.windup + a.active + 0.5) { a.travelled = RUSH.length; a.shotTimer = a.t; }
+    return;
+  }
+  e.yaw = turnToward(e.yaw, yawTo(sim.px - e.x, sim.pz - e.z), 3 * TICK);
+  if (a.t >= a.shotTimer + a.recovery) { finishAttack(sim, e); e.nextSpecial = sim.time + RUSH.every + sim.rng() * 2; }
 }
 
 function tickRangedAttack(sim: Sim, e: Enemy, a: EnemyAttack): void {

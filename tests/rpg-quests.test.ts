@@ -509,7 +509,7 @@ test("the legacy relay chip quest plays the same in QuestEngine", () => {
   assert.equal(engine.marker("mara"), null);
   assert.equal(engine.marker("juno"), "objective");
   const tracked = engine.snapshot(null).tracked!;
-  assert.deepEqual([tracked.title, tracked.objective, tracked.targetX, tracked.targetZ], ["The Relay Chip", "Meet Juno Reyes under the Meridian Spire in Neon Ward", juno.x, juno.z]);
+  assert.deepEqual([tracked.title, tracked.objective, tracked.targetX, tracked.targetZ], ["The Relay Chip", "Find Juno Reyes at the foot of the Meridian Spire, Neon Ward", juno.x, juno.z]);
   const entry = engine.log()[0];
   assert.deepEqual([entry.id, entry.status, entry.targetDistrict, entry.reward], ["relay-chip", "active", "Neon Ward", 250]);
   engine.close();
@@ -521,7 +521,7 @@ test("the legacy relay chip quest plays the same in QuestEngine", () => {
   engine.talk("juno");
   assert.deepEqual(kinds(engine), ["continue", "leave"]);
   const collected = engine.choose("step-0");
-  assert.match(collected.message ?? "", /^Relay chip collected: Return the relay chip/);
+  assert.match(collected.message ?? "", /^Relay chip collected: Bring the sealed relay chip/);
   assert.equal(engine.log()[0].status, "ready");
   assert.equal(engine.log()[0].targetDistrict, "Silk Market");
   assert.equal(engine.marker("mara"), "turn-in");

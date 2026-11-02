@@ -66,7 +66,7 @@ test("the relay chip quest: offer, accept, collect, return and complete", () => 
   book.talk("juno");
   assert.deepEqual(kinds(book), ["continue", "leave"]);
   const collected = book.choose(option(book, "continue"));
-  assert.match(collected.message ?? "", /Return the relay chip/);
+  assert.match(collected.message ?? "", /Bring the sealed relay chip/);
   assert.equal(book.status("relay-chip"), "ready");
   assert.equal(book.marker("mara"), "turn-in");
   assert.equal(book.marker("juno"), null);

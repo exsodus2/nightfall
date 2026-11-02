@@ -101,6 +101,8 @@ const sourceVersions = {
   baseline: { source: headSource, description: compareSpecialization ? "Current materials.ts with all surface families enabled" : `${baselineRef} materials.ts with the same current dependency files` },
   current: { source: currentSource, description: compareSpecialization ? "Current materials.ts with production shader specialization" : "Current materials.ts, unchanged" },
   "baseline-windows": { source: oldWindows(currentSource), description: `Current material with ${baselineRef} near-window branch; removes both newer room details and glass, not a glass-only baseline` },
+  // Ablation: --ablate=file.json holding [[find, replace], ...] applied (exactly once each) to materials.ts.
+  ablate: { source: args.has("ablate") ? JSON.parse(readFileSync(args.get("ablate"), "utf8")).reduce((source, [find, replace]) => replaceExactly(source, find, replace), currentSource) : currentSource, description: `Diagnostic ablation from ${args.get("ablate")}` },
   "no-park": { source: replaceExactly(currentSource, currentSource.includes("${parkGlsl()}") ? "${parkGlsl()}" : '${includesGround ? parkGlsl() : ""}', "bool parkGround(vec3 p, vec3 view, float cellWorld, inout int code, inout bool thin, inout vec3 paper, inout vec3 ink, inout vec3 emission, inout float flags, inout vec3 reflectedGlyph) { return false; }"), description: "Diagnostic ablation: current shader with parkGround returning false" },
 };
 const versions = (args.get("versions") ?? "baseline,current").split(",");
@@ -114,6 +116,8 @@ const options = {
   // The variants the engine actually compiles on a visit (materials.ts SURFACES): the main pass,
   // the mirrored pass and the prop batch, each with only the surfaces it draws.
   scene: { reflections: true, surfaces: [1, 2, 3, 4, 5, 7, 8] }, mirror: { ground: false, surfaces: [2, 3, 4, 5, 7, 8] }, props: { batch: true, ground: false, surfaces: [2] },
+  // Ablations: --extra-variants='{"name":{"surfaces":[...]}}' adds cityMaterial option sets by name.
+  ...JSON.parse(args.get("extra-variants") ?? "{}"),
 };
 const factories = new Map();
 for (const version of versions) {
@@ -137,7 +141,7 @@ for (let round = 0; round < repeat; round++) for (const quality of qualities) fo
   let fragment = factories.get(version)({ ...options[variant], ...specialization, lite: quality === "lite" });
   if (variant === "architecture") fragment = architectureOnly(fragment);
   const vertex = variant === "batched" ? propVertex : options[variant].batch ? buildingVertex : nativeVertex;
-  cases.push({ id: `${round + 1}-${version}-${quality}-${variant}`, round: round + 1, version, quality, variant, compare, vertex, fragment, vertexSha256: digest(vertex), fragmentSha256: digest(fragment), fragmentBytes: Buffer.byteLength(fragment) });
+  cases.push({ id: `${round + 1}-${version}-${quality}-${variant}`, round: round + 1, version, quality, variant, compare, parallel: args.has("parallel"), vertex, fragment, vertexSha256: digest(vertex), fragmentSha256: digest(fragment), fragmentBytes: Buffer.byteLength(fragment) });
 }
 
 const metadata = {
@@ -287,6 +291,24 @@ async function browserHarness() {
       gl.deleteVertexArray(vao); gl.deleteFramebuffer(framebuffer);
       return { images, renderMs: performance.now() - started, firstDrawMs };
     };
+    if (shaderCases[0]?.parallel) {
+      // --parallel: submit every case, then poll KHR_parallel_shader_compile; reports wall time to all linked.
+      const extension = gl.getExtension("KHR_parallel_shader_compile"), started = performance.now(), programs = [];
+      for (const shaderCase of shaderCases) {
+        const program = gl.createProgram();
+        for (const [kind, source] of [[gl.VERTEX_SHADER, shaderCase.vertex], [gl.FRAGMENT_SHADER, shaderCase.fragment]]) { const shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader); gl.attachShader(program, shader); }
+        gl.linkProgram(program); programs.push({ program, id: shaderCase.id, doneMs: 0 });
+      }
+      const submitMs = performance.now() - started;
+      while (extension && programs.some(entry => !entry.doneMs)) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        for (const entry of programs) if (!entry.doneMs && gl.getProgramParameter(entry.program, extension.COMPLETION_STATUS_KHR)) entry.doneMs = performance.now() - started;
+      }
+      for (const entry of programs) await send({ event: "result", id: entry.id, times: { parallelDone: entry.doneMs || performance.now() - started }, totalMs: entry.doneMs || performance.now() - started, linked: gl.getProgramParameter(entry.program, gl.LINK_STATUS) });
+      await send({ event: "parallel", submitMs, wallMs: performance.now() - started });
+      await send({ event: "done" });
+      return;
+    }
     for (const shaderCase of shaderCases) {
       const times = {}, shaders = [];
       let program;
@@ -325,7 +347,11 @@ async function browserHarness() {
         const error = gl.getError();
         if (error !== gl.NO_ERROR) throw Error(`WebGL error ${error}`);
         await send({ event: "result", id: shaderCase.id, times, totalMs: Object.values(times).reduce((total, value) => total + value, 0), uniformCount });
-        if (shaderCase.compare && shaderCase.round === 1) {
+        if (shaderCase.compare && shaderCase.round > 1) {
+          // Later rounds: does a program re-linked from the cache also skip the first-draw cost?
+          const rendered = renderSamples(program, shaderCase);
+          await send({ event: "render", id: shaderCase.id, renderMs: rendered.renderMs, firstDrawMs: rendered.firstDrawMs });
+        } else if (shaderCase.compare && shaderCase.round === 1) {
           await send({ event: "stage", id: shaderCase.id, stage: "render-comparison" });
           const rendered = renderSamples(program, shaderCase), key = `${shaderCase.quality}-${shaderCase.variant}`;
           if (shaderCase.version === "baseline") {
@@ -346,6 +372,9 @@ async function browserHarness() {
             }
             referenceImages.delete(key);
             await send({ event: "comparison", id: shaderCase.id, samples: rendered.images.size, changedBytes, maxDelta, changedSamples, renderMs: rendered.renderMs, firstDrawMs: rendered.firstDrawMs });
+          } else {
+            // Ablation versions: first-draw timing only (the driver's own compile happens at first use).
+            await send({ event: "render", id: shaderCase.id, renderMs: rendered.renderMs, firstDrawMs: rendered.firstDrawMs });
           }
         }
       } catch (error) {

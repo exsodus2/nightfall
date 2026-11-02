@@ -7,13 +7,19 @@ import { CAR_HALF_LENGTH, CAR_HALF_WIDTH } from "../src/city/driving.ts";
 import { WALK_HEIGHT } from "../src/city/locomotion.ts";
 import { CityWorld, DISTRICTS, PLAYER_RADIUS } from "../src/city/world.ts";
 
-const directory = resolve("artifacts", "interiors");
+// Options: --port=<n> (DevTools port), --software (SwiftShader), --out=<name> (artifacts/<name>,
+// default "interiors"), --only=<venue id> (visit just that room, then stop after its captures).
+const option = name => process.argv.find(argument => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
+const only = option("only");
+const directory = resolve("artifacts", option("out") || "interiors");
 await mkdir(directory, { recursive: true });
 const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/google-chrome", "/usr/bin/chromium"].filter(Boolean);
 let executable;
 for (const candidate of candidates) { try { await access(candidate); executable = candidate; break; } catch {} }
 if (!executable) throw Error("Set CHROME_PATH to an installed Chromium browser.");
-const port = 9344;
+const portArgument = process.argv.find(argument => argument.startsWith("--port="));
+const port = portArgument ? Number(portArgument.slice(7)) : 9344;
+if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error(`Invalid --port: ${portArgument}`);
 const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve(directory, "browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-extensions", "--enable-webgl", ...(process.argv.includes("--software") ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []), "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
 let socket;
 const errors = [], report = [];
@@ -112,8 +118,10 @@ try {
   await evaluate("window.__nightfall.inspect({kind:'freeze',value:false})");
   await measure("street"); await capture("street");
   const places = await evaluate("window.__nightfall.interiors.places.map(place => ({id:place.id,name:place.name}))");
-  assert.equal(places.length, 6);
-  for (const place of places) {
+  assert.equal(places.length, 9);
+  const visits = only ? places.filter(place => place.id === only) : places;
+  assert.ok(visits.length, `--only=${only} names a venue: ${places.map(place => place.id).join(", ")}`);
+  for (const place of visits) {
     await press("KeyT", "t");
     await click(`Visit ${place.name}`);
     await delay(1000);
@@ -131,6 +139,20 @@ try {
     assert.ok((await evaluate("document.querySelector('.interaction-prompt')?.textContent")).includes(`Exit ${place.name}`));
     await press("KeyE", "e");
     assert.equal(await evaluate("window.__nightfall.interiors.active"), null);
+  }
+  checks: {
+  if (only) {
+    // One room in close-up: walk to its middle, then look left and right (arrow keys turn on foot).
+    const [place] = visits;
+    await press("KeyT", "t"); await click(`Visit ${place.name}`); await delay(1000); await press("KeyE", "e");
+    await press("KeyW", "w", 1500); await measure(`${place.id}-floor`); await capture(`${place.id}-floor`);
+    await press("ArrowLeft", "ArrowLeft", 1100); await delay(400); await capture(`${place.id}-left`);
+    await press("ArrowRight", "ArrowRight", 2300); await delay(400); await capture(`${place.id}-right`);
+    assert.equal(await evaluate("window.__nightfall.interiors.active?.id"), place.id);
+    assert.deepEqual(errors, [], "no browser errors");
+    await writeFile(resolve(directory, "report.json"), JSON.stringify(report, null, 2));
+    console.log(`${place.name}: doorway, entry, exit and close-up captures passed.`);
+    break checks;
   }
   await press("KeyT", "t"); await click("Visit Blue Hour Tea"); await press("KeyE", "e");
   await press("Escape", "Escape");
@@ -339,7 +361,10 @@ try {
   assert.equal(pausedTrainEnd.mode, "metro");
   assert.ok(Math.hypot(pausedTrainEnd.x - pausedTrainStart.x, pausedTrainEnd.z - pausedTrainStart.z) > 5, "the paused camera travels with its moving train");
   assert.deepEqual(cabinEnd, cabinStart, "paused movement input does not change the passenger's carriage-local position");
-  assert.ok(pausedTrainEnd.height > 30 && Math.abs(pausedTrainEnd.height - pausedTrainStart.height) < 0.035);
+  // The deck rises and dips between stations (metro.ts profile, grade under 0.1), so a paused rider's
+  // eye may climb with the train; it must not jump by more than the grade allows over the distance travelled.
+  const pausedTravel = Math.hypot(pausedTrainEnd.x - pausedTrainStart.x, pausedTrainEnd.z - pausedTrainStart.z);
+  assert.ok(pausedTrainEnd.height > 30 && Math.abs(pausedTrainEnd.height - pausedTrainStart.height) < 0.035 + pausedTravel * 0.1, "a paused rider's eye follows the deck profile, nothing more");
   await capture("paused-moving-train");
   await click("Continue journey");
   assert.equal(await evaluate("document.querySelector('main').dataset.phase"), "playing");
@@ -348,7 +373,8 @@ try {
   report.push(trainReport); console.log(JSON.stringify(trainReport));
   assert.deepEqual(errors, [], "no browser errors");
   await writeFile(resolve(directory, "report.json"), JSON.stringify(report, null, 2));
-  console.log("Six rooms, movement, exits, pause, mobile layout, car collision, safe arrivals, blocked handoffs, jumping, vehicle entry/exit, overflight, platform walking and paused train carrying passed; NPC and vehicle screenshots saved.");
+  console.log("Nine rooms, movement, exits, pause, mobile layout, car collision, safe arrivals, blocked handoffs, jumping, vehicle entry/exit, overflight, platform walking and paused train carrying passed; NPC and vehicle screenshots saved.");
+  }
 } catch (error) {
   if (errors.length) console.error(errors.join("\n"));
   throw error;

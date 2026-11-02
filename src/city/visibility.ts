@@ -1,18 +1,34 @@
-import type { Building } from "./world";
+import type { Building } from "./world.ts";
 export interface SightPoint { x: number; y: number; z: number }
 /** Conservative segment/AABB visibility for small street-level props. The
  * skyline is never culled with this test: rooftops remain visible above walls. */
 export function visibleFrom(eye: SightPoint, target: SightPoint, occluders: readonly Building[]): boolean {
-  const ex = eye.x, ey = eye.y, ez = eye.z, dx = target.x - ex, dy = target.y - ey, dz = target.z - ez;
-  for (const b of occluders) {
-    if (segmentHits(ex, ey, ez, dx, dy, dz, b.x - b.width / 2, b.x + b.width / 2, b.height, b.z - b.depth / 2, b.z + b.depth / 2)) return false;
+  const ex = eye.x, ey = eye.y, ez = eye.z, tx = target.x, ty = target.y, tz = target.z, dx = tx - ex, dy = ty - ey, dz = tz - ez;
+  // Perf: the segment's bounding box. An occluder wholly outside it cannot be hit (see the note
+  // above segmentHits), so it is skipped before the slab test's divisions.
+  const loX = ex < tx ? ex : tx, hiX = ex < tx ? tx : ex, loZ = ez < tz ? ez : tz, hiZ = ez < tz ? tz : ez, loY = ey < ty ? ey : ty, hiY = ey < ty ? ty : ey;
+  for (let i = 0; i < occluders.length; i++) {
+    const b = occluders[i], minX = b.x - b.width / 2, maxX = b.x + b.width / 2;
+    if (minX > hiX || maxX < loX) continue;
+    const minZ = b.z - b.depth / 2, maxZ = b.z + b.depth / 2;
+    if (minZ > hiZ || maxZ < loZ || b.height < loY || hiY < 0) continue;
+    if (segmentHits(ex, ey, ez, dx, dy, dz, minX, maxX, b.height, minZ, maxZ)) return false;
   }
   return true;
 }
 
-/** Perf: the slab test of one segment (eye + t * d, t in [0.001, 0.995]) against a box standing on
- *  the ground (y 0..height), unrolled per axis. Same arithmetic, in the same order, as the generic
- *  per-axis loop it replaces, so every result is bit-for-bit unchanged; it just allocates nothing. */
+/**
+ * Perf: an exact early-out for segmentHits. When a box lies wholly beyond the segment's bounding box
+ * on one axis (strictly), the slab test on that axis gives an interval outside [0, 1] - both of its
+ * ends have the sign of (bound - eye), or are >= (target - eye) / d = 1, because IEEE subtraction and
+ * division by the same d are monotonic - so it already returns false (or, for |d| < 1e-5, the eye is
+ * outside the slab). Skipping such boxes therefore changes no result; it only skips the divisions.
+ * Callers must pass d = target - eye computed exactly that way.
+ *
+ * The slab test of one segment (eye + t * d, t in [0.001, 0.995]) against a box standing on the
+ * ground (y 0..height), unrolled per axis. Same arithmetic, in the same order, as the generic
+ * per-axis loop it replaces, so every result is bit-for-bit unchanged; it just allocates nothing.
+ */
 function segmentHits(ex: number, ey: number, ez: number, dx: number, dy: number, dz: number, minX: number, maxX: number, maxY: number, minZ: number, maxZ: number): boolean {
   let near = 0.001, far = 0.995;
   if (Math.abs(dx) < 0.00001) { if (ex < minX || ex > maxX) return false; }
@@ -26,6 +42,8 @@ function segmentHits(ex: number, ey: number, ez: number, dx: number, dy: number,
 
 /** True when nothing of the solid core `s` lies on the segment from (sx, sy, sz) to (x, y, z). */
 function sees(s: SolidCore, sx: number, sy: number, sz: number, x: number, y: number, z: number): boolean {
+  // Perf: the exact early-out above (the box is beyond the segment's bounding box on one axis).
+  if (s.minX > (sx > x ? sx : x) || s.maxX < (sx < x ? sx : x) || s.minZ > (sz > z ? sz : z) || s.maxZ < (sz < z ? sz : z) || s.height < (sy < y ? sy : y) || (sy > y ? sy : y) < 0) return true;
   return !segmentHits(sx, sy, sz, x - sx, y - sy, z - sz, s.minX, s.maxX, s.height, s.minZ, s.maxZ);
 }
 

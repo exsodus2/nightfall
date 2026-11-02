@@ -1,35 +1,175 @@
-import type { PropCanvas } from "./prop-canvas";
-import { randomFor, type Building, type RGB } from "./world";
-import { cuboid, ink, propAlpha, propRange, restorePropRange } from "./activity";
-import { LINE_PER_METRE } from "./landmarks-scene";
+import type { PropCanvas } from "./prop-canvas.ts";
+import { randomFor, type Building, type CityWorld, type RGB } from "./world.ts";
+import { groundFloorPlace } from "./building-interiors.ts";
+import { isGroundFloorKind, type GroundFloorKind } from "./interiors.ts";
+import { cuboid, ink, propAlpha, propRange, restorePropRange } from "./activity.ts";
+import { LINE_PER_METRE } from "./landmarks-scene.ts";
+import { DISTRICT_SIGNS, INSERT_SIGNS } from "./messages.ts";
+import { LINES, lineDistance, linePose } from "./metro.ts";
+import { hackLook, hackSiteOn, shopDoorWidth, type HackSite } from "../rpg/hacking/sites.ts"; // Hacking: ATMs and service-door keypads
 
+
+/** Sign formats the shader draws (materials.ts sign section, u_signStyle). */
+export const SIGN_FORMAT = { classic: 0, boxed: 1, backlit: 2, led: 3, insert: 4 } as const;
+export type SignFormat = (typeof SIGN_FORMAT)[keyof typeof SIGN_FORMAT];
+/** u_signStyle: the format plus 8 x the district look (0 neutral, district id + 1). */
+export const signStyle = (format: SignFormat, district?: number): number => format + 8 * (district === undefined ? 0 : district + 1);
+
+/** fascia: the street-face name sign (always faces 0 and 1: engine.ts lights shops and hangs
+ * holograms and screens from them); blade / corner: stacked vertical letters (projecting from the
+ * face, or from a tower corner); ticker: an LED strip under the fascia running the message feed;
+ * insert: a small OPEN / 24H sign in a shop window. */
+export type SignKind = "fascia" | "blade" | "corner" | "ticker" | "insert";
 
 /** `seed` (optional) fixes the sign's behaviour (the shader's mode is floor(seed * 97) mod 4: 0 steady
- * tube with rare dips, 1 marquee, 2 power-up sweep, 3 slow pulse); by default it hashes the position. */
-export interface SignFace { x: number; y: number; z: number; yaw: number; width: number; height: number; text: string; color: RGB; vertical?: boolean; seed?: number }
+ * tube with rare dips, 1 marquee, 2 power-up sweep, 3 slow pulse); by default it hashes the position.
+ * `style` is signStyle(format, district) (default classic, neutral); `columns` the letters across an
+ * LED ticker (its text comes from the message feed). */
+export interface SignFace { x: number; y: number; z: number; yaw: number; width: number; height: number; text: string; color: RGB; vertical?: boolean; seed?: number; kind?: SignKind; style?: number; columns?: number }
 
+/** Sign colours by district (The Foundry, Neon Ward, Ghost Circuit, Rain Gardens, Silk Market, The
+ * Spillway); null keeps the building's accent. */
+const DISTRICT_INKS: readonly (readonly RGB[] | null)[] = [
+  [[255, 150, 44], [255, 118, 40], [255, 186, 72]],
+  [[255, 58, 170], [64, 230, 255], [255, 84, 196], [96, 240, 255]],
+  [[104, 146, 255], [150, 188, 255], [84, 170, 255]],
+  null,
+  [[255, 188, 92], [255, 84, 64], [255, 212, 120], [255, 140, 70]],
+  [[255, 222, 64], [250, 200, 40], [255, 236, 120]],
+];
+/** Fascia format odds by district: [boxed, back-lit] (the rest classic). */
+const FORMAT_ODDS: readonly (readonly [number, number])[] = [[0, 0.3], [0.2, 0], [0, 0.2], [0.35, 0], [0.45, 0.1], [0.1, 0.55]];
+const INSERT_INKS: readonly RGB[] = [[255, 64, 84], [96, 255, 150], [80, 220, 255], [255, 200, 90]];
+const INKS_WARM: readonly RGB[] = [[255, 96, 64], [255, 196, 96], [255, 150, 60]];
+/** Draw ranges (m): window inserts and LED tickers are small, so they stop well before the fascias. */
+export const INSERT_REACH = 90, TICKER_REACH = 170;
+/** Blade signs: the lowest letter's base (m, clear of awnings) and the most height a blade may take. */
+const BLADE_BASE = 6, BLADE_SPAN = 16;
+
+const wrap64 = (v: number) => ((v % 64) + 64) % 64;
+const smoothstep = (a: number, b: number, v: number): number => { const k = Math.min(1, Math.max(0, (v - a) / (b - a))); return k * k * (3 - 2 * k); };
+/** How long an ATM shows "paid" (rpg/session.ts setHackLook(..., "paid", 10)). */
+const ATM_PAID_SECONDS = 10;
+const pick = <T>(list: readonly T[], r: number): T => list[Math.min(list.length - 1, Math.floor(r * list.length))];
+
+const faceCache = new WeakMap<Building, SignFace[]>();
+/** A building's sign faces (fixed by its shape, so built once and cached: vfx-scene asks every frame). */
 export function signFaces(building: Building): SignFace[] {
-  const { x, z, width, depth, sign, accent, id } = building;
-  const bx = ((x % 64) + 64) % 64, bz = ((z % 64) + 64) % 64;
-  const sx = bx < 32 ? -1 : 1, sz = bz < 32 ? -1 : 1;
+  let faces = faceCache.get(building);
+  if (!faces) { faces = buildSignFaces(building); faceCache.set(building, faces); }
+  return faces;
+}
+function buildSignFaces(building: Building): SignFace[] {
+  const { x, z, width, depth, sign, accent, id, district, height: towerHeight } = building;
+  const sx = wrap64(x) < 32 ? -1 : 1, sz = wrap64(z) < 32 ? -1 : 1;
+  const r = (k: number) => randomFor(id, 913, k);
+  const inks = DISTRICT_INKS[district] ?? null;
+  const color: RGB = inks ? pick(inks, r(1)) : accent;
+  const [boxed, backlit] = FORMAT_ODDS[district] ?? [0, 0];
+  const roll = r(2), format: SignFormat = roll < boxed ? SIGN_FORMAT.boxed : roll < boxed + backlit ? SIGN_FORMAT.backlit : SIGN_FORMAT.classic;
+  const style = signStyle(format, district);
+  // About a third of the shops that light a fascia (id % 3 === 0, see drawShop) carry an LED ticker
+  // under it, so the fascia sits a little higher (5.6-8.5 m; the ticker at 4.75-5.45 m).
+  const ticker = id % 3 === 0 && r(3) < (district === 1 ? 0.5 : 0.3);
+  const fy = ticker ? 7.05 : 6.4, fh = ticker ? 2.9 : 4.2;
   const faces: SignFace[] = [
-    { x, y: 6.4, z: z + sz * (depth / 2 + 0.28), yaw: sz > 0 ? 0 : 180, width: width - 1, height: 4.2, text: sign, color: accent },
-    { x: x + sx * (width / 2 + 0.28), y: 6.4, z, yaw: sx * 90, width: depth - 1, height: 4.2, text: sign, color: accent },
+    { x, y: fy, z: z + sz * (depth / 2 + 0.28), yaw: sz > 0 ? 0 : 180, width: width - 1, height: fh, text: sign, color, kind: "fascia", style },
+    { x: x + sx * (width / 2 + 0.28), y: fy, z, yaw: sx * 90, width: depth - 1, height: fh, text: sign, color, kind: "fascia", style },
   ];
+  if (ticker) {
+    const led: RGB = district === 1 ? [255, 70, 120] : r(4) < 0.5 ? [255, 150, 40] : [255, 64, 44];
+    const strip = (fx: number, fz: number, yaw: number, span: number) => faces.push({ x: fx, y: 5.1, z: fz, yaw, width: span * 0.8, height: 0.7, text: "LED", color: led, kind: "ticker", style: signStyle(SIGN_FORMAT.led, district), columns: Math.max(8, Math.min(40, Math.round(span * 0.8 * 0.94 / 0.33))) });
+    strip(x, z + sz * (depth / 2 + 0.3), sz > 0 ? 0 : 180, width);
+    strip(x + sx * (width / 2 + 0.3), z, sx * 90, depth);
+  }
   // Projecting blade signs are rare off the avenue: a few bright ones read better than a wall of them.
-  if (id % 7 === 0 || (Math.abs(x) < 30 && id % 2 === 0)) {
+  const blades = id % 7 === 0 || (Math.abs(x) < 30 && id % 2 === 0);
+  if (blades) {
     const text = sign.split(" ")[0].slice(0, 7);
-    // Projecting blade signs face along the street; their placement is fixed.
-    const signX = x + sx * (width / 2 + 3.4);
-    // Fewer blade signs, but big enough to read from down the street.
-    const height = text.length * (id % 4 === 0 ? 4.8 : 3.8) + 1.5;
-    for (const side of [-1, 1]) faces.push({ x: signX, y: 8 + height / 2, z: z + side * 0.24, yaw: side > 0 ? 0 : 180, width: id % 4 === 0 ? 6 : 4.8, height, text, color: accent, vertical: true });
+    // Fewer blade signs, but big enough to read from down the street. The whole word has to fit a
+    // view from the street: at 3.8-4.8 m a letter a seven-letter blade ran 8 m to 36 m up, and from
+    // anywhere nearer than ~57 m its upper letters were above the top of the screen ("ITO" of a
+    // longer word). Capped at BLADE_SPAN from 6 m (clear of awnings and canopy struts, 5.8 m), a
+    // blade tops out at 22 m: whole in a level view from ~33 m. Long words get smaller letters on a
+    // narrower blade (the slot keeps roughly the letter's own aspect).
+    const big = id % 4 === 0, letter = Math.min(big ? 4.8 : 3.8, (BLADE_SPAN - 1.5) / text.length);
+    const height = text.length * letter + 1.5, bladeW = Math.min(big ? 6 : 4.8, Math.max(3, letter * 1.45));
+    // Projecting blade signs face along the street; their placement is fixed. The inner edge keeps
+    // its old gap from the wall (0.4 m big, 1 m otherwise), so a narrower blade still hangs close.
+    const signX = x + sx * (width / 2 + (big ? 0.4 : 1) + bladeW / 2);
+    for (const side of [-1, 1]) faces.push({ x: signX, y: BLADE_BASE + height / 2, z: z + side * 0.24, yaw: side > 0 ? 0 : 180, width: bladeW, height, text, color, vertical: true, kind: "blade", style: signStyle(SIGN_FORMAT.classic, district) });
+  }
+  // Tower-corner signs: stacked letters on a blade projecting diagonally from the street corner,
+  // readable down both streets. Neon Ward hangs huge ones on a fifth of its towers; elsewhere a
+  // few. Not on the avenue (the rail deck and service bridges), from 12 m up, under the roof.
+  const cornerOdds = district === 1 ? 0.22 : district === 3 ? 0.03 : 0.06;
+  if (!blades && Math.abs(x) >= 32 && towerHeight > 34 && r(5) < cornerOdds) {
+    const text = pick(DISTRICT_SIGNS[district] ?? DISTRICT_SIGNS[1], r(6)).split(" ")[0].slice(0, 8);
+    const letter = Math.min(district === 1 ? 5.6 : 4.2, (towerHeight - 16) / text.length);
+    const bladeW = district === 1 ? 4.4 : 3.6;
+    const dx = sx * Math.SQRT1_2, dz = sz * Math.SQRT1_2, out = 0.35 + bladeW / 2;
+    const cx = x + sx * width / 2 + dx * out, cz = z + sz * depth / 2 + dz * out;
+    // Clear of the elevated lines (decks at 28-41 m, right across the sign's height): no metro
+    // track within 10 m of the blade's centre.
+    const clear = LINES.every((_, line) => { const pose = linePose(line, lineDistance(line, cx, cz)); return Math.hypot(pose.x - cx, pose.z - cz) > 10; });
+    if (letter >= 2.4 && clear) {
+      const height = text.length * letter + 1.5;
+      const yaw = Math.atan2(-dz, dx) * 180 / Math.PI;
+      const ink: RGB = inks ? pick(inks, r(7)) : accent;
+      for (const side of [-1, 1]) faces.push({ x: cx - dz * side * 0.24, y: 12 + height / 2, z: cz + dx * side * 0.24, yaw: yaw + (side > 0 ? 0 : 180), width: bladeW, height, text, color: ink, vertical: true, kind: "corner", style: signStyle(SIGN_FORMAT.classic, district) });
+    }
+  }
+  // Window inserts on the shops without a fascia sign (their stalls keep the left window): OPEN,
+  // 24H, CASH ONLY... in the right-hand window's top corner. Silk Market crowds both street faces.
+  if (id % 3 !== 0 && r(8) < (district === 4 ? 1 : 0.45)) {
+    for (const side of district === 4 ? [0, 1] as const : [r(9) < 0.5 ? 0 : 1] as const) {
+      const text = pick(INSERT_SIGNS, r(10 + side));
+      const w = side ? depth : width, halfW = w / 2, door = Math.min(2.4, Math.max(1.6, w * 0.13));
+      const paneFrom = door / 2 + 0.55, pane = Math.max(0.6, halfW - 0.85 - paneFrom);
+      const along = paneFrom + pane / 2, signW = Math.min(pane * 0.85, text.length * 0.3 + 0.5);
+      if (signW < 1) continue;
+      // Face frame: x along the wall, the normal (sin yaw, cos yaw) out of it.
+      const yaw = side ? sx * 90 : sz > 0 ? 0 : 180, a = yaw * Math.PI / 180, front = (side ? width : depth) / 2 + 0.32;
+      const fx = side ? x + sx * front : x + Math.cos(a) * along, fz = side ? z - Math.sin(a) * along : z + sz * front;
+      faces.push({ x: fx, y: 3.3, z: fz, yaw, width: signW, height: 0.52, text, color: district === 4 ? pick(INKS_WARM, r(12 + side)) : pick(INSERT_INKS, r(12 + side)), kind: "insert", style: signStyle(SIGN_FORMAT.insert, district) });
+    }
   }
   return faces;
 }
 
+/**
+ * How many of the packed-letter uniforms (u_text0..3, four letters each) the sign shader can read
+ * for a panel. materials.ts packedChar reads word k / 4 only for letters k < u_textLength (12 or
+ * fewer letters never touch u_text3, and so on), and LED tickers (format 3) read the message feed
+ * instead of packed letters. The boxed format's monogram reads letter 0, which is already covered.
+ */
+export function signTextWords(textLength: number, style: number): number {
+  if (Math.round(style) % 8 === SIGN_FORMAT.led) return 0;
+  return textLength <= 0 ? 0 : Math.min(4, Math.ceil(textLength / 4));
+}
+
+/**
+ * The fraction of a shop sign's board (u_signSpan, materials.ts) its word needs at a fixed letter
+ * pitch: 0.8 of the letter height (the 3x5 face's 4-column by 5-row aspect), never more than the
+ * format's text region. The shader centres the word in that region, so letters are evenly spaced
+ * and never stretched apart across a wide board. 0 keeps the old layout (the sign's whole text
+ * region split evenly) for everything but horizontal fascias and window inserts.
+ */
+export function signTextSpan(face: SignFace, length: number, style: number): number {
+  // Only the shop fascias and inserts, which declare their kind: faces without one (metro boards,
+  // landmark labels, alley signs) lay their text out themselves and must not be repacked.
+  if (face.vertical || (face.kind !== "fascia" && face.kind !== "insert") || length <= 0) return 0;
+  const format = Math.round(style) % 8;
+  if (format === SIGN_FORMAT.led) return 0;
+  const region = format === SIGN_FORMAT.boxed ? 0.68 : 0.9;
+  return Math.min(region, (length * 0.8 * 0.68 * face.height) / Math.max(face.width, 0.01));
+}
+
 const encoded = new Map<string, number[]>();
-export function drawLetterPanel(t: PropCanvas, face: SignFace): void {
+/** `gain` dims the sign's colour (the shader derives ink, glow and emission from it, so 0 leaves
+ * dark glass); `scale` shrinks the panel about its centre. Both 1 by default (drawShop fades its
+ * small signs out with them). */
+export function drawLetterPanel(t: PropCanvas, face: SignFace, gain = 1, scale = 1): void {
   let codes = encoded.get(face.text);
   if (!codes) {
     // Up to 16 letters: the sign shader reads u_text3 (letters 12-15) only when u_textLength > 12.
@@ -38,34 +178,99 @@ export function drawLetterPanel(t: PropCanvas, face: SignFace): void {
   }
   const pack = (offset: number) => codes[offset] + codes[offset + 1] * 64 + codes[offset + 2] * 4096 + codes[offset + 3] * 262144;
   const seed = face.seed ?? Math.abs(Math.sin(face.x * 12.9898 + face.z * 78.233 + face.y) * 43758.5453) % 1;
-  t.setUniforms({ u_surface: 3, u_text0: pack(0), u_text1: pack(4), u_text2: pack(8), u_text3: pack(12), u_textLength: Math.min(16, face.text.length), u_vertical: face.vertical ? 1 : 0, u_signSeed: seed });
+  const length = face.columns ?? Math.min(16, face.text.length), style = face.style ?? 0;
+  const uniforms: Record<string, number> = { u_surface: 3, u_textLength: length, u_vertical: face.vertical ? 1 : 0, u_signSeed: seed, u_signStyle: style, u_signSpan: signTextSpan(face, length, style) };
+  // Perf: textmode sends a changed number uniform on the next draw, so the packed-letter words the
+  // shader cannot read for this panel are left out (they keep whatever value they had): see
+  // signTextWords. Fewer GL uniform calls per panel, identical pixels.
+  const words = signTextWords(length, style);
+  if (words > 0) uniforms.u_text0 = pack(0);
+  if (words > 1) uniforms.u_text1 = pack(4);
+  if (words > 2) uniforms.u_text2 = pack(8);
+  if (words > 3) uniforms.u_text3 = pack(12);
+  t.setUniforms(uniforms);
   t.push(); t.translate(face.x, -face.y, face.z); t.rotateY(face.yaw);
-  t.charColor(...face.color); t.cellColor(3, 8, 12, propAlpha()); t.rect(face.width, face.height); t.pop();
+  const [r, g, b] = face.color;
+  if (gain < 1) t.charColor(r * gain, g * gain, b * gain); else t.charColor(r, g, b);
+  t.cellColor(3, 8, 12, propAlpha()); t.rect(face.width * scale, face.height * scale); t.pop();
   t.setUniform("u_surface", 2);
 }
 
-export function drawShop(t: PropCanvas, building: Building, distance: number, eye: { x: number; z: number }, visible: (x: number, y: number, z: number, radius?: number) => boolean, range = 300): void {
+/** Each building's ground-floor kind (null: a venue, a secret or no interior), memoised per building. */
+const shopKinds = new WeakMap<Building, GroundFloorKind | null>();
+// The first time a few hundred buildings come inside the shop range (spawn, a teleport, the
+// train) each would run groundFloorPlace in the same frame. Lookups past DRESSING_REACH (where
+// only the window light depends on the kind) are amortised: about SHOP_KIND_BUDGET per frame
+// (a token bucket refilled with elapsed time, so the mirror pass shares the frame's tokens), the
+// rest draw undressed until their turn - a few frames. Within DRESSING_REACH, where the dressing
+// shows through the glass, a building resolves at once (only a handful are ever that close), so
+// the dressing never appears late.
+const SHOP_KIND_BUDGET = 24, DRESSING_REACH = 80, FRAME_SECONDS = 1 / 60;
+let kindTokens = SHOP_KIND_BUDGET, kindClock = -1;
+function shopKind(world: CityWorld, building: Building, distance: number): GroundFloorKind | null {
+  const cached = shopKinds.get(building);
+  if (cached !== undefined) return cached;
+  if (distance >= DRESSING_REACH) {
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+    if (kindClock >= 0) kindTokens = Math.min(SHOP_KIND_BUDGET, kindTokens + (now - kindClock) / FRAME_SECONDS * SHOP_KIND_BUDGET);
+    kindClock = now;
+    if (kindTokens < 1) return null;
+    kindTokens -= 1;
+  }
+  const place = groundFloorPlace(world, building);
+  const kind = place && isGroundFloorKind(place.kind) ? place.kind : null;
+  shopKinds.set(building, kind);
+  return kind;
+}
+
+/**
+ * `world` (optional) lets the shop windows show what is inside (building-interiors.ts
+ * groundFloorPlace): the glass takes the interior's light, and close up its dressing shows through.
+ */
+export function drawShop(t: PropCanvas, building: Building, distance: number, eye: { x: number; z: number }, visible: (x: number, y: number, z: number, radius?: number) => boolean, range = 300, world?: CityWorld): void {
   const { x, z, width, depth, id } = building;
   const faces = signFaces(building);
   const outer = propRange(range);
-  // Street fascia signs on about a third of buildings; the rest keep lit shopfronts only.
+  // Street fascia signs (and their LED tickers) on about a third of buildings; the rest keep lit
+  // shopfronts, and some of those a small insert in the window. Vertical signs everywhere.
   for (const face of faces) {
-    if (!face.vertical && id % 3 !== 0) continue;
+    const kind = face.kind ?? (face.vertical ? "blade" : "fascia");
+    if ((kind === "fascia" || kind === "ticker") && id % 3 !== 0) continue;
+    // Small signs end sooner, as a fade. Past legibility the shader already draws them as a lit
+    // panel (whole-sign level of detail, materials.ts); that panel's light then dims smoothly
+    // (62-86% of the reach: a colour gain, no screen-space dither - the ordered dissolve
+    // screen-doored on these small lit panels) and the dark glass left over shrinks away over
+    // the last stretch, a cell or two dropping out by geometry, fixed in the world. The reach
+    // stays inside the outer range's own dissolve (from 76% of it).
+    const reach = kind === "insert" ? INSERT_REACH : kind === "ticker" ? TICKER_REACH : 0;
+    const end = reach > 0 ? Math.min(reach, range * 0.76) : 0;
+    const away = end > 0 ? Math.hypot(eye.x - face.x, eye.z - face.z) : 0;
+    if (end > 0 && away > end * 0.985) continue;
     const angle = face.yaw * Math.PI / 180;
-    if ((eye.x - face.x) * Math.sin(angle) + (eye.z - face.z) * Math.cos(angle) > 0 && visible(face.x, face.y, face.z, face.width / 2)) drawLetterPanel(t, face);
+    if ((eye.x - face.x) * Math.sin(angle) + (eye.z - face.z) * Math.cos(angle) > 0 && visible(face.x, face.y, face.z, face.width / 2)) {
+      if (end > 0) drawLetterPanel(t, face, 1 - smoothstep(end * 0.62, end * 0.86, away), 1 - smoothstep(end * 0.86, end, away));
+      else drawLetterPanel(t, face);
+    }
   }
   if (distance > 240) { restorePropRange(outer); return; }
   propRange(240);
+  const kind = world ? shopKind(world, building, distance) : null;
   const bx = ((x % 64) + 64) % 64, sx = bx < 32 ? -1 : 1;
   const bz = ((z % 64) + 64) % 64, sz = bz < 32 ? -1 : 1;
   // Shopfronts on both street faces: framed windows with lit interiors, a door, an awning or
   // canopy and the street furniture against the wall. Detail is tiered by distance.
   for (const side of [0, 1] as const) {
-    if (side ? (eye.x - x) * sx < width / 2 : (eye.z - z) * sz < depth / 2) continue;
-    const face = faces[side];
-    if (!visible(face.x, 3, face.z, (side ? depth : width) / 2 + 1)) continue; // the awning spans the whole face
+    // Corner awning pop: the awning juts ~3 m out of its face, so its end still shows past the corner
+    // once the eye crosses the face's extended plane. Skip only when the building stands between (behind the plane and
+    // within the face's span), and test sight at the awning's outer edge, not the face (the building
+    // hides that from beside it): the whole edge from in front, the corner end from behind the plane.
+    const half = side ? depth / 2 : width / 2, along = side ? eye.z - z : eye.x - x;
+    const behind = side ? (eye.x - x) * sx < width / 2 : (eye.z - z) * sz < depth / 2;
+    if (behind && Math.abs(along) < half) continue;
+    const end = behind ? Math.sign(along) * half : 0, ox = side ? x + sx * (width / 2 + 3) : x + end, oz = side ? z + end : z + sz * (depth / 2 + 3);
+    if (!visible(ox, 3, oz, behind ? 3.5 : half + 1)) continue;
     t.push(); t.translate(x, 0, z); t.rotateY(side ? sx * 90 : sz > 0 ? 0 : 180);
-    drawShopfront(t, building, side, side ? depth : width, (side ? width : depth) / 2, distance);
+    drawShopfront(t, building, side, side ? depth : width, (side ? width : depth) / 2, distance, kind);
     t.pop();
   }
   restorePropRange(outer);
@@ -103,14 +308,15 @@ const WALL_THINGS: readonly (readonly WallThing[])[] = [
  * (the face plane). Everything below head height stays within 0.8 m of the face (the collision
  * skin); awnings, lanterns and canopies are above 3.4 m. `w` is the face's width.
  */
-function drawShopfront(t: PropCanvas, building: Building, side: 0 | 1, w: number, front: number, distance: number): void {
+function drawShopfront(t: PropCanvas, building: Building, side: 0 | 1, w: number, front: number, distance: number, kind: GroundFloorKind | null): void {
   const { id, accent, district } = building;
   const r = (k: number) => randomFor(id, side * 31 + 7, k);
   // Detail tiers, prefiltered by cell footprint (about distance x LINE_PER_METRE metres per cell): small
   // parts appear only close up; lines that stay (neon, light edges) are widened to about a cell.
   const near = distance < 30, close = distance < 80, mid = distance < 140, stall = id % 3 === 0;
   const line = distance * LINE_PER_METRE, glowLine = (cap: number) => Math.min(cap, Math.max(0.08, line));
-  const interior = INTERIOR[Math.floor(r(1) * INTERIOR.length)];
+  // The window light is the interior's own (every tier), so a street reads trade by trade from afar.
+  const interior = kind ? KIND_LIGHT[kind] : INTERIOR[Math.floor(r(1) * INTERIOR.length)];
   const door = Math.min(2.4, Math.max(1.6, w * 0.13)), halfW = w / 2;
   const paneFrom = door / 2 + 0.55, paneTo = halfW - 0.85, pane = Math.max(0.6, paneTo - paneFrom);
   // Recess, pilasters and fascia: the frame the shopfront sits in (below the fascia sign, 4.3-8.5 m).
@@ -141,7 +347,13 @@ function drawShopfront(t: PropCanvas, building: Building, side: 0 | 1, w: number
     cuboid(t, 0, 3.4, front + 0.19, door, 0.14, 0.1);
     ink(t, accent, "=", 1.05); cuboid(t, 0, 3.78, front + 0.24, door * 0.8, 0.3, 0.05);
   }
-  if (near) {
+  if (kind && close) {
+    // What is inside, seen through the glass (the stall's counter takes the left window instead).
+    for (const s of [-1, 1]) {
+      if (stall && s < 0) continue;
+      drawWindowDressing(t, kind, s * (paneFrom + pane / 2), pane, front, near, line, accent, (k: number) => r(60 + k + (s > 0 ? 20 : 0)));
+    }
+  } else if (near) {
     // Shelves of goods in the windows (the stall's counter takes the left window instead).
     for (const s of [-1, 1]) {
       if (stall && s < 0) continue;
@@ -217,11 +429,13 @@ function drawShopfront(t: PropCanvas, building: Building, side: 0 | 1, w: number
   }
   // Against the wall, either side of the windows: district street furniture.
   const things = WALL_THINGS[district] ?? WALL_THINGS[1];
+  const hack = hackSiteOn(id), hackHere = hack && hack.side === side ? hack : null; // Hacking: an ATM takes the right-hand slot
   for (const s of [-1, 1]) {
     const pick = r(20 + s);
-    if (pick < 0.3 || (stall && s < 0)) continue;
+    if (pick < 0.3 || (stall && s < 0) || (s > 0 && hackHere?.kind === "atm")) continue;
     drawWallThing(t, things[Math.floor(pick * 13) % things.length], s * (halfW - 1.35), front, r(24 + s), near);
   }
+  if (hackHere) drawHackSite(t, hackHere, front, w, near);
   if (stall) {
     // A street-food counter against the left window: counter, top, menu light, bowls and a pot.
     const cx = -(paneFrom + pane / 2), cw = Math.min(pane + 0.4, 4.4);
@@ -261,6 +475,151 @@ function drawShopfront(t: PropCanvas, building: Building, side: 0 | 1, w: number
   }
 }
 
+/** Window light per ground-floor kind (close to building-interiors.ts LIGHTS, the room's own light). */
+const KIND_LIGHT: Readonly<Record<GroundFloorKind, RGB>> = {
+  lobby: [255, 222, 176], "capsule-hotel": [150, 200, 255], "corp-lobby": [228, 238, 255], arcade: [255, 92, 200], pawnshop: [255, 204, 110],
+  "machine-shop": [255, 168, 84], "server-hall": [92, 162, 255], shrine: [255, 146, 64], hydroponics: [240, 104, 232], laundromat: [218, 248, 255],
+  "market-hall": [255, 190, 110], chandlery: [255, 210, 150], apartment: [255, 198, 148], garage: [255, 160, 76],
+};
+const ARCADE_SCREENS: readonly RGB[] = [[255, 80, 200], [80, 232, 255]];
+
+/**
+ * The interior's dressing seen through one shop window, in the face's frame: `cx` is the window's
+ * centre, `pane` its width; the glass spans 1.15-3.65 m at front + 0.14. Silhouettes sit just in front
+ * of the glass (faces at about front + 0.2, behind the mullions) and are static: no flicker, no motion.
+ * Near (< 30 m) draws the parts; close (< 80 m) a couple of boxes per window, sized to at least a cell.
+ */
+function drawWindowDressing(t: PropCanvas, kind: GroundFloorKind, cx: number, pane: number, front: number, near: boolean, line: number, accent: RGB, r: (k: number) => number): void {
+  const iw = pane * 0.86, z = front + 0.185, up = z + 0.014, D = 0.03;
+  const th = (v: number) => Math.max(v, line);
+  const slots = (spacing: number, most: number) => Math.max(1, Math.min(most, Math.floor(iw / spacing)));
+  const at = (k: number, n: number) => cx - iw / 2 + (iw * (k + 0.5)) / n;
+  switch (kind) {
+    case "arcade": {
+      // Cabinet rows: dark bodies with pink and cyan attract screens.
+      if (!near) { for (const s of [-1, 1]) { ink(t, ARCADE_SCREENS[s < 0 ? 0 : 1], "=", 1.1); cuboid(t, cx + s * iw / 4, 2.25, z, iw / 2 - 0.1, th(0.4), D); } return; }
+      const n = slots(0.9, 4);
+      ink(t, [34, 26, 52], "#", 0.9);
+      for (let k = 0; k < n; k++) cuboid(t, at(k, n), 1.95, z, 0.62, 1.6, D);
+      for (let k = 0; k < n; k++) { ink(t, ARCADE_SCREENS[k % 2], "=", 1.15); cuboid(t, at(k, n), 2.3, up, 0.44, 0.36, D); }
+      return;
+    }
+    case "laundromat": {
+      // Cool white tubes over a row of washers with round portholes.
+      ink(t, [236, 250, 255], "-", 1.15); cuboid(t, cx, 3.4, z, iw, th(0.08), D);
+      if (!near) { ink(t, [196, 204, 210], "o", 0.85); cuboid(t, cx, 1.6, z, iw, 0.85, D); return; }
+      const n = slots(0.85, 4);
+      ink(t, [196, 204, 210], "#", 0.75);
+      for (let k = 0; k < n; k++) cuboid(t, at(k, n), 1.6, z, 0.7, 0.85, D);
+      ink(t, [70, 122, 150], "O", 1.0);
+      for (let k = 0; k < n; k++) ellipsoidLocal(t, at(k, n), 1.62, up, 0.25, 0.25, 0.02);
+      return;
+    }
+    case "shrine": {
+      // A red torii against candlelight, a row of candle flames at its foot.
+      const span = Math.min(1.7, iw * 0.8), post = th(0.12);
+      ink(t, [196, 50, 34], "#", 0.95);
+      for (const s of [-1, 1]) cuboid(t, cx + s * span * 0.34, 2.1, up, post, 1.9, D);
+      cuboid(t, cx, 3.12, up, span, th(0.14), D);
+      if (near) cuboid(t, cx, 2.8, up, span * 0.78, th(0.1), D);
+      if (near) { ink(t, [255, 206, 112], "*", 1.15); cuboid(t, cx, 1.3, z, span * 0.6, 0.14, D); }
+      return;
+    }
+    case "server-hall": {
+      // Dark racks with blue LED columns (a green one now and then).
+      const n = slots(0.6, near ? 5 : 3);
+      if (near) { ink(t, [16, 24, 38], "#", 0.9); cuboid(t, cx, 2.3, z, iw, 2.2, D); }
+      for (let k = 0; k < n; k++) {
+        ink(t, k % 3 === 2 ? [120, 255, 190] : [110, 190, 255], ":", 1.15);
+        cuboid(t, at(k, n), 2.3, up, th(0.08), 2.0, D);
+      }
+      return;
+    }
+    case "hydroponics": {
+      // A pink grow light over shelves of leaves.
+      ink(t, [255, 110, 220], "-", 1.2); cuboid(t, cx, 3.4, z, iw, th(0.08), D);
+      if (!near) { ink(t, [96, 210, 120], "&", 0.9); cuboid(t, cx, 2.1, z, iw, 1.2, D); return; }
+      const n = slots(0.6, 4);
+      for (const shelf of [1.55, 2.5]) {
+        ink(t, [60, 70, 64], "="); cuboid(t, cx, shelf, z, iw, th(0.05), D);
+        ink(t, [96, 210, 120], "&", 0.95);
+        for (let k = 0; k < n; k++) ellipsoidLocal(t, at(k, n), shelf + 0.24, up, 0.26, 0.2, 0.02);
+      }
+      return;
+    }
+    case "capsule-hotel": {
+      // A wall of small lit hatches, some dark (occupied).
+      const cols = slots(0.75, 4);
+      if (!near) { ink(t, [190, 224, 255], "o", 1.0); for (const y of [1.85, 2.85]) cuboid(t, cx, y, z, iw, th(0.42), D); return; }
+      ink(t, [40, 48, 60], "#", 0.85); cuboid(t, cx, 2.35, z, iw, 2.1, D);
+      for (const [row, y] of [1.85, 2.85].entries()) for (let k = 0; k < cols; k++) {
+        ink(t, [190, 224, 255], "o", r(row * 5 + k) < 0.3 ? 0.35 : 1.1);
+        cuboid(t, at(k, cols), y, up, 0.44, 0.42, D);
+      }
+      return;
+    }
+    case "corp-lobby": {
+      // Clean white light, a logo bar in the building's accent and a reception desk.
+      ink(t, accent, "=", 1.2); cuboid(t, cx, 3.2, z, iw * 0.5, th(0.26), D);
+      if (!near) return;
+      ink(t, [44, 50, 60], "#", 0.9); cuboid(t, cx, 1.55, z, iw * 0.6, 0.8, D);
+      ink(t, [236, 242, 255], "-", 1.1); cuboid(t, cx, 1.97, up, iw * 0.62, th(0.06), D);
+      return;
+    }
+    case "pawnshop": {
+      // A caged counter under yellow light, a big '$' above it.
+      ink(t, [255, 204, 110], "#", 0.8); cuboid(t, cx, 1.85, z, iw, 1.4, D);
+      ink(t, [255, 236, 120], "$", 1.25); cuboid(t, cx, 3.1, up, th(0.6), th(0.6), D);
+      return;
+    }
+    case "market-hall": {
+      // Warm stall bulbs on a wire, a striped stall front and produce.
+      if (!near) { ink(t, [255, 214, 140], "o", 1.15); cuboid(t, cx, 3.25, z, iw, th(0.18), D); ink(t, [255, 150, 70], "%", 0.85); cuboid(t, cx, 1.45, z, iw * 0.8, 0.5, D); return; }
+      ink(t, [60, 50, 40], "-"); cuboid(t, cx, 3.38, z, iw, th(0.04), D);
+      const n = slots(0.6, 6);
+      ink(t, [255, 214, 140], "o", 1.2);
+      for (let k = 0; k < n; k++) cuboid(t, at(k, n), 3.25, up, 0.16, 0.18, D);
+      ink(t, [210, 74, 52], "=", 0.8); cuboid(t, cx, 2.85, z, iw * 0.9, 0.22, D);
+      ink(t, [255, 150, 70], "%", 0.85); cuboid(t, cx, 1.45, z, iw * 0.8, 0.5, D);
+      return;
+    }
+    case "machine-shop":
+    case "garage": {
+      // A roll-up shutter half down over sodium light, a bench or a stack of tyres below.
+      ink(t, [104, 110, 114], "=", 0.8); cuboid(t, cx, 3.05, up, iw + 0.1, 1.2, D);
+      ink(t, [60, 64, 66], "-"); cuboid(t, cx, 2.45, up, iw + 0.1, th(0.08), D);
+      if (!near) return;
+      if (kind === "garage") { ink(t, [28, 28, 30], "O"); cuboid(t, cx + iw * 0.25, 1.6, z, 0.7, 0.9, D); }
+      else { ink(t, [40, 36, 32], "#"); cuboid(t, cx, 1.5, z, iw * 0.7, 0.7, D); }
+      return;
+    }
+    case "chandlery": {
+      // A hanging lantern, rope draped across the glass and a coil on the floor.
+      const lx = cx + iw * 0.2;
+      ink(t, [255, 180, 90], "o", 1.2); ellipsoidLocal(t, lx, 2.95, up, th(0.2), th(0.28), 0.02);
+      ink(t, [180, 146, 96], "@", 0.85); ellipsoidLocal(t, cx - iw * 0.25, 1.45, z, 0.42, 0.3, 0.02);
+      if (!near) return;
+      ink(t, [50, 44, 36], "|"); cuboid(t, lx, 3.43, z, th(0.03), 0.3, D);
+      ink(t, [180, 146, 96], "~", 0.8);
+      for (const s of [-1, 1]) strutLocal(t, cx + s * iw / 2, 3.35, z, cx, 3.0, z, th(0.05));
+      return;
+    }
+    case "lobby": {
+      // A grid of mailboxes and a warm pendant light.
+      ink(t, [176, 164, 140], "#", 0.8); cuboid(t, cx - iw * 0.2, 2.0, z, Math.min(1.2, iw * 0.5), 0.9, D);
+      if (near) { ink(t, [255, 226, 170], "o", 1.15); cuboid(t, cx + iw * 0.25, 3.2, up, 0.3, 0.24, D); }
+      return;
+    }
+    case "apartment": {
+      // Drawn-back curtains and a table lamp.
+      ink(t, [170, 86, 70], "|", 0.7);
+      for (const s of [-1, 1]) cuboid(t, cx + s * (iw / 2 - 0.25), 2.4, up, th(0.45), 2.3, D);
+      if (near) { ink(t, [255, 214, 150], "o", 1.15); cuboid(t, cx + iw * 0.15, 1.9, z, 0.32, 0.36, D); }
+      return;
+    }
+  }
+}
+
 function drawWallThing(t: PropCanvas, thing: WallThing, x: number, front: number, seed: number, near: boolean): void {
   if (thing === "vending") {
     const body: RGB = seed < 0.33 ? [178, 46, 58] : seed < 0.66 ? [44, 92, 168] : [196, 200, 204];
@@ -287,6 +646,53 @@ function drawWallThing(t: PropCanvas, thing: WallThing, x: number, front: number
     for (const s of [-1, 1]) { t.push(); t.translate(x + s * 0.5, -0.36, front + 0.35); t.rotateX(90); t.torus(0.33, 0.03); t.pop(); }
     ink(t, [200, 70, 60], "/"); strutLocal(t, x - 0.5, 0.36, front + 0.35, x + 0.12, 0.78, front + 0.35, 0.05); strutLocal(t, x + 0.12, 0.78, front + 0.35, x + 0.5, 0.36, front + 0.35, 0.05);
   }
+}
+
+/**
+ * Hacking (rpg/hacking/sites.ts): a wall-mounted ATM (amber header, lit screen, keypad, cash slot)
+ * or a service door's keypad, in the face's frame. The screen follows the session's display state:
+ * a cleared "+" for 10 s after a payout with notes pushed out of the slot (an eased 0.5 s slide,
+ * they rest there, and slide back in as the state ends), dark then a red lock glyph while locked.
+ * No blinking.
+ */
+function drawHackSite(t: PropCanvas, site: HackSite, front: number, w: number, near: boolean): void {
+  const look = hackLook(site.id);
+  const locked = look?.look === "locked", dark = locked && look.age < 1.5;
+  if (site.kind === "atm") {
+    const x = site.along;
+    ink(t, [46, 54, 60], "#"); cuboid(t, x, 1.2, front + 0.17, 0.84, 1.7, 0.34);
+    ink(t, [255, 196, 92], "=", 0.95); cuboid(t, x, 2.0, front + 0.35, 0.84, 0.16, 0.04);
+    if (dark) ink(t, [20, 26, 30], ".", 0.4);
+    else if (locked) ink(t, [200, 70, 60], "x", 0.85);
+    else if (look?.look === "paid") ink(t, [150, 255, 170], "+", 1.1);
+    else ink(t, [96, 236, 200], "$", 1.0);
+    cuboid(t, x, 1.55, front + 0.355, 0.56, 0.4, 0.03);
+    ink(t, [24, 28, 32], "-"); cuboid(t, x, 0.86, front + 0.36, 0.42, 0.06, 0.04);
+    if (near) {
+      ink(t, [150, 160, 165], ":", 0.7); cuboid(t, x - 0.1, 1.1, front + 0.36, 0.3, 0.22, 0.04);
+      ink(t, [30, 34, 40], "-"); cuboid(t, x + 0.22, 1.12, front + 0.36, 0.12, 0.05, 0.04);
+    }
+    if (look?.look === "paid") {
+      // The notes ease out of the slot over 0.5 s and ease back in over the last 0.6 s of the paid
+      // state (taken back when it ends), so they never pop. At p = 0 they sit inside the slot.
+      const p = smoothstep(0, 0.5, look.age) * (1 - smoothstep(ATM_PAID_SECONDS - 0.7, ATM_PAID_SECONDS - 0.1, look.age));
+      if (p > 0.01) {
+        ink(t, [140, 230, 150], "$", 0.95);
+        for (const k of [-1, 0, 1]) cuboid(t, x + k * 0.12, 0.86 - p * 0.06, front + 0.36 + p * 0.2, 0.1, 0.04, 0.02 + p * 0.22);
+      }
+    }
+    return;
+  }
+  // Service door: a keypad on the pilaster right of the door and a bar across the door while it is shut.
+  const door = shopDoorWidth(w), x = door / 2 + 0.3, open = look?.look === "open";
+  ink(t, [40, 46, 52], "#"); cuboid(t, x, 1.4, front + 0.24, 0.26, 0.4, 0.08);
+  if (dark) ink(t, [20, 26, 30], ".", 0.4);
+  else if (locked) ink(t, [200, 70, 60], "x", 0.85);
+  else if (open) ink(t, [120, 240, 160], "#", 1.0);
+  else ink(t, site.tier === "hard" ? [170, 130, 255] : [255, 170, 80], "#", 1.0);
+  cuboid(t, x, 1.45, front + 0.29, 0.16, 0.2, 0.02);
+  if (!open) { ink(t, site.tier === "hard" ? [120, 96, 190] : [150, 120, 60], "=", 0.6); cuboid(t, 0, 1.05, front + 0.22, door * 0.8, 0.09, 0.05); }
+  if (near && site.tier === "hard") { ink(t, [170, 130, 255], "-", 0.8); cuboid(t, 0, 3.2, front + 0.22, door * 0.7, 0.05, 0.04); }
 }
 
 /** Beam of square section `w` between two points of the current frame (y up). */

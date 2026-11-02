@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CAR_HALF_LENGTH, CAR_HALF_WIDTH } from "../src/city/driving.ts";
 import { MAX_ROAD_PEDESTRIANS, ROAD_AWARENESS_RADIUS, ROAD_PEDESTRIAN_MARGIN, ROAD_RESIDENT_RADIUS, RoadAwareness, roadLevelPedestrian, type RoadPlayer, type RoadResident } from "../src/city/road-awareness.ts";
-import { CityTraffic, MAX_TRAFFIC_STEP, laneLine, stopDistance, type Vehicle } from "../src/city/traffic.ts";
+import { CityTraffic, MAX_TRAFFIC_STEP, carKind, drivableKind, laneLine, stopDistance, type Vehicle } from "../src/city/traffic.ts";
 import { WALKING_CAR_ROOF_CLEARANCE } from "../src/city/walking-collision.ts";
 import { PLAYER_RADIUS } from "../src/city/world.ts";
 
@@ -13,10 +13,12 @@ const heading = (car: Vehicle): { axis: "x" | "z"; direction: number; along: num
   ? { axis: "x", direction: Math.sign(Math.sin(car.yaw)), along: car.x }
   : { axis: "z", direction: Math.sign(-Math.cos(car.yaw)), along: car.z };
 const forward = (car: Vehicle, distance: number) => ({ x: car.x + Math.sin(car.yaw) * distance, z: car.z - Math.cos(car.yaw) * distance });
+// A car a player could take over, driving straight (buses, bikes, wrecks and turning cars behave differently).
+const ordinaryCar = (car: Vehicle): boolean => !car.trailing && !car.signal && drivableKind(carKind(car.id));
 const openLaneCar = (traffic: CityTraffic, axis: "x" | "z" = "z", direction = 1): Vehicle => {
   const car = traffic.nearby(0, 0, 330).find(candidate => {
     const lane = heading(candidate);
-    return lane.axis === axis && lane.direction === direction && stopDistance(axis, direction, lane.along) > 25 && roadLevelPedestrian(forward(candidate, 16));
+    return ordinaryCar(candidate) && lane.axis === axis && lane.direction === direction && stopDistance(axis, direction, lane.along) > 25 && roadLevelPedestrian(forward(candidate, 16));
   });
   assert.ok(car, `an open ${axis} lane in direction ${direction}`);
   return car;
@@ -80,6 +82,11 @@ test("only admitted crossing residents enter the buffer, with smaller extents th
     awareness.set({ eye, residents: [rejected] });
     assert.equal(awareness.pedestrianCount, 0);
   }
+  // A patrol partner (leader >= 0, empty path) is admitted by its position alone: on the carriageway, not on the pavement.
+  awareness.set({ eye, residents: [{ ...resident, path: [], leader: 3 }] });
+  assert.equal(awareness.pedestrianCount, 1);
+  awareness.set({ eye, residents: [{ ...resident, x: 67 + 9, path: [], leader: 3 }] });
+  assert.equal(awareness.pedestrianCount, 0);
   awareness.set({ eye, residents: [resident] });
   assert.equal(awareness.pedestrianCount, 1);
   awareness.selectLane("z", 67);
@@ -179,7 +186,7 @@ test("a pedestrian-held junction blocks perpendicular arrivals and drains withou
     traffic.update(0.05, 0);
     held = traffic.nearby(128, 128, 150).find(car => {
       const lane = heading(car);
-      return lane.axis === "z" && lane.direction === 1 && Math.abs(car.x) > 20 && Math.abs(car.z - Math.round(car.z / 64) * 64) < 1;
+      return ordinaryCar(car) && lane.axis === "z" && lane.direction === 1 && Math.abs(car.x) > 20 && Math.abs(car.z - Math.round(car.z / 64) * 64) < 1;
     });
   }
   assert.ok(held, "a car actually enters the junction");

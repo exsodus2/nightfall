@@ -2,10 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import type { CitySnapshot } from "@/city/engine";
-import { CityWorld, DISTRICTS, LANDMARKS, WORLD_EDGE } from "@/city/world";
-import { STATIONS, TRACK_LENGTH, trackPose } from "@/city/metro";
+import { CityWorld, DISTRICTS, LANDMARKS, SIGHTS, WORLD_EDGE } from "@/city/world";
+import { HARBOUR_KERB, HARBOUR_ROAD } from "@/city/harbour";
+import { QUAY_FILL, WALL_INK, WALL_OUTER, WATER_FILL } from "./harbour-map-layer";
+import { drawEventLayer, mapEvents } from "./event-map-layer"; // City events: live happenings + edge chevron
+import { LINES, STATIONS, trackPose } from "@/city/metro";
 import { interiorPlaces } from "@/city/interiors";
 import { drawVenueLayer } from "./venue-map-layer";
+import { MINIMAP_ICON_LIMIT, drawGroundFloorLayer, noteGroundVisit, groundFilterMemory } from "./ground-floor-map-layer";
 import { drawQuestLayer } from "./quest-map-layer"; // Quest UI
 import { drawFriendsLayer } from "./friends-map-layer"; // Multiplayer
 import { drawWaypointLayer } from "./waypoint-map-layer"; // World map: waypoints + rotating minimap
@@ -38,8 +42,24 @@ export function CityMap({ world, snapshot, full = false, waypoints, activeWaypoi
     const centerZ = full ? 0 : snapshot.z;
     const px = (x: number) => size / 2 + (x - centerX) * scale;
     const pz = (z: number) => size / 2 + (z - centerZ) * scale;
-    ctx.fillStyle = "#0a181e";
+    // The harbour around the city: water, the quay, the pale flood wall line, then the city's ground.
+    const square = (half: number) => [px(-half), pz(-half), half * 2 * scale, half * 2 * scale] as const;
+    ctx.fillStyle = "#050a0d";
     ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = WATER_FILL; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = QUAY_FILL; ctx.fillRect(...square(WALL_OUTER));
+    ctx.strokeStyle = WALL_INK; ctx.globalAlpha = 0.55; ctx.lineWidth = full ? 1 : 1.25;
+    ctx.strokeRect(...square(WALL_OUTER - 1));
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#0a181e";
+    ctx.fillRect(...square(HARBOUR_ROAD + HARBOUR_KERB));
+    // Edge sights (ship, floodgate, cableway) as dim footprints on the water.
+    for (const sight of SIGHTS) {
+      if (Math.abs(sight.x - centerX) > extent + sight.halfX || Math.abs(sight.z - centerZ) > extent + sight.halfZ) continue;
+      ctx.fillStyle = `rgba(${sight.color.join(",")}, 0.16)`; ctx.strokeStyle = `rgba(${sight.color.join(",")}, 0.45)`; ctx.lineWidth = 1;
+      ctx.fillRect(px(sight.x - sight.halfX), pz(sight.z - sight.halfZ), sight.halfX * 2 * scale, sight.halfZ * 2 * scale);
+      ctx.strokeRect(px(sight.x - sight.halfX), pz(sight.z - sight.halfZ), sight.halfX * 2 * scale, sight.halfZ * 2 * scale);
+    }
     ctx.strokeStyle = "#153039";
     ctx.lineWidth = full ? 1 : 0.75;
     for (let i = -12; i <= 12; i++) {
@@ -68,19 +88,25 @@ export function CityMap({ world, snapshot, full = false, waypoints, activeWaypoi
         ctx.fillText(landmark.name, px(landmark.x), pz(landmark.z) + 22);
       }
     }
-    ctx.strokeStyle = "#71d3c17a";
+    // Both monorail lines, each in its line colour.
     ctx.lineWidth = full ? 2 : 1;
-    ctx.beginPath();
-    for (let distance = 0; distance < TRACK_LENGTH; distance += 16) { const point = trackPose(distance); if (distance === 0) ctx.moveTo(px(point.x), pz(point.z)); else ctx.lineTo(px(point.x), pz(point.z)); }
-    ctx.closePath(); ctx.stroke();
+    for (const line of LINES) {
+      ctx.strokeStyle = `${line.hex}7a`;
+      ctx.beginPath();
+      for (let distance = 0; distance < line.length; distance += 16) { const point = trackPose(distance, line.id); if (distance === 0) ctx.moveTo(px(point.x), pz(point.z)); else ctx.lineTo(px(point.x), pz(point.z)); }
+      ctx.closePath(); ctx.stroke();
+    }
     for (const station of STATIONS) {
       ctx.fillStyle = station.hex;
       ctx.beginPath(); ctx.arc(px(station.x), pz(station.z), full ? 4 : 2.5, 0, Math.PI * 2); ctx.fill();
     }
     const spin = rotate && !full; // World map: heading-up minimap draws its own circle-edge chevrons
+    noteGroundVisit(snapshot.interior?.id);
+    if (!full) drawGroundFloorLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, { world, hidden: groundFilterMemory.hidden, limit: MINIMAP_ICON_LIMIT }); // Ground floors: nearest few, very faint
     drawVenueLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, interiorPlaces(world));
     drawQuestLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, spin ? { ...snapshot.quests, tracked: null } : snapshot.quests); // Quest UI: NPCs + tracked target
     drawFriendsLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, snapshot.friends); // Multiplayer: friends' positions
+    drawEventLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, mapEvents(snapshot.signalTime ?? snapshot.sceneTime), { time: snapshot.signalTime ?? snapshot.sceneTime, labels: full, player: full ? null : snapshot, round: spin }); // City events
     drawWaypointLayer(ctx, { px, pz, size, extent, centerX, centerZ, full }, { waypoints: waypoints ?? [], activeId: activeWaypointId, round: spin, tracked: spin ? snapshot.quests.tracked : null }); // World map
     if (!full) {
       // World map: heading-up turns the canvas (CSS, eased between ~6 Hz snapshots) opposite the yaw.

@@ -2,7 +2,8 @@ import type { PropCanvas } from "./prop-canvas.ts";
 import { parkBlock } from "./park.ts";
 import { pedestrianGreen, trafficGreen } from "./people.ts";
 import { LINE_PER_METRE } from "./landmarks-scene.ts";
-import { BLOCK_SIZE, HALF_BLOCKS, LANDMARKS, districtAt, randomFor, type RGB, type StreetLamp } from "./world.ts";
+import { drawRooftopLife } from "./rooftop-life.ts";
+import { BLOCK_SIZE, HALF_BLOCKS, LANDMARKS, WORLD_EDGE, districtAt, randomFor, rimPlotCleared, type RGB, type StreetLamp } from "./world.ts";
 
 /**
  * Street life between the buildings (activity.ts calls this once per frame while recording props):
@@ -15,7 +16,7 @@ import { BLOCK_SIZE, HALF_BLOCKS, LANDMARKS, districtAt, randomFor, type RGB, ty
  */
 export type StreetPaint = (canvas: PropCanvas, color: RGB, glyph: string, gain?: number) => void;
 export interface StreetKit { paint: StreetPaint; range: (meters: number) => number; restore: (code: number) => void }
-export interface StreetView { x: number; z: number; time: number; signalTime?: number; low: boolean; visible?: (x: number, y: number, z: number, radius?: number) => boolean }
+export interface StreetView { x: number; z: number; time: number; signalTime?: number; low: boolean; reach?: number; visible?: (x: number, y: number, z: number, radius?: number) => boolean }
 
 const DEG = 180 / Math.PI;
 /** Plot faces along a mid-block alley lie 26.5-37.5 m into the block (world.ts: plots at 19 and
@@ -55,6 +56,7 @@ export function blockHasPlots(bx: number, bz: number): boolean {
     const original = bx * BLOCK_SIZE + (plot % 2 === 0 ? 19 : 45), x = Math.abs(original) < 24 ? Math.sign(original) * 25 : original;
     const z = bz * BLOCK_SIZE + (plot < 2 ? 19 : 45);
     if (Math.abs(Math.abs(z) - 320) < 28 && [-448, 0, 448].some(stop => Math.abs(x - stop) < 35)) return false;
+    if (rimPlotCleared(x, z)) return false; // Rim Line concourses and corner yards
   }
   return true;
 }
@@ -150,9 +152,10 @@ export function cableSpans(bx: number, bz: number): readonly CableSpan[] {
 
 export function drawStreetLife(t: PropCanvas, view: StreetView, kit: StreetKit): void {
   const { x, z, time, low } = view;
-  const reach = low ? 100 : 150;
+  // LOD: `view.reach` scales the range with the cell footprint (engine.ts propReach).
+  const scale = view.reach ?? 1, reach = (low ? 100 : 150) * scale;
   const outer = kit.range(reach);
-  const cx = Math.floor(x / BLOCK_SIZE), cz = Math.floor(z / BLOCK_SIZE), radius = low ? 1 : 2;
+  const cx = Math.floor(x / BLOCK_SIZE), cz = Math.floor(z / BLOCK_SIZE), radius = scale > 1 ? Math.ceil((low ? 1 : 2) * scale) : low ? 1 : 2;
   for (let bz = cz - radius; bz <= cz + radius + 1; bz++) for (let bx = cx - radius; bx <= cx + radius + 1; bx++) {
     for (const span of cableSpans(bx, bz)) {
       const mx = (span.ax + span.ex) / 2, mz = (span.az + span.ez) / 2, distance = Math.hypot(mx - x, mz - z);
@@ -163,17 +166,24 @@ export function drawStreetLife(t: PropCanvas, view: StreetView, kit: StreetKit):
     }
     // Rats along the alley floor, close by only: 0.25 m, quick and low.
     const ox = bx * BLOCK_SIZE, oz = bz * BLOCK_SIZE;
-    if (!low && Math.hypot(ox + 32 - x, oz + 32 - z) < 40 && blockHasPlots(bx, bz)) {
+    // A run's ends and the alley crossing are drains: a rat shrinks into one and grows out of the
+    // next, so the 44 m wrap is never seen; past 18 m the prop range dissolves it before the 24 m cut.
+    // (The 48 m block gate keeps every rat of a skipped block beyond that cut.)
+    if (!low && Math.hypot(ox + 32 - x, oz + 32 - z) < 48 && blockHasPlots(bx, bz)) {
+      const ratRange = kit.range(24);
       for (let k = 0; k < 2; k++) {
         const run = ((time * (2.6 + k * 0.7) + randomFor(bx, bz, 4410 + k) * 44) % 44 + 44) % 44, rx = ox + 32 + (k ? 1.2 : -1.4), rz = oz + 10 + run;
-        if (Math.abs(rz - (oz + 32)) < 3 || Math.hypot(rx - x, rz - z) > 25) continue; // not across the alley crossing; tiny, so close up only
+        const s = ratScale(run);
+        if (s < 0.05 || Math.hypot(rx - x, rz - z) > 25) continue; // tiny, so close up only
         kit.paint(t, [56, 50, 48], "~");
-        box(t, rx, 0.07, rz, 0.1, 0.1, 0.24); box(t, rx, 0.05, rz - 0.22, 0.03, 0.03, 0.22);
+        box(t, rx, 0.07 * s, rz, 0.1 * s, 0.1 * s, 0.24 * s); box(t, rx, 0.05 * s, rz - 0.22 * s, 0.03 * s, 0.03 * s, 0.22 * s);
       }
+      kit.restore(ratRange);
     }
   }
   kit.restore(outer);
   drawDrones(t, view, kit);
+  drawRooftopLife(t, view, kit); // Rooftops: venues' animated half, parapet life, landing spinners (rooftop-life.ts; skipped on low)
 }
 
 /** Corner furniture on a lamp post (activity.ts draws the post): a three-lamp head for each axis,
@@ -209,36 +219,56 @@ export function drawSignalPost(t: PropCanvas, lamp: StreetLamp, signalTime: numb
   box(t, lx, 3.45, lz + 0.62, 0.04, 0.26, 1.2); box(t, lx - 0.62, 3.75, lz, 1.2, 0.26, 0.04);
 }
 
-/** Small drones crossing over the streets near the camera, with static running lights. */
+/** Rat size along its 44 m run (0..1): it grows out of a drain over the first 3 m, shrinks into one
+ * over the last 3 m, and ducks under the alley crossing (run 22 m) the same way. */
+export function ratScale(run: number): number {
+  const ease = (v: number): number => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
+  return ease(run / 3) * ease((44 - run) / 3) * ease((Math.abs(run - 22) - 2) / 2.5);
+}
+
+/** Drone lanes wrap this far apart, so the wrap always happens beyond the world edge and any draw range. */
+const DRONE_SPAN = 2 * (WORLD_EDGE + 480);
+/** Small drones crossing over the streets near the camera, with static running lights. Each lane
+ * belongs to a world street (seeded per street), so drones never move with the viewer; they enter
+ * and leave through the prop range's distance dissolve. */
 function drawDrones(t: PropCanvas, view: StreetView, kit: StreetKit): void {
-  const { x, z, time, low } = view;
-  const count = low ? 4 : 9, outer = kit.range(low ? 200 : 300);
-  for (let i = 0; i < count; i++) {
-    const axis = i % 2 ? "x" : "z", street = (axis === "z" ? Math.round(x / BLOCK_SIZE) : Math.round(z / BLOCK_SIZE)) + ((i >> 1) % 5) - 2;
-    const span = 1472, speed = 7 + (i % 3) * 2.5, direction = i % 4 < 2 ? 1 : -1;
-    const along = ((time * speed * direction + randomFor(i, 3, 4430) * span) % span + span) % span - span / 2;
-    const lateral = street * BLOCK_SIZE + (i % 3 - 1) * 2.4, y = 15 + (i * 7) % 24;
-    const px = axis === "z" ? lateral : along, pz = axis === "z" ? along : lateral;
-    const distance = Math.hypot(px - x, pz - z);
-    if (distance > (low ? 200 : 300) || (view.visible && !view.visible(px, y, pz, 2))) continue;
-    if (distance > 45) {
-      // Far away a drone is its light: one point at least a cell wide, so it glides instead of blinking.
-      const size = Math.max(0.3, distance * LINE_PER_METRE);
-      kit.paint(t, i % 2 ? [255, 120, 120] : [200, 230, 255], "*", 1.05); box(t, px, y, pz, size, size, size);
-      continue;
+  const { x, z, low } = view;
+  const range = (low ? 200 : 300) * (view.reach ?? 1), outer = kit.range(range), density = low ? 0.2 : 0.35;
+  for (const axis of ["z", "x"] as const) {
+    const line = axis === "z" ? x : z, centre = Math.round(line / BLOCK_SIZE), lanes = Math.ceil(range / BLOCK_SIZE);
+    for (let street = Math.max(-HALF_BLOCKS, centre - lanes); street <= Math.min(HALF_BLOCKS, centre + lanes); street++) for (let k = 0; k < 3; k++) {
+      const salt = (axis === "z" ? 4430 : 4440) + k;
+      if (randomFor(street, 3, salt) > density) continue;
+      drawDrone(t, view, kit, axis, street, Math.floor(randomFor(street, 5, salt) * 997), range);
     }
-    const ln = Math.max(0.06, distance * LINE_PER_METRE), light = Math.max(0.14, ln);
-    t.push(); t.translate(px, -y, pz); t.rotateY(axis === "z" ? (direction > 0 ? 180 : 0) : direction > 0 ? -90 : 90);
-    kit.paint(t, [44, 50, 58], "#"); t.box(0.7, 0.16, 0.7);
-    kit.paint(t, [70, 76, 84], "-"); t.rotateY(45); t.box(1.5, ln, ln); t.box(ln, ln, 1.5); t.rotateY(-45);
-    kit.paint(t, [255, 70, 80], "*", 1.1); t.translate(-0.55, 0, 0); t.box(light, light, light);
-    kit.paint(t, [80, 255, 150], "*", 1.1); t.translate(1.1, 0, 0); t.box(light, light, light); t.translate(-0.55, 0, 0);
-    // A soft belly light breathing at 0.4 Hz, and a parcel or a tiny ad panel on some.
-    kit.paint(t, [220, 236, 255], "o", 0.8 + 0.25 * Math.sin(time * 2.5 + i)); t.translate(0, 0.14, 0); t.box(light, ln, light); t.translate(0, -0.14, 0);
-    if (i % 3 === 0) { kit.paint(t, [150, 116, 80], "#"); t.translate(0, 0.42, 0); t.box(0.42, 0.36, 0.42); t.translate(0, -0.42, 0); }
-    else if (i % 3 === 1) { kit.paint(t, (LANTERNS[i % LANTERNS.length])[1], "=", 1.05); t.translate(0, 0.75, 0); t.box(1.3, 0.62, ln); t.translate(0, -0.75, 0); }
-    t.pop();
   }
   kit.restore(outer);
+}
+
+function drawDrone(t: PropCanvas, view: StreetView, kit: StreetKit, axis: "x" | "z", street: number, i: number, range: number): void {
+  const { x, z, time } = view;
+  const speed = 7 + (i % 3) * 2.5, direction = i % 4 < 2 ? 1 : -1;
+  const along = ((time * speed * direction + (i / 997) * DRONE_SPAN) % DRONE_SPAN + DRONE_SPAN) % DRONE_SPAN - DRONE_SPAN / 2;
+  const lateral = street * BLOCK_SIZE + (i % 3 - 1) * 2.4, y = 15 + (i * 7) % 24;
+  const px = axis === "z" ? lateral : along, pz = axis === "z" ? along : lateral;
+  const distance = Math.hypot(px - x, pz - z);
+  if (distance > range || (view.visible && !view.visible(px, y, pz, 2))) return;
+  if (distance > 45) {
+    // Far away a drone is its light: one point at least a cell wide, so it glides instead of blinking.
+    const size = Math.max(0.3, distance * LINE_PER_METRE);
+    kit.paint(t, i % 2 ? [255, 120, 120] : [200, 230, 255], "*", 1.05); box(t, px, y, pz, size, size, size);
+    return;
+  }
+  const ln = Math.max(0.06, distance * LINE_PER_METRE), light = Math.max(0.14, ln);
+  t.push(); t.translate(px, -y, pz); t.rotateY(axis === "z" ? (direction > 0 ? 180 : 0) : direction > 0 ? -90 : 90);
+  kit.paint(t, [44, 50, 58], "#"); t.box(0.7, 0.16, 0.7);
+  kit.paint(t, [70, 76, 84], "-"); t.rotateY(45); t.box(1.5, ln, ln); t.box(ln, ln, 1.5); t.rotateY(-45);
+  kit.paint(t, [255, 70, 80], "*", 1.1); t.translate(-0.55, 0, 0); t.box(light, light, light);
+  kit.paint(t, [80, 255, 150], "*", 1.1); t.translate(1.1, 0, 0); t.box(light, light, light); t.translate(-0.55, 0, 0);
+  // A soft belly light breathing at 0.4 Hz, and a parcel or a tiny ad panel on some.
+  kit.paint(t, [220, 236, 255], "o", 0.8 + 0.25 * Math.sin(time * 2.5 + i)); t.translate(0, 0.14, 0); t.box(light, ln, light); t.translate(0, -0.14, 0);
+  if (i % 3 === 0) { kit.paint(t, [150, 116, 80], "#"); t.translate(0, 0.42, 0); t.box(0.42, 0.36, 0.42); t.translate(0, -0.42, 0); }
+  else if (i % 3 === 1) { kit.paint(t, (LANTERNS[i % LANTERNS.length])[1], "=", 1.05); t.translate(0, 0.75, 0); t.box(1.3, 0.62, ln); t.translate(0, -0.75, 0); }
+  t.pop();
 }
 

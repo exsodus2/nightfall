@@ -75,7 +75,7 @@ try {
   const questsBefore = await evaluate("window.__nightfall.rpg.quests.serialize().quests");
   await evaluate("window.__mapLabels=new Set();window.__mapFillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){if(this.canvas.closest('[data-world-map]'))window.__mapLabels.add(args[0]);return window.__mapFillText.apply(this,args)}");
   await press("KeyM", "m");
-  await waitFor("document.querySelectorAll('[data-world-map] [data-venue]').length===6 && window.__mapLabels.has('Mira Bell') && window.__mapLabels.has('Blue Hour Tea')", "All venues, new quest giver and doorway label");
+  await waitFor("document.querySelectorAll('[data-world-map] [data-venue]').length===9 && window.__mapLabels.has('Mira Bell') && window.__mapLabels.has('Blue Hour Tea')", "All venues, new quest giver and doorway label");
   await capture("map-spawn-desktop");
   await evaluate("document.querySelector('[data-venue=blue-hour]').focus()");
   await press("Enter", "Enter");
@@ -91,7 +91,7 @@ try {
     await call("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false }); await delay(450);
     await evaluate("document.querySelector('[data-venue=blue-hour]').scrollIntoView({block:'center'})");
     const layout = await evaluate("(() => {const buttons=[...document.querySelectorAll('[data-venue]')],panel=buttons[0].closest('aside'),scroll=panel.firstElementChild;return {width:innerWidth,documentWidth:document.documentElement.scrollWidth,panelWidth:scroll.clientWidth,panelScroll:scroll.scrollWidth,buttons:buttons.map(button=>{const box=button.getBoundingClientRect();return {name:button.getAttribute('aria-label'),height:box.height,left:box.left,right:box.right,pressed:button.getAttribute('aria-pressed')}})}})()");
-    assert.equal(layout.buttons.length, 6);
+    assert.equal(layout.buttons.length, 9);
     assert.equal(layout.buttons.filter(button => button.pressed === "true").length, 1);
     assert.ok(layout.buttons.every(button => button.height >= 44 && button.left >= 0 && button.right <= viewport.width));
     assert.ok(layout.documentWidth <= viewport.width && layout.panelScroll <= layout.panelWidth + 1, `${viewport.name}: no horizontal overflow`);
@@ -105,15 +105,15 @@ try {
     assert.ok(Math.hypot(active.x - place.entrance.x, active.z - place.entrance.z) < 0.15);
     assert.equal(active.shared, false);
   }
-  assert.equal((await pins()).waypoints.length, 6);
+  assert.equal((await pins()).waypoints.length, 9);
   await click("Track entrance to Blue Hour Tea"); await delay(450);
   await press("KeyM", "m"); await waitFor("!document.querySelector('[data-world-map]')", "Map closed");
   await waitFor("document.querySelector('[data-arrived]')?.textContent.includes('Blue Hour Tea entrance')", "Waypoint compass follows the doorway");
   await capture("entrance-compass");
-  checks.push({ name: "six-private-doorway-routes", waypoints: (await pins()).waypoints.length, before, after: await position() });
+  checks.push({ name: "eight-private-doorway-routes", waypoints: (await pins()).waypoints.length, before, after: await position() });
   await call("Page.reload", { ignoreCache: false }); await ready();
   await press("KeyM", "m"); await waitFor("document.querySelector('[data-venue=blue-hour]')?.getAttribute('aria-pressed')==='true'", "Selected entrance survives reload");
-  assert.equal((await pins()).waypoints.length, 6);
+  assert.equal((await pins()).waypoints.length, 9);
   await press("KeyM", "m"); await press("KeyT", "t"); await click("Visit Blue Hour Tea"); await delay(250); await press("KeyE", "e");
   assert.equal((await position()).interior, "blue-hour");
   const indoors = await position();
@@ -123,7 +123,7 @@ try {
   checks.push({ name: "reload-and-indoor-tracking", interior: indoors.interior });
   assert.deepEqual(errors, []);
   await writeFile(resolve(directory, "report.json"), JSON.stringify({ passed: true, checks, errors }, null, 2));
-  console.log("Actual quest-giver rendering, six doorway routes, keyboard controls, responsive layout, save/reload and indoor navigation passed.");
+  console.log("Actual quest-giver rendering, eight doorway routes, keyboard controls, responsive layout, save/reload and indoor navigation passed.");
 } catch (error) {
   console.error(error);
   await writeFile(resolve(directory, "report.json"), JSON.stringify({ passed: false, checks, errors, failure: String(error) }, null, 2));

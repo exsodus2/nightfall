@@ -29,7 +29,7 @@ export const RARITY_CSS: Readonly<Record<Rarity, string>> = Object.fromEntries(
 export const RARITY_ORDER: readonly Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
 export const rarityTier = (rarity: Rarity): number => Math.max(0, RARITY_ORDER.indexOf(rarity));
 
-export type Silhouette = "spiked" | "tall" | "armoured" | "hooded" | "plain";
+export type Silhouette = "spiked" | "tall" | "armoured" | "hooded" | "robed" | "plain";
 /** How a faction reads at a glance: silhouette, body colours, lit accent and body glyph. */
 export interface FactionStyle {
   silhouette: Silhouette;
@@ -51,6 +51,12 @@ export const FACTION_STYLE: Readonly<Record<string, FactionStyle>> = {
   "chrome-saints": { silhouette: "tall", body: [168, 176, 188], trim: [92, 98, 110], light: [255, 246, 206], detail: [132, 238, 255], glyph: "=", hud: [236, 240, 250] },
   corpsec: { silhouette: "armoured", body: [40, 66, 122], trim: [70, 96, 150], light: [88, 182, 255], detail: [26, 34, 52], glyph: "H", hud: [110, 176, 255] },
   ghosts: { silhouette: "hooded", body: [26, 30, 40], trim: [36, 40, 52], light: [70, 255, 236], detail: [18, 20, 26], glyph: "%", hud: [96, 244, 230] },
+  // The Hush choir: floor-length pale robes, a lit collar and sash, brass tuning-fork crowns.
+  choir: { silhouette: "robed", body: [128, 142, 136], trim: [44, 56, 52], light: [130, 255, 214], detail: [206, 186, 128], glyph: "|", hud: [150, 255, 222] },
+  // Spillway dock crews: oilskins in harbour blue-grey with an amber deck-lamp accent.
+  dockers: { silhouette: "plain", body: [46, 72, 86], trim: [24, 34, 40], light: [255, 190, 90], detail: [170, 160, 140], glyph: "=", hud: [255, 204, 120] },
+  // The Foundry scrapyard: rust and soot with a furnace-orange glow (the drones share it).
+  scrappers: { silhouette: "plain", body: [130, 84, 44], trim: [48, 36, 28], light: [255, 140, 50], detail: [180, 170, 150], glyph: "&", hud: [255, 160, 80] },
 };
 const PLAIN: FactionStyle = { silhouette: "plain", body: [96, 92, 88], trim: [52, 56, 62], light: [255, 190, 90], detail: [140, 140, 140], glyph: "H", hud: [230, 214, 170] };
 /** Style for a faction; unknown factions fall back to a plain street tough. */
@@ -85,9 +91,9 @@ export function restorePaintRange(code: number): void { range = code; }
 export function paint(t: PropCanvas, color: Rgb, glyph: string, gain = 1): void {
   let r = color[0] * gain, g = color[1] * gain, b = color[2] * gain;
   if (mod.heat > 0) { const k = mod.heat * 0.55; r += (HEAT[0] - r) * k; g += (HEAT[1] - g) * k; b += (HEAT[2] - b) * k; }
-  if (mod.flash > 0) { const k = mod.flash; r += (WHITE[0] - r) * k; g += (WHITE[1] - g) * k; b += (WHITE[2] - b) * k; }
+  if (mod.flash > 0) { const k = mod.flash * 0.8; r += (WHITE[0] - r) * k; g += (WHITE[1] - g) * k; b += (WHITE[2] - b) * k; }
   r *= mod.fade; g *= mod.fade; b *= mod.fade;
-  t.char(mod.glyph || (mod.flash > 0.55 ? (mod.flash > 0.85 ? "@" : "#") : glyph));
+  t.char(mod.glyph || (mod.flash > 0.6 ? "#" : glyph));
   t.charColor(Math.min(255, r), Math.min(255, g), Math.min(255, b));
   t.cellColor(Math.min(255, r * 0.12), Math.min(255, g * 0.12), Math.min(255, b * 0.12), range);
 }

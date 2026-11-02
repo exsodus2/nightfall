@@ -20,7 +20,7 @@ export function DeathScreen({ rpg, place, onRespawn }: { rpg: RpgSnapshot; place
       <p className={styles.deathKicker}><span aria-hidden="true">&gt;</span> vitals feed: signal lost</p>
       <pre className={styles.trace} aria-hidden="true">{TRACE}</pre>
       <h2 id="rpg-death-title" className={styles.deathTitle}>FLATLINED</h2>
-      <p id="rpg-death-copy" className={styles.deathCopy}>You went down in {place}. A street medic got to you before the city did.</p>
+      <p id="rpg-death-copy" className={styles.deathCopy}>You went down in {place}. A street medic dragged you out of the road and patched you up. You keep everything.</p>
       <dl className={styles.deathLedger}>
         <div><dt>Lost</dt><dd>Nothing</dd></div>
         <div><dt>Kept</dt><dd>Level {character.level} / {formatCr(character.credits)} CR</dd></div>

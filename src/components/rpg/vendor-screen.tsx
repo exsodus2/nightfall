@@ -130,7 +130,7 @@ export function VendorScreen({ rpg, vendor, act, onClose }: VendorScreenProps) {
                   {owned > 1 ? <button type="button" className={styles.action} disabled={unit <= 0 || !!pending} onClick={() => send("sell", current.item, owned)}>Sell all {owned} · +{formatCr(sellPrice(def, owned, vendor.sellRate))}</button> : null}
                 </> : null}
               </div>
-              {current.side === "buy" && offer ? <p className={styles.note}>{buyBlocker(def, offer.price, character) ?? (def.kind === "ammo" ? "Ammo comes by the box." : `${formatCr(character.credits - offer.price)} CR left after buying.`)}</p> : null}
+              {current.side === "buy" && offer ? <p className={styles.note}>{buyBlocker(def, offer.price, character) ?? (def.kind === "ammo" ? `Sold by the box. ${formatCr(character.credits - offer.price)} CR left after buying.` : `${formatCr(character.credits - offer.price)} CR left after buying.`)}</p> : null}
               {current.side === "sell" && slots.get(current.item) ? <p className={styles.note} data-tone="warn">Equipped: selling the last one takes it off you.</p> : null}
             </div>
           </ItemInspect> : <p className={styles.empty}>Pick an item to inspect it.</p>}

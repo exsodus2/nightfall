@@ -7,7 +7,7 @@ export interface InteriorWorkReader {
 }
 
 export interface InteriorWorkTag {
-  readonly fixture: "counter" | "left-planter" | "right-planter" | "right-machine";
+  readonly fixture: "counter" | "left-planter" | "right-planter" | "right-machine" | "decks";
   readonly text: string;
   readonly compact: string;
   readonly settled: boolean;
@@ -15,7 +15,7 @@ export interface InteriorWorkTag {
 }
 
 export interface InteriorWorkState {
-  readonly place: "glasshouse" | "kiln" | "dead-letter";
+  readonly place: "glasshouse" | "kiln" | "dead-letter" | "the-static";
   readonly tags: readonly InteriorWorkTag[];
 }
 
@@ -24,7 +24,7 @@ function tag(fixture: InteriorWorkTag["fixture"], text: string, settled: boolean
 }
 
 export function interiorWorkState(placeId: string | null | undefined, quests: InteriorWorkReader): InteriorWorkState | null {
-  const questId = placeId === "glasshouse" ? "a-little-night" : placeId === "kiln" ? "kiln-calibration" : placeId === "dead-letter" ? "last-good-signal" : null;
+  const questId = placeId === "glasshouse" ? "a-little-night" : placeId === "kiln" ? "kiln-calibration" : placeId === "dead-letter" ? "last-good-signal" : placeId === "the-static" ? "last-set-before-curfew" : null;
   if (!questId) return null;
   const status = quests.status(questId);
   if (status === "locked" || status === "failed") return null;
@@ -42,6 +42,13 @@ export function interiorWorkState(placeId: string | null | undefined, quests: In
     const certified = status === "complete" && quests.flags.get("kiln.bench-certified") === true;
     const progress = load ? 3 : supply ? 2 : earth ? 1 : 0;
     return { place: placeId, tags: [tag("right-machine", certified ? "PASS" : progress === 3 ? "READY" : `${progress}/3`, certified)] };
+  }
+  if (placeId === "the-static") {
+    // The set list readout on the decks: tracks recovered, then the closer that was chosen.
+    const closer = status === "complete" ? quests.flags.get("the-static.closer") : undefined;
+    const recovered = started ? ["slot-7", "slot-8", "slot-9"].filter(slot => quests.flags.get(`last-set-before-curfew.${slot}`) === true).length : 0;
+    const text = closer === "curfew-bells" ? "BELLS" : closer === "static-bloom" ? "BLOOM" : quests.stage(questId) === "closer" ? "CLOSER" : `${recovered}/3`;
+    return { place: placeId, tags: [tag("decks", text, closer !== undefined, text === "CLOSER" ? "PICK" : text)] };
   }
   const publication = status === "complete" ? quests.flags.get("dead-letter.publication") : undefined;
   const detail = publication === "anonymous" ? "ANON" : publication === "callback" ? "DESK" : null;

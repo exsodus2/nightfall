@@ -22,7 +22,7 @@ export const COMBAT_TEST_ITEMS: readonly ItemDefinition[] = [
   weapon("warlord-maul", "Warlord's maul", "T", "melee", { class: "blunt", damage: 18, range: 3.4, cooldown: 1.5, staminaCost: 0, arc: 65, knockback: 2, stagger: 0.6 }, 400),
 ];
 
-const bark = { alert: ["HEY!", "GET HIM!", "YOU'RE DEAD!"], hurt: ["ARGH!", "LUCKY HIT!"], death: ["...ugh"] };
+const bark = { alert: ["OI! OUR STREET!", "TUSKS OUT!", "GET THE WALLET!"], hurt: ["LUCKY SHOT!", "MY GOOD JACKET!"], death: ["...tell the Duchess..."] };
 
 /** Test archetypes: two Razorbacks (melee, ranged), a CorpSec trooper, a boss and its adds. */
 export const COMBAT_TEST_ARCHETYPES: readonly EnemyArchetype[] = [
@@ -46,7 +46,7 @@ export const COMBAT_TEST_ARCHETYPES: readonly EnemyArchetype[] = [
     perception: { sight: 60, fovDegrees: 120, hearing: 45 },
     look: { coat: [60, 70, 90], trim: [20, 24, 32], skin: [170, 140, 120], light: [120, 200, 255], headwear: "visor", prop: "antenna", idle: "breathe" },
     loot: "corpsec-common", xp: 45, tags: ["corpsec"],
-    barks: { alert: ["CONTACT.", "HOSTILE SIGHTED."], hurt: ["TAKING FIRE."], death: ["...officer down"] },
+    barks: { alert: ["CODE 10-31. CONTACT.", "HOSTILE, SECTOR FOUR."], hurt: ["TAKING FIRE. SEND UNITS."], death: ["...officer down..."] },
   },
   {
     id: "razorback-warlord", name: "Brakka", faction: "razorbacks", health: 1000, armor: 0.15,
@@ -54,13 +54,13 @@ export const COMBAT_TEST_ARCHETYPES: readonly EnemyArchetype[] = [
     perception: { sight: 50, fovDegrees: 160, hearing: 60 }, scale: 1.6,
     look: { coat: [150, 30, 30], trim: [30, 10, 10], skin: [170, 120, 90], light: [255, 60, 40], headwear: "hood", prop: null, idle: "breathe" },
     loot: "boss-warlord", xp: 600, tags: ["razorback", "boss"],
-    barks: { alert: ["FRESH MEAT!"], hurt: ["IS THAT ALL?"], death: ["...the tusks... break..."] },
+    barks: { alert: ["FRESH MEAT!"], hurt: ["I'VE HAD WORSE SHAVES!"], death: ["...my tusks..."] },
     boss: {
       title: "Razorback Warlord",
       phases: [
         { atHealth: 1, attacks: ["slam", "sweep", "charge"] },
-        { atHealth: 0.6, message: "Brakka roars for his crew!", spawn: "combat-test-adds", speedMultiplier: 1.15, damageMultiplier: 1.1, attacks: ["barrage", "charge", "summon", "sweep"] },
-        { atHealth: 0.3, message: "Brakka's tusks glow white-hot!", speedMultiplier: 1.3, damageMultiplier: 1.25, attacks: ["shockwave", "slam", "barrage", "charge"] },
+        { atHealth: 0.6, message: "Brakka whistles. His crew comes running from the underpass.", spawn: "combat-test-adds", speedMultiplier: 1.15, damageMultiplier: 1.1, attacks: ["barrage", "charge", "summon", "sweep"] },
+        { atHealth: 0.3, message: "Brakka drops the maul to two hands. He is done playing.", speedMultiplier: 1.3, damageMultiplier: 1.25, attacks: ["shockwave", "slam", "barrage", "charge"] },
       ],
     },
   },

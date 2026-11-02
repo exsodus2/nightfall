@@ -2,8 +2,8 @@
 // validated by the server (bounds, label length, per-player limit, owner-only removal). The owner
 // of every waypoint is the placing player's session id, so pair this with
 // `store.setOwner(session.getView().selfId)` (use-multiplayer.ts does both).
-import type { Waypoint, WaypointSync } from "../city/waypoints";
-import type { MultiplayerSession, SharedWaypoint } from "./session";
+import type { Waypoint, WaypointSync } from "../city/waypoints.ts";
+import type { MultiplayerSession, SharedWaypoint } from "./session.ts";
 
 const toWaypoint = (w: SharedWaypoint): Waypoint => ({ id: w.id, x: w.x, z: w.z, label: w.label, color: w.color, owner: w.owner, shared: true, createdAt: w.createdAt });
 

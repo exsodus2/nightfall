@@ -23,6 +23,11 @@ export class SceneData {
   set(index: number, value: readonly number[]): void {
     for (let i = 0; i < 4; i++) this.values[index * 4 + i] = value[i] ?? 0;
   }
+  /** Perf: `set` without an array (texel `index` = (a, b, c, d)). */
+  set4(index: number, a: number, b = 0, c = 0, d = 0): void {
+    const v = this.values, o = index * 4;
+    v[o] = a; v[o + 1] = b; v[o + 2] = c; v[o + 3] = d;
+  }
   upload(): void {
     const gl = this.gl;
     this.withTexture(() => gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 16, 16, gl.RGBA, gl.FLOAT, this.values));
@@ -51,7 +56,7 @@ function withBoundTexture(gl: WebGL2RenderingContext, texture: WebGLTexture, act
   gl.activeTexture(active);
 }
 
-import { miniFontBytes } from "./mini-font";
+import { miniFontBytes } from "./mini-font.ts";
 
 export const TEXT_WIDTH = 64;
 /** Byte offset of the 3x5 mid-distance face (after the 95 x 8 bytes of the 8x8 face). */

@@ -93,7 +93,7 @@ export const VFX_GLSL_BRANCH = `
       vec3 local = (q - u_vfxCenter) / u_vfxHalf;
       float rise = clamp((1.0 - local.y) * 0.5, 0.0, 1.0);              // 0 at the base, 1 at the top
       float radius = 0.14 + 0.8 * rise;
-      vec2 across = local.xz - vec2(0.3, 0.12) * rise * rise;                 // the plume leans with the wind
+      vec2 across = local.xz - u_vfxAxis.xz * rise * rise;                    // the plume leans with the wind (weather.ts gusts, set per volume)
       float shape = 1.0 - smoothstep(radius * 0.1, radius * 0.9, length(across));
       float swirl = vfxNoise3(q * vec3(1.3, 0.7, 1.3) + vec3(u_vfxSeed * 17.0, u_time * 0.9, 0.0)) * 0.65
                   + vfxNoise3(q * 1.9 + vec3(0.0, u_time * 1.6, u_vfxSeed * 5.0)) * 0.35;
@@ -114,18 +114,30 @@ export const VFX_GLSL_BRANCH = `
     emission = vapour * alpha * 0.08;
   } else if (vfxMode == ${VFX_MODE.beam}) {
     // Searchlight: closest approach of the view ray to the beam axis, a slowly widening cone,
-    // brighter when looking along it. Strokes run along the beam on screen.
+    // brighter when looking along it.
+    // Sky agent: the beams used to draw a stroke in every surviving cell of a screen-space Bayer
+    // dither at up to ~1.6x their colour, so a near-vertical beam read as a barcode of bright
+    // white lines over the skyline (the rooftops view). Now a beam is a soft shaft of lit haze: a
+    // narrow core of thin strokes, a halo of ':' and '.' that thins with the light, lumps
+    // of mist drifting slowly up it (world-anchored, no screen dither), and well below the neon.
     vec3 w0 = eye - u_vfxCenter, axis = u_vfxAxis;
     float b = dot(view, axis), d = dot(view, w0), e = dot(axis, w0), denom = max(1.0 - b * b, 1e-4);
     float along = clamp((e - b * d) / denom, 0.0, u_vfxHalf.y), ray = max((b * e - d) / denom, 0.0);
     float dist = length(w0 + view * ray - axis * along);
     float radius = u_vfxHalf.x * (1.0 + along * 0.011);
-    float haze = 0.65 + 0.35 * noise2(vec2(along * 0.05 - u_time * 0.2, u_vfxSeed * 30.0));
-    float intensity = exp(-pow(dist / radius, 2.0)) * (1.0 - smoothstep(u_vfxHalf.y * 0.25, u_vfxHalf.y, along)) * haze * (1.0 + 0.8 * b * b) * v_glyphColor.a * 0.85;
-    if (intensity < 0.16 + bayer(gl_FragCoord.xy) * 0.55) discard;
-    code = strokeFor(dot(p, normalize(cross(axis, view)))); thin = intensity < 0.6;
-    ink = v_glyphColor.rgb * (0.35 + intensity * 1.1);
-    paper = skyColor(view) * 0.9 + v_glyphColor.rgb * intensity * 0.06;
-    emission = v_glyphColor.rgb * intensity * 0.25;
+    float core = exp(-pow(dist / radius, 2.0));
+    float mist = 0.55 + 0.45 * vfxNoise3(vec3(along * 0.06 - u_time * 0.12, dist * 0.25, u_vfxSeed * 31.0));
+    float intensity = core * (1.0 - smoothstep(u_vfxHalf.y * 0.2, u_vfxHalf.y, along)) * mist * (1.0 + 0.5 * b * b) * v_glyphColor.a * 0.8;
+    if (intensity < 0.4) discard;
+    float strength = smoothstep(0.4, 1.0, intensity);
+    // Only the narrow core carries strokes along the beam (a cell or two wide once it is a few dozen metres off).
+    int beamStroke = strokeFor(dot(p, normalize(cross(axis, view)))); // derivatives outside the choice
+    code = core > 0.85 && strength > 0.3 ? beamStroke : strength > 0.3 ? A_COLON : A_DOT;
+    thin = true;
+    // The cells are opaque (they replace whatever is behind), so their paper is the lit haze itself,
+    // never a dark band across the towers behind the beam.
+    ink = v_glyphColor.rgb * (0.3 + strength * 0.4);
+    paper = skyColor(view) * 0.6 + v_glyphColor.rgb * (0.08 + strength * 0.1);
+    emission = v_glyphColor.rgb * strength * 0.12;
   } else discard;
 `;

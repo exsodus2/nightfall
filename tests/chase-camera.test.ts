@@ -5,9 +5,20 @@ import { MouseLook } from "../src/city/locomotion.ts";
 import { CityWorld } from "../src/city/world.ts";
 
 const world = new CityWorld();
-const car = new ParkedCars(world).all().find(candidate => candidate.id === 23089)!;
-const input: DriveInput = { throttle: 0, steer: 0, handbrake: false, boost: false };
 const wallYaw = 19 * Math.PI / 16;
+/** Free length of the chase boom from (x, z) toward view yaw `yaw`, probed as driving.ts does. */
+const boomFree = (x: number, z: number, yaw: number) => {
+  let free = 0;
+  for (let d = 0; d <= 9.5; d += 0.5) { if (!world.canOccupy(x - Math.sin(yaw) * d, z + Math.cos(yaw) * d)) break; free = d; }
+  return free;
+};
+// A parked car with a facade a few metres behind it along wallYaw and open street along yaw 0.
+// Chosen by geometry rather than by id, so parked-car numbering (stations, plots) can change;
+// the car this test was written against (-58.2, -37) is preferred while it still qualifies.
+const car = new ParkedCars(world).all()
+  .filter(candidate => boomFree(candidate.x, candidate.z, wallYaw) < 5 && boomFree(candidate.x, candidate.z, 0) >= 9.5)
+  .sort((a, b) => Math.hypot(a.x + 58.2, a.z + 37) - Math.hypot(b.x + 58.2, b.z + 37))[0]!;
+const input: DriveInput = { throttle: 0, steer: 0, handbrake: false, boost: false };
 const distance = (view: DriveCamera, session: DriveSession) => Math.hypot(view.x - session.car.x, view.z - session.car.z);
 const safe = (view: DriveCamera) => assert.ok(world.canOccupy(view.x, view.z), `camera entered a solid at ${view.x},${view.z}`);
 

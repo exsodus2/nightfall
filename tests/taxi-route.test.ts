@@ -48,16 +48,17 @@ test("dropoff connectors receive the same collision checks as pickups", () => {
 });
 
 test("a bounded one-bend connector reaches the road from a world-edge alley", () => {
-  const edge = { x: -756, y: WALK_HEIGHT, z: 36 };
+  // A world-edge alley clear of the Rim Line concourses (their cleared plots open the alley at z = 36).
+  const edge = { x: -756, y: WALK_HEIGHT, z: -220 };
   assert.ok(world.canOccupy(edge.x, edge.z));
-  for (const endpoint of [{ ...edge, x: -768 }, { ...edge, x: -704 }, { ...edge, z: 0 }, { ...edge, z: 64 }]) {
+  for (const endpoint of [{ ...edge, x: -768 }, { ...edge, x: -704 }, { ...edge, z: -256 }, { ...edge, z: -192 }]) {
     assert.equal(routeIsClear([edge, endpoint]), false);
   }
   const route = groundRoute(edge, destination, world);
   assert.ok(route);
   assert.ok(routeIsClear(route));
   assert.ok(route.every(point => Math.abs(point.x) <= WORLD_EDGE - 3 && Math.abs(point.z) <= WORLD_EDGE - 3));
-  assert.ok(route.some(point => point.x === -760 && point.z === 36));
+  assert.ok(route.some(point => point.x === -760 && point.z === -220));
 });
 
 test("actual taxi frames never enter buildings at fast, slow, or irregular frame rates", () => {
@@ -85,7 +86,7 @@ test("venues, station approaches, and parked-car exits have clear pickup and dro
   });
   const exits = new ParkedCars(world).all().filter((_, index) => index % 83 === 0).slice(0, 20).map(car => exitSpot(world, car));
   const points = [...interiorPlaces(world).map(place => place.entrance), ...approaches, ...exits];
-  assert.equal(interiorPlaces(world).length, 6);
+  assert.equal(interiorPlaces(world).length, 9);
   for (const [index, point] of points.entries()) {
     const start = { x: point.x, z: point.z, y: WALK_HEIGHT };
     const end = { x: DISTRICTS[index % DISTRICTS.length].x, z: DISTRICTS[index % DISTRICTS.length].z, y: WALK_HEIGHT };

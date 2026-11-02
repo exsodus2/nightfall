@@ -3,7 +3,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { SchemaType } from "@colyseus/schema";
 import type { Client as ServerClient } from "colyseus";
-import { PLATFORM_HEIGHT, TRAIN_EYE_HEIGHT, trainAt, worldToLocal } from "../src/city/metro.ts";
+import { LINES, TRAIN_COUNT, TRAIN_EYE_HEIGHT, floorHeight, trainAt, worldToLocal } from "../src/city/metro.ts";
 import { localPose } from "../src/multiplayer/engine-hooks.ts";
 import { SnapshotBuffer, type PoseSample } from "../src/multiplayer/interpolation.ts";
 import { parsePose, type PoseMessage } from "../src/multiplayer/protocol.ts";
@@ -23,15 +23,15 @@ const until = async (condition: () => boolean, label: string, timeout = 8000): P
 const near = (actual: number, expected: number, tolerance = 1e-5) => assert.ok(Math.abs(actual - expected) < tolerance, `${actual} differs from ${expected}`);
 
 test("carrier payloads are optional but strictly validate train, carriage bounds, scope and height", () => {
-  for (let train = 0; train < 4; train++) {
+  for (let train = 0; train < TRAIN_COUNT; train++) {
     const attached = { ...carrier, train };
     const parsed = parsePose(riderPose(attached, 20));
     assert.ok(parsed?.carrier);
     assert.equal(parsed.carrier.train, train);
     near(parsed.carrier.yaw, attached.yaw);
-    assert.equal(parsed.y, PLATFORM_HEIGHT);
+    assert.equal(parsed.y, railPose(attached, 20).y);
   }
-  for (const malformed of [null, {}, [], { ...carrier, train: -1 }, { ...carrier, train: 4 }, { ...carrier, train: 1.5 }, { ...carrier, u: 2, v: 5 }, { ...carrier, u: 4 }, { ...carrier, v: 22 }, { ...carrier, yaw: Infinity }]) assert.equal(parseTrainCarrier(malformed), null);
+  for (const malformed of [null, {}, [], { ...carrier, train: -1 }, { ...carrier, train: TRAIN_COUNT }, { ...carrier, train: 1.5 }, { ...carrier, u: 2, v: 5 }, { ...carrier, u: 4 }, { ...carrier, v: 22 }, { ...carrier, yaw: Infinity }]) assert.equal(parseTrainCarrier(malformed), null);
   const valid = riderPose(carrier, 20);
   assert.equal(parsePose({ ...valid, carrier: undefined })?.carrier, null);
   assert.equal(parsePose({ ...valid, carrier: null })?.carrier, null);
@@ -41,7 +41,8 @@ test("carrier payloads are optional but strictly validate train, carriage bounds
   assert.equal(parsePose({ ...valid, mode: "fly" }), null);
   assert.equal(parsePose({ ...valid, place: "kiln" }), null);
   assert.equal(parsePose({ ...valid, y: 0 }), null);
-  assert.equal(parsePose({ ...valid, y: PLATFORM_HEIGHT + RAIL_HEIGHT_SLACK + 0.01 }), null);
+  assert.equal(parsePose({ ...valid, y: LINES[0].floorRange[1] + RAIL_HEIGHT_SLACK + 0.01 }), null);
+  assert.equal(parsePose({ ...valid, y: LINES[0].floorRange[0] - RAIL_HEIGHT_SLACK - 0.01 }), null);
   assert.equal(parsePose({ ...valid, speed: 99, car: 42 })?.speed, CARRIER_WALK_SPEED);
   assert.equal(parsePose({ ...valid, speed: 99, car: 42 })?.car, 0);
   assert.equal(validRailPresence({ ...valid, place: "blue-hour" }), false);
@@ -71,7 +72,7 @@ test("carrier reconstruction follows every curve with fixed local position and r
     near(local.u, carrier.u);
     near(local.v, carrier.v);
     near(Math.atan2(Math.sin(position.yaw - train.yaw), Math.cos(position.yaw - train.yaw)), carrier.yaw);
-    assert.equal(position.y, PLATFORM_HEIGHT);
+    assert.equal(position.y, floorHeight(train, carrier.v));
   }
 });
 
@@ -109,8 +110,8 @@ test("carriage interpolation blends local movement, holds stale riders aboard an
 
 test("the engine's carrier pose preserves local gait speed and rail floor height", () => {
   const position = railPose(carrier, 25);
-  const result = localPose({ ...position, eye: PLATFORM_HEIGHT + TRAIN_EYE_HEIGHT, pitch: 0, speed: 2.5, mode: "metro", car: null, rideHeading: null, inTrain: true, carrier });
-  near(result.y, PLATFORM_HEIGHT);
+  const result = localPose({ ...position, eye: position.y + TRAIN_EYE_HEIGHT, pitch: 0, speed: 2.5, mode: "metro", car: null, rideHeading: null, inTrain: true, carrier });
+  near(result.y, position.y);
   assert.equal(result.speed, 2.5);
   assert.deepEqual(result.carrier, carrier);
 });

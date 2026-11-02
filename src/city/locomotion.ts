@@ -159,6 +159,73 @@ export function advanceJourney(journey: Journey, position: Waypoint, dt: number)
   return { done: journey.segment >= journey.points.length, heading, speed: journey.speed };
 }
 
+/** Smoothstep of a 0..1 fraction, so a slide (door leaves, platform gates) starts and stops at rest.
+ * Draw-time only: schedules keep their linear fractions and thresholds. */
+export function easeSlide(fraction: number): number {
+  const x = clamp(Number.isFinite(fraction) ? fraction : 0, 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
+/** Stepping out of an interior (effects on): the street comes up from near-dark over this long. */
+export const DOOR_FADE_SECONDS = 0.4;
+/** Street brightness for a door-fade progress 0..1: from 8% to full, eased at both ends, monotonic. */
+export function doorReveal(progress: number): number {
+  return 0.08 + 0.92 * easeSlide(progress);
+}
+
+const wrapAngle = (radians: number): number => Math.atan2(Math.sin(radians), Math.cos(radians));
+/** Ride camera (taxi and sky taxi): the most it ever turns, in radians per second (75 deg/s). */
+export const RIDE_TURN_RATE = 75 * Math.PI / 180;
+/** How quickly the ride camera's turn rate builds and dies away (rad/s^2): ease-in and ease-out. */
+export const RIDE_TURN_ACCEL = 2.4;
+/** Metres before a corner over which the ride camera starts to look into the next street. */
+export const RIDE_LOOK_AHEAD = 15;
+export interface RideTurn { heading: number; rate: number; target: number }
+
+/** Steer the ride camera toward `target` (null: keep the last target) with a capped, eased angular
+ * speed: the rate ramps up and down at RIDE_TURN_ACCEL, never exceeds RIDE_TURN_RATE, and brakes so
+ * it settles on the target without overshooting. Returns the yaw change for this step (radians), to
+ * add on top of the viewer's own mouse-look offset. */
+export function stepRideTurn(turn: RideTurn, target: number | null, dt: number): number {
+  if (target !== null && Number.isFinite(target)) turn.target = target;
+  const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
+  if (step <= 0) return 0;
+  const error = wrapAngle(turn.target - turn.heading);
+  // The braking curve in discrete steps (lands on the target without overshoot at this dt), capped.
+  const half = RIDE_TURN_ACCEL * step / 2;
+  const desired = Math.sign(error) * Math.min(RIDE_TURN_RATE, Math.sqrt(half * half + 2 * RIDE_TURN_ACCEL * Math.abs(error)) - half);
+  turn.rate = clamp(turn.rate + clamp(desired - turn.rate, -RIDE_TURN_ACCEL * step, RIDE_TURN_ACCEL * step), -RIDE_TURN_RATE, RIDE_TURN_RATE);
+  let delta = turn.rate * step;
+  // Arrive exactly: the last sliver is taken whole, and the rate winds down under the same
+  // acceleration limit instead of dropping to zero in one step (no felt jolt at the end of a turn).
+  if (delta * error > 0 && Math.abs(delta) >= Math.abs(error)) delta = error;
+  else if (Math.abs(error) < 1e-6) delta = 0;
+  if (delta === error || Math.abs(error) < 1e-6) turn.rate -= clamp(turn.rate, -RIDE_TURN_ACCEL * step, RIDE_TURN_ACCEL * step);
+  turn.heading = wrapAngle(turn.heading + delta);
+  return delta;
+}
+
+/** The heading a ride camera should face: along the current segment, blending into the next
+ * horizontal segment over the last RIDE_LOOK_AHEAD metres, and toward the coming flight line for a
+ * whole vertical climb. Null keeps the current heading (a final descent, a finished journey). */
+export function journeyLookHeading(journey: Journey, position: Waypoint): number | null {
+  const target = journey.points[journey.segment];
+  if (!target) return null;
+  const after = journey.points[journey.segment + 1];
+  let next: number | null = null;
+  if (after) {
+    const nx = after.x - target.x, nz = after.z - target.z, flat = Math.hypot(nx, nz);
+    if (flat > 0.01 && flat >= Math.abs(after.y - target.y)) next = Math.atan2(nx, -nz);
+  }
+  const dx = target.x - position.x, dy = target.y - position.y, dz = target.z - position.z, flat = Math.hypot(dx, dz);
+  if (flat <= 0.01 || Math.abs(dy) > flat) return next;
+  const current = Math.atan2(dx, -dz);
+  if (next === null) return current;
+  const remaining = Math.hypot(dx, dy, dz);
+  if (remaining >= RIDE_LOOK_AHEAD) return current;
+  return wrapAngle(current + wrapAngle(next - current) * easeSlide(1 - remaining / RIDE_LOOK_AHEAD));
+}
+
 export function safeLanding(world: CityWorld, x: number, z: number): { x: number; z: number } {
   x = clamp(x, -WORLD_EDGE + 5, WORLD_EDGE - 5);
   z = clamp(z, -WORLD_EDGE + 5, WORLD_EDGE - 5);

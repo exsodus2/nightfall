@@ -6,6 +6,7 @@
 import { PLAYER_BODY } from "./constants.ts";
 import type { Enemy, EnemyAttack, Sim } from "./sim.ts";
 import type { CombatEffect } from "../types.ts";
+import { LUNGE, RUSH } from "./forms.ts";
 import { TICK, angleDiff, turnToward, yawTo } from "./util.ts";
 
 type Signature = "slam" | "sweep" | "barrage" | "charge" | "summon" | "shockwave";
@@ -230,7 +231,16 @@ export function hazardEffects(sim: Sim): CombatEffect[] {
   const out: CombatEffect[] = [];
   for (const e of sim.enemies) {
     const a = e.attack;
-    if (!e.boss || e.deathTime >= 0 || !a || a.kind === "melee" || a.kind === "ranged") continue;
+    if (e.deathTime >= 0 || !a) continue;
+    if (!e.boss) {
+      // Regular enemies' dashes get a ground line too: the rusher's lunge while it crouches, the
+      // bruiser's rush from wind-up until the run ends.
+      const line = { kind: "telegraph" as const, shape: "line" as const, yaw: a.yaw, age: a.t, progress: Math.min(1, a.t / a.windup), enemy: e.id, arc: 0 };
+      if (a.kind === "lunge" && a.t < a.windup) out.push({ ...line, x: e.x, z: e.z, radius: LUNGE.speed * LUNGE.active + e.weapon.range, width: 1.2 });
+      else if (a.kind === "rush" && a.travelled < RUSH.length) out.push({ ...line, x: a.t < a.windup ? e.x : a.originX, z: a.t < a.windup ? e.z : a.originZ, radius: RUSH.length, width: e.radius * 2 + 0.8 });
+      continue;
+    }
+    if (a.kind === "melee" || a.kind === "ranged") continue;
     const progress = Math.min(1, a.t / a.windup), base = { kind: "telegraph" as const, x: e.x, z: e.z, yaw: a.yaw, age: a.t, progress, enemy: e.id, width: 0, arc: 0 };
     if (a.t >= a.windup && a.kind !== "charge") continue;
     switch (a.kind) {

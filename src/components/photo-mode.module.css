@@ -1,0 +1,62 @@
+/* Photo mode strip (photo-mode.tsx) and the first-visit key hints (onboarding-hints.tsx). Same plates,
+   mono labels and keycaps as the HUD; nothing animates, so reduced motion needs no override. */
+
+.strip {
+  position: absolute; z-index: 30; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 32px);
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 7px 10px;
+  background: var(--hud-plate-strong); border: 1px solid #7fb3ab44; border-left: 2px solid #95e0c0;
+  font: 11px/1.4 var(--font-mono); color: #c3d4ce; outline: none;
+}
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.label { padding-right: 4px; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: #95e0c0; }
+.rule { width: 1px; height: 18px; background: #7fb3ab33; }
+.action, .toggle, .done {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 9px;
+  font: inherit; color: #d6e2dc; background: #0b1c20b3; border: 1px solid #7fb3ab55; border-radius: 3px;
+}
+.action:hover, .toggle:hover, .done:hover { border-color: #baf5d7aa; color: #ffffff; }
+.toggle[aria-pressed="true"] { background: #7ee8d6e6; border-color: #7ee8d6; color: #081418; }
+.done { border-color: #95e0c0aa; color: #baf5d7; }
+.action kbd, .done kbd { min-width: 18px; height: 18px; padding: 1px 4px; }
+.speed { display: inline-flex; align-items: center; gap: 6px; color: #9fbcb4; }
+.speed input { width: 84px; accent-color: #7ee8d6; }
+.speed input:disabled { opacity: .4; }
+.speed output { min-width: 34px; font-variant-numeric: tabular-nums; }
+.hint { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-size: 10px; color: var(--hud-dim); }
+.hint kbd { min-width: 18px; height: 18px; padding: 1px 4px; margin-right: 5px; font-size: 10px; }
+.status { margin: 0; min-height: 0; font-size: 11px; color: #baf5d7; }
+.status:empty { display: none; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Controls hidden (H): one small chip to bring them back (tap target on phones). */
+.reveal {
+  position: absolute; z-index: 30; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; opacity: .55;
+  font: 10px var(--font-mono); color: #c3d4ce; background: var(--hud-plate); border: 1px solid #7fb3ab33;
+}
+.reveal:hover, .reveal:focus-visible { opacity: 1; }
+.reveal kbd { min-width: 18px; height: 18px; padding: 1px 4px; }
+
+@media (pointer: coarse) {
+  .action, .toggle, .done { min-height: 44px; padding: 6px 12px; }
+  .reveal { min-height: 44px; padding: 6px 12px 6px 8px; }
+  .strip { left: calc(env(safe-area-inset-left, 0px) + 16px); right: calc(env(safe-area-inset-right, 0px) + 16px); width: auto; max-width: none; transform: none; }
+  .hint { display: none; }
+  .action kbd, .done kbd, .reveal kbd { display: none; }
+}
+
+/* First-visit key hints: a small card above the crosshair, clear of the quest HUD, chat and toasts. */
+.hints {
+  position: absolute; z-index: 2; left: 50%; top: calc(50% - 64px); transform: translate(-50%, -100%);
+  width: max-content; max-width: min(320px, calc(100% - 32px));
+  padding: 8px 10px 8px 10px; background: var(--hud-plate); border-left: 2px solid #7fb3ab88;
+  font: 11px/1.4 var(--font-mono); color: #c3d4ce;
+}
+.hintsHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--hud-label); }
+.hintsClose { padding: 2px 6px; font: inherit; letter-spacing: .08em; color: #c3d4ce; background: transparent; border: 1px solid #7fb3ab44; border-radius: 3px; }
+.hintsGrid { display: grid; grid-template-columns: repeat(3, auto); gap: 5px 14px; margin: 0; padding: 0; list-style: none; }
+.hintsGrid li { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.hintsGrid li[data-used="true"] { color: #6f8d88; }
+.hintsGrid li[data-used="true"] kbd { border-color: #7fb3ab33; color: #6f8d88; }
+@media (max-height: 520px) { .hints { display: none; } }

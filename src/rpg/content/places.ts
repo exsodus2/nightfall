@@ -3,6 +3,7 @@
 // walkability (tests/rpg-content.test.ts), so moving something here is safe to try.
 
 import type { Area } from "../types.ts";
+import { PARK_ARENA } from "../../city/world.ts";
 
 /** Recommended player level per district id (world.ts DISTRICTS): safe around the spawn in the
  * Silk Market, harder the further out you walk. Roaming encounters are chosen to match. */
@@ -15,12 +16,10 @@ export const DISTRICT_LEVEL: Readonly<Record<number, readonly [number, number]>>
   2: [7, 12], // Ghost Circuit
 };
 
-/** The Rootwood Park boss arena, around The Last Tree (-480, 288).
- * SWAP POINT: a teammate is adding Rootwood Park to src/city/world.ts (x -576..-384, z 192..384)
- * with an exported PARK_ARENA. When it lands, replace this literal with
- * `export { PARK_ARENA as ARENA } from "../../city/world.ts";` - every boss / add / interactable
- * position below is derived from ARENA, and the content test re-checks them all. */
-export const ARENA: Area = { x: -480, z: 288, radius: 26, label: "Rootwood Park - the Last Tree" };
+/** The Rootwood Park boss arena: the pillared circle park.ts lays out (PARK_ARENA), not the Last
+ * Tree's plaza 60 m away, which has its own collision, steps and benches. Every boss / add /
+ * interactable position below is derived from ARENA, and the content test re-checks them all. */
+export const ARENA: Area = { x: PARK_ARENA.x, z: PARK_ARENA.z, radius: PARK_ARENA.radius + 6, label: "Rootwood Park - the stone circle" };
 
 /** A point at `distance` metres from the arena centre towards `bearing` (radians, 0 = north). */
 export function arenaPoint(bearing: number, distance: number): { x: number; z: number } {

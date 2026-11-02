@@ -56,9 +56,9 @@ export interface QuestBookState { credits: number; progress: Readonly<Record<str
 export const QUESTS: readonly QuestDefinition[] = [
   {
     id: "relay-chip", title: "The Relay Chip", giver: "mara", reward: 250,
-    summary: "Collect a sealed relay chip from Juno Reyes in Neon Ward and bring it back.",
-    steps: [{ npc: "juno", objective: "Meet Juno Reyes under the Meridian Spire in Neon Ward", action: "Take the relay chip", update: "Relay chip collected" }],
-    returnObjective: "Return the relay chip to Mara Voss in the Silk Market",
+    summary: "Mara Voss, a Silk Market data broker, needs a sealed relay chip collected from Juno Reyes under the Meridian Spire in Neon Ward and brought back to her unopened.",
+    steps: [{ npc: "juno", objective: "Find Juno Reyes at the foot of the Meridian Spire, Neon Ward", action: "Take the relay chip", update: "Relay chip collected" }],
+    returnObjective: "Bring the sealed relay chip to Mara Voss in the Silk Market",
     acceptLabel: "I'll bring it back", declineLabel: "Not tonight", completeLabel: "Hand over the chip",
   },
 ];

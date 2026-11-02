@@ -35,6 +35,10 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "copper-scrap", weight: 22, min: 1, max: 3 },
       { item: "burnt-chip", weight: 16, min: 1, max: 2 },
       { item: "neon-tube", weight: 8 },
+      { item: "foundry-slag", weight: 6 },
+      { item: "afterlight-token", weight: 5, min: 1, max: 4 },
+      { item: "sealant-spray", weight: 5 },
+      { item: "hyphen", weight: 2 },
       { item: "pool:common:gear", weight: 7 },
       { item: "pool:uncommon", weight: 6 },
       { item: "pool:rare:gear", weight: 1.5 },
@@ -49,7 +53,12 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "stim", weight: 12, min: 1, max: 2 },
       { item: "medkit", weight: 6 },
       { item: "haste-inhaler", weight: 5 },
+      { item: "kiln-coffee", weight: 4 },
+      { item: "glare-drops", weight: 3 },
+      { item: "moss-poultice", weight: 2 },
       { item: "circuit-board", weight: 8 },
+      { item: "query", weight: 1.5 },
+      { item: "shebang", weight: 1.5 },
       { item: "data-shard", weight: 6 },
       { item: "pool:common:gear", weight: 6 },
       { item: "pool:uncommon:gear", weight: 8 },
@@ -69,6 +78,10 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "focus-chip", weight: 4 },
       { item: "data-shard", weight: 9 },
       { item: "encrypted-drive", weight: 2 },
+      { item: "hologram-gel", weight: 6 },
+      { item: "interrupt", weight: 1 },
+      { item: "tab-stop", weight: 1.5 },
+      { item: "close-brace", weight: 0.05 },
       { item: "kevlar-weave", weight: 3 },
       { item: "riot-helm", weight: 3 },
       { item: "pool:uncommon:gear", weight: 7 },
@@ -85,6 +98,8 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "focus-chip", weight: 6 },
       { item: "encrypted-drive", weight: 6, min: 1, max: 2 },
       { item: "ammo-rifle", weight: 5, min: 10, max: 20 },
+      { item: "static-jar", weight: 4 },
+      { item: "overclock-tab", weight: 4 },
       { item: "pool:rare:gear", weight: 5 },
     ],
   },
@@ -103,6 +118,12 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "ammo-shell", weight: 6, min: 2, max: 4 },
       { item: "copper-scrap", weight: 18, min: 1, max: 4 },
       { item: "neon-tube", weight: 10 },
+      { item: "hana-broth", weight: 6 },
+      { item: "tea-brick", weight: 6 },
+      { item: "river-glass", weight: 6, min: 1, max: 3 },
+      { item: "foundry-slag", weight: 5 },
+      { item: "rainfern-seeds", weight: 3 },
+      { item: "moss-poultice", weight: 3 },
       { item: "circuit-board", weight: 5 },
       { item: "pool:common:gear", weight: 5 },
       { item: "pool:uncommon:gear", weight: 2 },
@@ -117,6 +138,13 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "haste-inhaler", weight: 5 },
       { item: "data-shard", weight: 8 },
       { item: "encrypted-drive", weight: 4 },
+      { item: "old-world-watch", weight: 2 },
+      { item: "antenna-core", weight: 5 },
+      { item: "defrag-patch", weight: 4 },
+      { item: "overclock-tab", weight: 3 },
+      { item: "glare-drops", weight: 3 },
+      { item: "static-jar", weight: 1 },
+      { item: "kernel-plate", weight: 1 },
       { item: "ammo-rifle", weight: 6, min: 6, max: 12 },
       { item: "ammo-shell", weight: 6, min: 4, max: 8 },
       { item: "pool:uncommon:gear", weight: 8 },
@@ -125,7 +153,63 @@ export const LOOT_TABLES: readonly LootTable[] = [
       { item: "pool:legendary:gear", weight: 0.15 },
     ],
   },
+  // Combat tiers: what a street fight pays by how dangerous the enemy was. Archetype tables (content
+  // packs) add their signature drops and roll one of these through `also`.
+  /** Tier 1: rushers, dock hands, single drones. Ammo, a stim, pocket change. */
+  {
+    id: "tier-street", rolls: 1, empty: 0.3, credits: [6, 24],
+    entries: [
+      { item: "ammo-pistol", weight: 30, min: 4, max: 10 },
+      { item: "ammo-shell", weight: 12, min: 2, max: 4 },
+      { item: "stim", weight: 20 },
+      { item: "copper-scrap", weight: 18, min: 1, max: 3 },
+      { item: "circuit-board", weight: 8 },
+      { item: "pool:uncommon", weight: 9 },
+      { item: "pool:rare:gear", weight: 2.5 },
+      { item: "pool:epic:gear", weight: 0.5 },
+    ],
+  },
+  /** Tier 2: bruisers, shield-bearers, gunners with armour. More ammo, real medicine, the odd rare. */
+  {
+    id: "tier-veteran", rolls: 2, empty: 0.2, credits: [20, 60],
+    entries: [
+      { item: "ammo-pistol", weight: 18, min: 8, max: 16 },
+      { item: "ammo-shell", weight: 14, min: 3, max: 6 },
+      { item: "ammo-rifle", weight: 8, min: 4, max: 10 },
+      { item: "stim", weight: 16, min: 1, max: 2 },
+      { item: "medkit", weight: 7 },
+      { item: "haste-inhaler", weight: 5 },
+      { item: "defrag-patch", weight: 4 },
+      { item: "pool:uncommon:gear", weight: 8 },
+      { item: "pool:rare:gear", weight: 4 },
+      { item: "pool:epic:gear", weight: 0.8 },
+    ],
+  },
+  /** Tier 3: officers, elite patrols, boss adds. Good consumables and a real shot at an epic. */
+  {
+    id: "tier-elite", rolls: 2, empty: 0.05, credits: [50, 140],
+    entries: [
+      { item: "medkit", weight: 10 },
+      { item: "shield-cell", weight: 6 },
+      { item: "focus-chip", weight: 6 },
+      { item: "overclock-tab", weight: 5 },
+      { item: "ammo-rifle", weight: 8, min: 8, max: 16 },
+      { item: "ammo-shell", weight: 6, min: 4, max: 8 },
+      { item: "pool:rare:gear", weight: 7 },
+      { item: "pool:epic:gear", weight: 2 },
+      { item: "pool:legendary:gear", weight: 0.2 },
+    ],
+  },
 ];
+
+/** One roll of a table as probabilities: the chance of nothing plus each entry's chance (weight
+ * share of the non-empty part). They always sum to 1, which the loot tests assert per table. */
+export function lootOdds(table: LootTable): { empty: number; entries: { item: string; p: number }[] } {
+  const total = table.entries.reduce((sum, e) => sum + Math.max(0, e.weight), 0);
+  if (total <= 0) return { empty: 1, entries: table.entries.map(e => ({ item: e.item, p: 0 })) };
+  const empty = Math.min(1, Math.max(0, table.empty ?? 0));
+  return { empty, entries: table.entries.map(e => ({ item: e.item, p: (1 - empty) * Math.max(0, e.weight) / total })) };
+}
 
 // Nested tables ("table:" entries and `also`) are cut off below this depth so a cyclic content
 // pack cannot hang the game.

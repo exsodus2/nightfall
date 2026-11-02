@@ -1,10 +1,10 @@
-import type { PropCanvas } from "./prop-canvas";
-import { cuboid as box, ink, propRange, restorePropRange, type ActivityView } from "./activity";
+import type { PropCanvas } from "./prop-canvas.ts";
+import { cuboid as box, ink, propRange, restorePropRange, type ActivityView } from "./activity.ts";
 import {
   ARENA_SEAT_RADII, ARENA_STAGE, BRIDGE, FOUNTAIN, GATE_DEPTH, GATE_HEIGHT, GATE_INNER, GATE_MOUTH, GATE_OUTER, HEDGE_HEIGHT, PARK, PARK_ARENA, PARK_GATES,
-  PARK_SCULPTURES, gateFace, parkLayout, parkRandom, type ParkSculpture, type ParkTree,
-} from "./park";
-import type { RGB } from "./world";
+  PARK_SCULPTURES, POND, gateFace, parkLayout, parkRandom, type ParkSculpture, type ParkTree,
+} from "./park.ts";
+import type { RGB } from "./world.ts";
 
 /**
  * Rootwood Park's props (park.ts has the layout): trees of five species, hedges, benches, path
@@ -128,6 +128,9 @@ export function drawPark(t: PropCanvas, view: ActivityView, time: number): void 
     t.pop();
   }
 
+  drawReeds(t, seen);
+  drawFireflies(t, view, time);
+
   drawGatehouses(t, seen);
   drawBridge(t, seen);
   drawFountain(t, seen);
@@ -137,6 +140,74 @@ export function drawPark(t: PropCanvas, view: ActivityView, time: number): void 
 }
 
 type Seen = (x: number, z: number, radius: number, range: number) => boolean;
+
+// ---- Reeds and fireflies (Agent F) ----------------------------------------------------------------
+// Reeds stand in clumps along the pond's waterline (pondField = 1, park.ts), clear of the bridge;
+// built once. Fireflies hover over the lawns near the camera: a few per tree, drifting on slow
+// Lissajous loops and glowing up and down over several seconds - never blinking (comfort).
+interface Reed { x: number; z: number; height: number; dx: number; dz: number; tone: number }
+let reeds: Reed[] | null = null;
+function reedClumps(): Reed[] {
+  const list: Reed[] = [];
+  const bx = BRIDGE.x1 - BRIDGE.x0, bz = BRIDGE.z1 - BRIDGE.z0, bl2 = bx * bx + bz * bz;
+  for (let k = 0; k < 64; k++) {
+    const a = k * Math.PI * 2 / 64 + (parkRandom(k, 3, 91) - 0.5) * 0.06;
+    if (parkRandom(k, 7, 92) < 0.3) continue; // gaps in the beds
+    const edge = (1 + 0.1 * Math.sin(2 * a + 0.6) + 0.07 * Math.sin(3 * a + 2.1)) * (0.97 + parkRandom(k, 1, 93) * 0.06);
+    const x = POND.x + Math.cos(a) * POND.rx * edge, z = POND.z + Math.sin(a) * POND.rz * edge;
+    const u = Math.max(0, Math.min(1, ((x - BRIDGE.x0) * bx + (z - BRIDGE.z0) * bz) / bl2));
+    if (Math.hypot(x - BRIDGE.x0 - bx * u, z - BRIDGE.z0 - bz * u) < BRIDGE.half + 2.5) continue;
+    // A clump is one block of stems (the "|" glyph draws them) - never thinner than a cell at
+    // the distances it is drawn, so it cannot break up into flickering slivers.
+    for (let s = 0; s < 2; s++) {
+      const r = (salt: number) => parkRandom(k * 3 + s, 11, salt);
+      list.push({ x: x + (r(94) - 0.5) * 0.8, z: z + (r(95) - 0.5) * 0.8, height: 0.7 + r(96) * 0.8, dx: 0.45 + r(97) * 0.4, dz: 0.45 + r(98) * 0.4, tone: r(99) });
+    }
+  }
+  return list;
+}
+const REED: RGB = [74, 96, 54], REED_DRY: RGB = [104, 98, 62], REED_HEAD: RGB = [70, 52, 40];
+function drawReeds(t: PropCanvas, seen: Seen): void {
+  if (!seen(POND.x, POND.z, POND.rx * 1.3, 140)) return;
+  reeds ??= reedClumps();
+  propRange(140);
+  ink(t, REED, "|");
+  for (const r of reeds) if (r.tone < 0.7 && seen(r.x, r.z, 1, 140)) box(t, r.x, r.height / 2, r.z, r.dx, r.height, r.dz);
+  ink(t, REED_DRY, "|");
+  for (const r of reeds) if (r.tone >= 0.7 && seen(r.x, r.z, 1, 140)) box(t, r.x, r.height / 2, r.z, r.dx, r.height, r.dz);
+  propRange(22);
+  // Bulrush heads standing out of the taller clumps, close up only.
+  ink(t, REED_HEAD, "#");
+  for (const r of reeds) if (r.height > 1.1 && seen(r.x, r.z, 1, 22)) box(t, r.x, r.height + 0.14, r.z, 0.18, 0.3, 0.18);
+
+}
+
+const FIREFLY: RGB = [200, 255, 130];
+const FIREFLY_RANGE = 32, FIREFLY_MAX = 40;
+function drawFireflies(t: PropCanvas, view: ActivityView, time: number): void {
+  if (!trees || view.height > 12) return;
+  propRange(FIREFLY_RANGE + 4);
+  let drawn = 0;
+  for (const { tree } of trees) {
+    const dx = tree.x - view.x, dz = tree.z - view.z;
+    if (dx * dx + dz * dz > FIREFLY_RANGE * FIREFLY_RANGE || parkRandom(tree.x, tree.z, 81) > 0.14) continue;
+    for (let k = 0; k < 2 && drawn < FIREFLY_MAX; k++, drawn++) {
+      const r = (salt: number) => parkRandom(tree.x, tree.z, 82 + k * 7 + salt);
+      const phase = r(0) * Math.PI * 2, slow = 0.09 + r(1) * 0.07, reach = tree.canopy + 1.2;
+      const x = tree.x + Math.cos(time * slow + phase) * reach, z = tree.z + Math.sin(time * slow * 1.3 + phase * 2) * reach;
+      const y = 0.9 + r(2) * 1.4 + Math.sin(time * slow * 2.1 + phase) * 0.35;
+      // Glow: 0.35..1.25 over a 5-9 s cycle, smooth both ways.
+      const glow = 0.8 + 0.45 * Math.sin(time * (0.7 + r(3) * 0.5) + phase);
+      // Never smaller than about a cell on screen, so a distant one cannot wink in and out.
+      const size = Math.max(0.07, Math.hypot(x - view.x, z - view.z) * 0.009);
+      ink(t, FIREFLY, "*", glow);
+      t.translate(x, -y, z); t.ellipsoid(size, size, size); t.translate(-x, y, -z);
+
+    }
+    if (drawn >= FIREFLY_MAX) break;
+  }
+}
+
 
 /** Tunnel gatehouses: dark vehicle mouths either side of a pedestrian arch, ivy on top. The
  * underpass traffic drives into the mouths and vanishes inside the solid dark blocks. */

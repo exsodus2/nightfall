@@ -129,9 +129,9 @@ test("generated parked-car centres and nearby traffic resolve to truly clear loc
   }
 });
 
-test("all six canonical room exits can publish a safe exterior correction without changing the protocol", () => {
+test("all nine canonical room exits can publish a safe exterior correction without changing the protocol", () => {
   const world = new CityWorld(), venues = interiorPlaces(world);
-  assert.equal(venues.length, 6);
+  assert.equal(venues.length, 9);
   for (const place of venues) {
     const blocker = { ...place.entrance, yaw: place.yaw + Math.PI / 2 };
     const corrected = findWalkArrival(world, place.entrance, [blocker]);

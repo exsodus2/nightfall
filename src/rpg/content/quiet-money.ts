@@ -33,50 +33,50 @@ const interactables: InteractableDefinition[] = [
   {
     id: "qm-cradle", label: "Data cradle", x: 54, z: -182, y: 1.2, glyph: "C", once: true,
     condition: inStage(Q, "vault"),
-    effects: [{ give: "vault-core" }, { message: "The core slides out of the cradle with a sigh of cold air. Somewhere a server notices it's lonely.", tone: "loot" }],
+    effects: [{ give: "vault-core" }, { message: "The core slides out in a puff of cold air. The empty slot starts blinking amber.", tone: "loot" }],
   },
 ];
 
 const quest: QuestDefinition2 = {
   id: Q, title: "Quiet Money", category: "side", giver: "nix",
   summary: "Lift a Meridian payroll core out of the CorpSec data cradle behind the Spire. Quietly, ideally.",
-  rewardHint: "700 cr and an epic blade from Nix - or whatever CorpSec offers", recommendedLevel: 7, start: "breach",
+  rewardHint: "Nix: 700 cr + Null Pointer (+250 cr if quiet). Sarr: 1100 cr + CorpSec gear", recommendedLevel: 7, start: "breach",
   stages: [
     {
-      id: "breach", journal: "The cradle sits on the north side of the Meridian Spire. Loop the cameras at the service panel and walk in - or clear the guards.",
+      id: "breach", journal: "Nix wants the Meridian payroll core from the CorpSec data cradle on the north side of the Meridian Spire. Loop the cameras at the service panel west of the cradle and walk in, or clear the guards.",
       onEnter: [{ spawn: "qm-vault-guards" }, { waypoint: { x: 16, z: -182, label: "Service panel" } }],
       mode: "any",
       objectives: [
-        { id: "quiet", kind: "condition", text: "Loop the cradle cameras at the service panel", condition: QUIET, target: { x: 16, z: -182 } },
-        { id: "loud", kind: "clear", text: "Or go loud: clear the cradle guards", encounter: "qm-vault-guards" },
+        { id: "quiet", kind: "condition", text: "Loop the cameras at the service panel, north side of the Meridian Spire", condition: QUIET, target: { x: 16, z: -182 } },
+        { id: "loud", kind: "clear", text: "Or go loud: clear the cradle guards behind the Meridian Spire", encounter: "qm-vault-guards" },
       ],
       next: "vault",
     },
     {
-      id: "loud", journal: "Alarms. The guards know, and more are coming up the avenue. Clear them all.",
+      id: "loud", journal: "The alarm is up. The cradle guards are on you and a response team is coming up the avenue. Clear them all.",
       onEnter: [{ spawn: "qm-reinforcements" }],
       objectives: [
-        { id: "guards", kind: "clear", text: "Clear the cradle guards", encounter: "qm-vault-guards" },
-        { id: "response", kind: "clear", text: "Clear the alarm response", encounter: "qm-reinforcements" },
+        { id: "guards", kind: "clear", text: "Clear the cradle guards behind the Meridian Spire", encounter: "qm-vault-guards" },
+        { id: "response", kind: "clear", text: "Clear the CorpSec response team coming up the avenue", encounter: "qm-reinforcements" },
       ],
       next: "vault",
     },
     {
-      id: "vault", journal: "The cradle is open. Take the core.",
-      objectives: [{ id: "core", kind: "interact", text: "Pull the payroll core from the data cradle", object: "qm-cradle" }],
+      id: "vault", journal: "The cradle on the north side of the Meridian Spire is open. Pull the payroll core and get clear.",
+      objectives: [{ id: "core", kind: "interact", text: "Pull the payroll core from the data cradle, north side of the Meridian Spire", object: "qm-cradle" }],
       next: "deliver",
     },
     {
-      id: "deliver", journal: "Nix is waiting on the Ghost Circuit. Adjutant Sarr is standing about thirty metres away. Nobody would ever know. Except everybody.",
+      id: "deliver", journal: "Nix is waiting on the west edge of the Ghost Circuit, due east of the Spire. Adjutant Sarr, at the CorpSec checkpoint on the Spire's south side, has already seen the sleeve and will pay more.",
       mode: "any",
       objectives: [
-        { id: "to-nix", kind: "choose", text: "Bring the core to Nix", dialogue: "qm.nix", options: ["hand-over", "hand-over-clean"] },
-        { id: "to-sarr", kind: "choose", text: "Or sell it back to Adjutant Sarr", dialogue: "qm.sarr", options: ["sell-out"] },
+        { id: "to-nix", kind: "choose", text: "Bring the core to Nix on the Ghost Circuit", dialogue: "qm.nix", options: ["hand-over", "hand-over-clean"] },
+        { id: "to-sarr", kind: "choose", text: "Or sell it to Adjutant Sarr at the Spire checkpoint, Neon Ward", dialogue: "qm.sarr", options: ["sell-out"] },
       ],
       next: [{ if: { flag: "quiet-money.to-sarr", is: "sell-out" }, stage: "end-betrayed" }, { stage: "end-delivered" }],
     },
-    ending("end-delivered", "Nix paid.", "delivered"),
-    ending("end-betrayed", "Sarr paid.", "betrayed"),
+    ending("end-delivered", "You gave the payroll core to Nix.", "delivered"),
+    ending("end-betrayed", "You sold the payroll core to Adjutant Sarr.", "betrayed"),
   ],
   outcomes: {
     delivered: {
@@ -84,7 +84,7 @@ const quest: QuestDefinition2 = {
       effects: [{ credits: 700 }, { xp: 1200 }, { give: "null-pointer" }, { rep: "ghosts", by: 15 }, { rep: "corpsec", by: -10 }],
     },
     betrayed: {
-      title: "Company Man", journal: "Sarr took the core without a word and paid without a smile. CorpSec will remember the favour. The Ghosts will remember everything else.",
+      title: "Company Man", journal: "Sarr took the core without a word and paid without a smile. Nix heard within the hour; expect Ghost prices to go up.",
       effects: [{ credits: 1100 }, { xp: 1200 }, { give: "brace-burst" }, { give: "firewall-vest" }, { rep: "corpsec", by: 15 }, { rep: "ghosts", by: -20 }, { setFlag: "qm.betrayed" }],
     },
   },
@@ -100,8 +100,8 @@ const dialogues: DialogueDefinition[] = [
     nodes: [
       node("offer", [
         "Meridian keeps a payroll core in a data cradle on the north side of the Spire. It has eleven years of numbers on it that don't add up.",
-        "I want it. The Ghosts want it. The public, I think, deserves it.",
-        "Quiet is worth more than loud. Loud is still worth something.",
+        "I want it. The Ghosts want it. Every courier Meridian shorted on overtime wants it read out loud.",
+        "You're not on any list Meridian owns, which makes you the right face for it. Seven hundred and a blade off my own rack; quiet is worth two-fifty more.",
       ], [
         { id: "accept", label: "I'm in.", effects: [{ startQuest: Q }], next: "plan" },
         bye("Too hot for me.", "decline"),
@@ -119,7 +119,7 @@ const dialogues: DialogueDefinition[] = [
         { id: "hand-over", label: "Hand over the core.", kind: "complete", condition: { all: [{ item: "vault-core" }, { not: QUIET }] }, hideIfUnavailable: true, effects: [{ take: "vault-core" }], next: "paid" },
         bye("Not yet."),
       ]),
-      node("paid-clean", ["Clean. No alarms, no bodies, no news. Beautiful.", "Bonus for being a ghost. Welcome to the family."], [LEAVE]),
+      node("paid-clean", ["Clean. No alarms, no bodies, no news. Beautiful.", "Bonus for not making the evening news. Welcome to the family."], [LEAVE]),
       node("paid", ["Loud. Very loud. I heard it from here.", "Still: it's the core. You're paid."], [LEAVE]),
     ],
   },

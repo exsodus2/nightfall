@@ -63,7 +63,6 @@ export class PropRecorder implements PropCanvas {
   readonly counts = [0, 0, 0];
   surface = 2;
   private readonly matrix = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-  private readonly scratch = new Float64Array(16);
   private readonly stack: { matrix: Float64Array; style: Style }[] = [];
   private stackDepth = 0;
   private style: Style = { glyph: [0, 0], ink: [1, 1, 1, 1], paper: [0, 0, 0, 1], rotation: 0, flip: 0 };
@@ -120,19 +119,22 @@ export class PropRecorder implements PropCanvas {
     this.matrix.set(saved.matrix); copyStyle(this.style, saved.style);
   }
   // Column-major, post-multiplied - the same convention as textmode's own matrix stack.
-  private apply(m: readonly number[]): void {
-    const a = this.matrix, out = this.scratch;
-    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) out[c * 4 + r] = a[r] * m[c * 4] + a[4 + r] * m[c * 4 + 1] + a[8 + r] * m[c * 4 + 2] + a[12 + r] * m[c * 4 + 3];
-    this.matrix.set(out);
-  }
   translate(x = 0, y = 0, z = 0): void { const m = this.matrix; for (let r = 0; r < 3; r++) m[12 + r] += m[r] * x + m[4 + r] * y + m[8 + r] * z; }
-  rotateX(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); this.apply([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]); }
-  rotateY(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); this.apply([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]); }
-  rotateZ(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); this.apply([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
+  // Perf: rotations and scales touch only two (one) columns, so they are applied in place instead of
+  // a full 4x4 product with a 16-entry array per call. Same products and sums as that product minus
+  // its exact +0 / x1 terms, so the matrices are bit-identical (up to the sign of zero entries).
+  private turn(i: number, j: number, c: number, s: number): void {
+    // Columns i, j of M * R, where R's columns i and j are (c at i, s at j) and (-s at i, c at j).
+    const m = this.matrix;
+    for (let r = 0; r < 4; r++) { const a = m[i * 4 + r], b = m[j * 4 + r]; m[i * 4 + r] = a * c + b * s; m[j * 4 + r] = a * -s + b * c; }
+  }
+  rotateX(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180; this.turn(1, 2, Math.cos(a), Math.sin(a)); }
+  rotateY(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180; this.turn(2, 0, Math.cos(a), Math.sin(a)); }
+  rotateZ(degrees = 0): void { if (!degrees) return; const a = degrees * Math.PI / 180; this.turn(0, 1, Math.cos(a), Math.sin(a)); }
   scale(x: number, y?: number, z?: number): void {
     // textmode: scale(s) is uniform, scale(x, y) leaves z at 1.
-    const sy = y ?? x, sz = z ?? (y === undefined ? x : 1);
-    this.apply([x, 0, 0, 0, 0, sy, 0, 0, 0, 0, sz, 0, 0, 0, 0, 1]);
+    const sy = y ?? x, sz = z ?? (y === undefined ? x : 1), m = this.matrix;
+    for (let r = 0; r < 4; r++) { m[r] *= x; m[4 + r] *= sy; m[8 + r] *= sz; }
   }
   box(width = 1, height = width, depth = height): void { this.emit(MESH_BOX, width, height, depth, 0, 0); }
   ellipsoid(radiusX = 1, radiusY = radiusX, radiusZ = radiusX): void { this.emit(MESH_SPHERE, radiusX, radiusY, radiusZ, 0, 0); }
@@ -160,9 +162,11 @@ export class PropRecorder implements PropCanvas {
     if (this.panelTag < 0) return;
     const command = this.panel(1); command.name = name; command.value = value; command.uniforms = null;
   }
+  /** Perf: keeps the caller's object instead of a copy (one allocation per sign panel per frame);
+   *  callers pass a fresh literal per panel (drawLetterPanel) and never mutate it afterwards. */
   setUniforms(uniforms: Record<string, TextmodeUniformValue>): void {
     if (this.panelTag < 0) return;
-    this.panel(0).uniforms = { ...uniforms };
+    this.panel(0).uniforms = uniforms;
   }
 
   private emit(mesh: number, sx: number, sy: number, sz: number, radius: number, tube: number): void {
@@ -174,7 +178,10 @@ export class PropRecorder implements PropCanvas {
     data[o + 3] = m[0] * sx; data[o + 4] = m[1] * sx; data[o + 5] = m[2] * sx;
     data[o + 6] = m[4] * sy; data[o + 7] = m[5] * sy; data[o + 8] = m[6] * sy;
     data[o + 9] = m[8] * sz; data[o + 10] = m[9] * sz; data[o + 11] = m[10] * sz;
-    data.set(s.ink, o + 12); data.set(s.paper, o + 16);
+    // Perf: element stores; TypedArray.set from a plain array takes a slow generic path.
+    const ink = s.ink, paper = s.paper;
+    data[o + 12] = ink[0]; data[o + 13] = ink[1]; data[o + 14] = ink[2]; data[o + 15] = ink[3];
+    data[o + 16] = paper[0]; data[o + 17] = paper[1]; data[o + 18] = paper[2]; data[o + 19] = paper[3];
     data[o + 20] = s.glyph[0]; data[o + 21] = s.glyph[1]; data[o + 22] = s.rotation; data[o + 23] = s.flip;
     data[o + 24] = radius; data[o + 25] = tube; data[o + 26] = this.surface; data[o + 27] = 0;
     this.counts[mesh] = count + 1;

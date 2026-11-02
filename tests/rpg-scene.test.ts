@@ -174,7 +174,10 @@ test("melee poses: combo steps differ, block and heavy wind-up move the weapon; 
   melee({ action: "block" }, 6);
   const block = melee({ action: "block" }, 6.5); // after the 0.1 s transition blend
   assert.ok(Math.abs(block.yawLeft - idle.yawLeft) > 40, "block holds the blade across the view");
-  const fists = viewmodelState(player({ weaponClass: "fists", weaponItem: null, ammo: null }), null, 8);
+  // Swapping now lowers the blade first (SWAP_LOWER) and raises the fists after it, so read the
+  // model once the 0.3 s swap is over.
+  viewmodelState(player({ weaponClass: "fists", weaponItem: null, ammo: null }), null, 8);
+  const fists = viewmodelState(player({ weaponClass: "fists", weaponItem: null, ammo: null }), null, 8.4);
   assert.equal(fists.model, "fists"); assert.ok(fists.left, "two fists");
 });
 

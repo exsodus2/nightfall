@@ -2,12 +2,14 @@
 // telegraphs on the ground and glowing projectile orbs. All drawn with the prop surface (bright
 // colours = emissive) as boxes at least one character cell thick at their distance, with the stroke
 // glyph chosen from the on-screen direction (- / \ |) like the sky-traffic trails in vfx-scene.ts.
-// Comfort: every effect is small and localized, fades by age, and pulses no faster than 1.5 Hz.
+// Comfort: every effect is small and localized, fades by age, and no brightness swell runs faster
+// than MAX_PULSE_HZ (0.4 Hz); ground telegraphs brighten with their progress instead of pulsing.
 // Damage numbers are HUD work (overlay.ts); unknown effect kinds are ignored.
 import type { Textmodifier } from "textmode.js";
 import type { PropCanvas } from "../../city/prop-canvas.ts";
 import { cellWorld, project, type ViewCamera } from "../../city/vfx.ts";
 import type { CombatEffect } from "../types.ts";
+import { MAX_PULSE_HZ, telegraphEdge } from "./anim.ts";
 import { DEG, box, clamp01, hash3, paint, paintRange, restorePaintRange, ring, segment, type Rgb } from "./palette.ts";
 
 /** Seconds each effect kind is drawn for (the combat system may drop them earlier). */
@@ -71,6 +73,12 @@ export function recordCombatEffects(t: PropCanvas, effects: readonly CombatEffec
       case "spark": {
         const life = EFFECT_LIFE.spark, k = effect.age / life;
         if (k >= 1 || k < 0) break;
+        if (isParry(effect, cam)) {
+          // The spark sits at hip height right at the player (below the view); the ring is lifted
+          // into view just under the crosshair, on the side the blow came from.
+          const dx = effect.x - cam.x, dz = effect.z - cam.z, d = Math.hypot(dx, dz) || 1;
+          drawParryRing(t, cam, rows, cam.x + (dx / d) * 1.3, cam.y - 0.28, cam.z + (dz / d) * 1.3, k);
+        }
         const sx = Math.floor(effect.x * 10), sz = Math.floor(effect.z * 10);
         for (let i = 0; i < 7; i++) {
           const r = (s: number) => hash3(sx + i * 17, sz, s);
@@ -121,11 +129,11 @@ export function recordCombatEffects(t: PropCanvas, effects: readonly CombatEffec
         t.pop();
         break;
       }
-      case "telegraph": drawTelegraph(t, cam, rows, effect, time); break;
+      case "telegraph": drawTelegraph(t, cam, rows, effect); break;
       case "projectile": {
         const r = effect.radius > 0 ? effect.radius : 0.3;
         const color = effect.enemy ? ORB_ENEMY : ORB_PLAYER;
-        const glow = 0.9 + 0.1 * Math.sin(time * 6 + effect.id);
+        const glow = 0.9 + 0.1 * Math.sin(time * Math.PI * 2 * MAX_PULSE_HZ + effect.id); // slow swell, per-orb phase
         paint(t, color, "@", glow); box(t, effect.x, effect.y, effect.z, r * 1.2, r * 1.2, r * 1.2);
         paint(t, color, "O", 0.75); t.push(); t.translate(effect.x, -effect.y, effect.z); t.rotateY(time * 90); t.rotateX(90); t.torus(r * 1.15, r * 0.12); t.pop();
         // A short cooling trail behind it, and a ground marker under it so it can be dodged.
@@ -146,13 +154,30 @@ export function recordCombatEffects(t: PropCanvas, effects: readonly CombatEffec
   restorePaintRange(outer);
 }
 
+const PARRY: Rgb = [255, 230, 120];
+type SparkEffect = Extract<CombatEffect, { kind: "spark" }>;
+/** The combat code marks a parry with a gold spark right in front of the player (player.ts). */
+const isParry = (e: SparkEffect, cam: ViewCamera): boolean =>
+  e.color[0] === PARRY[0] && e.color[1] === PARRY[1] && e.color[2] === PARRY[2] && Math.hypot(e.x - cam.x, e.z - cam.z) < 2.5;
+/** Parry ring: one gold ring facing the viewer that opens out and cools ("O" -> "o" -> "."); a single
+ * brief expansion, no repeat. */
+function drawParryRing(t: PropCanvas, cam: ViewCamera, rows: number, x: number, y: number, z: number, k: number): void {
+  const toCam = Math.atan2(cam.x - x, z - cam.z);
+  const radius = 0.14 + 0.42 * (1 - Math.pow(1 - k, 2));
+  t.push(); t.translate(x, -y, z); t.rotateY(-toCam * DEG); t.rotateX(90);
+  paint(t, PARRY, k < 0.35 ? "O" : k < 0.7 ? "o" : ".", 1.1 - 0.7 * k);
+  t.torus(radius, Math.max(0.012, cellAt(cam, rows, x, y, z) * 0.6) * (1.2 - 0.6 * k));
+  t.pop();
+}
+
 type TelegraphEffect = Extract<CombatEffect, { kind: "telegraph" }>;
 /** Boss attack warnings flat on the ground: an outline of the danger zone and a fill that grows to
- * the edge as the impact nears (MMO-style), warming from red toward white-hot in the last 20%. */
-export function drawTelegraph(t: PropCanvas, cam: ViewCamera, rows: number, e: TelegraphEffect, time: number): void {
+ * the edge as the impact nears (MMO-style), warming from red toward white-hot in the last 20%. The
+ * outline brightens steadily with progress (telegraphEdge) - no oscillator, so it needs no clock. */
+export function drawTelegraph(t: PropCanvas, cam: ViewCamera, rows: number, e: TelegraphEffect): void {
   const progress = clamp01(e.progress);
   const hot = clamp01((progress - 0.8) / 0.2);
-  const pulse = 0.82 + 0.18 * Math.sin(time * Math.PI * 2 * 1.5);
+  const pulse = telegraphEdge(progress);
   const edge: Rgb = [TELEGRAPH[0] + (TELEGRAPH_HOT[0] - TELEGRAPH[0]) * hot, TELEGRAPH[1] + (TELEGRAPH_HOT[1] - TELEGRAPH[1]) * hot, TELEGRAPH[2] + (TELEGRAPH_HOT[2] - TELEGRAPH[2]) * hot];
   const y = 0.06, r = Math.max(0.2, e.radius);
   const fx = Math.sin(e.yaw), fz = -Math.cos(e.yaw), rx = Math.cos(e.yaw), rz = Math.sin(e.yaw);
@@ -169,8 +194,10 @@ export function drawTelegraph(t: PropCanvas, cam: ViewCamera, rows: number, e: T
     case "ring": {
       // Expanding shockwave: the band to jump or dodge through.
       const w = Math.max(0.2, e.width);
-      paint(t, edge, "O", 1); ring(t, e.x, y + 0.1, e.z, r, Math.max(w * 0.5, tube(e.x + r, e.z)));
-      paint(t, edge, "~", 0.55); ring(t, e.x, y, e.z, Math.max(0.2, r - w), tube(e.x + r, e.z) * 0.6);
+      // A bright crest with a dim wake behind it, not a solid band: the crest is what to clear.
+      paint(t, edge, "O", 1); ring(t, e.x, y + 0.12, e.z, r, Math.max(w * 0.22, tube(e.x + r, e.z)));
+      paint(t, edge, "~", 0.5); ring(t, e.x, y, e.z, Math.max(0.2, r - w * 0.6), tube(e.x + r, e.z) * 0.7);
+      paint(t, edge, ".", 0.3); ring(t, e.x, y, e.z, Math.max(0.2, r - w * 1.3), tube(e.x + r, e.z) * 0.5);
       break;
     }
     case "arc": {

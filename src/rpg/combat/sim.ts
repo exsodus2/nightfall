@@ -11,9 +11,15 @@ import { COMBAT_TEST_ITEMS } from "./archetypes.ts";
 import { PlayerCombat } from "./player.ts";
 import { walkable } from "./raycast.ts";
 import { FISTS, MELEE_TOKENS, PLAYER_BODY, RANGED_TOKENS, TOKEN_SPACING, isRanged } from "./constants.ts";
-import { TICK, pick, turnToward, yawTo } from "./util.ts";
+import { DRONE_BASE, DRONE_TOP, SHIELD_ARC, SHIELD_CHIP, enemyForm, type EnemyForm } from "./forms.ts";
+import { TICK, angleDiff, pick, turnToward, yawTo } from "./util.ts";
 
-export type AttackKind = "melee" | "ranged" | "slam" | "sweep" | "barrage" | "charge" | "summon" | "shockwave";
+/** Factions whose neutral groups answer each other (and reports of violence against civilians). */
+const LAW_FACTIONS: ReadonlySet<string> = new Set(["corpsec"]);
+/** Metres within which a provoked lawful group calls the other lawful groups in. */
+const BACKUP_RADIUS = 80;
+
+export type AttackKind = "melee" | "ranged" | "slam" | "sweep" | "barrage" | "charge" | "summon" | "shockwave" | "lunge" | "rush";
 export interface EnemyAttack {
   kind: AttackKind;
   t: number;
@@ -75,6 +81,14 @@ export interface Enemy {
   ammo: number; reloadUntil: number;
   boss: BossState | null;
   slice: number;
+  /** Behaviour family from the archetype's "form:*" tag (forms.ts). */
+  form: EnemyForm | null;
+  /** Hit volume starts this high (drones hover; everyone else stands on the ground). */
+  base: number;
+  /** Hit-stop: the enemy holds still until then after a player melee hit. */
+  frozenUntil: number;
+  /** Earliest time for the form's special (bruiser rush). */
+  nextSpecial: number;
 }
 export interface Projectile { id: number; x: number; y: number; z: number; vx: number; vz: number; radius: number; age: number; life: number; damage: number; owner: Enemy }
 export interface Ring { x: number; z: number; radius: number; speed: number; max: number; width: number; damage: number; hit: boolean; owner: Enemy; delay: number; age: number }
@@ -281,9 +295,11 @@ export class Sim {
       const arch = this.archetypes.get(member.archetype);
       if (!arch) return;
       const at = this.nearestWalkable(member.x, member.z), scale = arch.scale ?? 1, weapon = this.weaponOf(arch.weapon);
+      const form = enemyForm(arch.tags), drone = form === "drone";
       const e: Enemy = {
         id: `${id}#${this.nextId++}`, arch, weapon, group, member: index, tag: member.tag,
-        x: at.x, z: at.z, yaw: member.yaw ?? 0, vx: 0, vz: 0, radius: 0.45 * scale, height: 2.4 * scale,
+        x: at.x, z: at.z, yaw: member.yaw ?? 0, vx: 0, vz: 0, radius: (drone ? 0.6 : 0.45) * scale, height: (drone ? DRONE_TOP : 2.4) * scale,
+        form, base: drone ? DRONE_BASE * scale : 0, frozenUntil: -Infinity, nextSpecial: this.time + 2,
         health: arch.health, maxHealth: arch.health, state: member.patrol?.length ? "patrol" : "idle",
         awareness: 0, alerted: false, reaction: 0, seesPlayer: false, investigate: null,
         homeX: at.x, homeZ: at.z, homeYaw: member.yaw ?? 0, patrol: member.patrol?.length ? member.patrol : null, patrolIndex: 0, pauseUntil: 0,
@@ -366,19 +382,35 @@ export class Sim {
 
   /** Applies damage to an enemy: numbers, provocation, stagger with diminishing returns, knockback,
    * flee checks and death (killed / encounterCleared events). */
-  damageEnemy(e: Enemy, amount: number, opts: { critical: boolean; byPlayer: boolean; stagger: number; knockback: number; dirX: number; dirZ: number; heavy?: boolean; parry?: boolean }): void {
+  damageEnemy(e: Enemy, amount: number, opts: { critical: boolean; byPlayer: boolean; stagger: number; knockback: number; dirX: number; dirZ: number; heavy?: boolean; parry?: boolean; hitStop?: number }): void {
     if (e.deathTime >= 0) return;
     if (e.boss && this.time < e.boss.roarUntil) {
       this.addFx({ kind: "spark", x: e.x, y: e.height * 0.6, z: e.z, age: 0, color: [150, 150, 170] }, 0.3);
       return;
     }
     amount = Math.max(0, amount);
+    // Shield-bearers: a frontal hit glances off the shield (a little chip damage, no stagger); a
+    // heavy blow or a parry breaks the guard and leaves them open. Flanks and backs are bare.
+    const guard = this.shieldGuard(e, opts);
+    if (guard === "blocked") {
+      amount *= SHIELD_CHIP;
+      opts = { ...opts, stagger: 0, knockback: opts.knockback * 0.3, critical: false };
+      this.addFx({ kind: "spark", x: e.x + Math.sin(e.yaw) * (e.radius + 0.3), y: e.height * 0.55, z: e.z - Math.cos(e.yaw) * (e.radius + 0.3), age: 0, color: [190, 200, 215] }, 0.3);
+    } else if (guard === "broken") {
+      e.critUntil = this.time + 1.4;
+      opts = { ...opts, stagger: Math.max(opts.stagger, 0.9) };
+      this.addFx({ kind: "spark", x: e.x + Math.sin(e.yaw) * (e.radius + 0.3), y: e.height * 0.55, z: e.z - Math.cos(e.yaw) * (e.radius + 0.3), age: 0, color: [255, 226, 80] }, 0.4);
+    }
     e.health -= amount; e.hitTime = this.time;
+    if (opts.hitStop && opts.hitStop > 0) e.frozenUntil = Math.max(e.frozenUntil, this.time + opts.hitStop);
     this.emit({ type: "damaged", target: e.id, amount, source: opts.byPlayer ? "player" : "world", x: e.x, z: e.z, critical: opts.critical });
     this.addFx({ kind: "number", x: e.x, y: e.height + 0.3, z: e.z, value: Math.round(amount), critical: opts.critical, age: 0, toPlayer: false }, 1);
     if (opts.byPlayer) {
       this.lastCombatAt = this.time; this.player.hitConfirmAt = this.time;
-      if (!this.hostileOf(e.group.id)) this.hostility.set(e.group.id, true);
+      if (!this.hostileOf(e.group.id)) {
+        this.hostility.set(e.group.id, true);
+        if (LAW_FACTIONS.has(e.arch.faction)) this.callBackup(e.arch.faction, e.x, e.z, BACKUP_RADIUS);
+      }
       if (e.returning) { e.returning = false; }
       if (!e.group.alerted) this.alertGroup(e.group, e);
       else if (!e.alerted) { e.alerted = true; e.reaction = 0.2; }
@@ -393,17 +425,19 @@ export class Sim {
     // Poise: past 40% of a melee wind-up (and through the active frames) light hits don't
     // interrupt - the enemy trades blows, so mashing into a telegraph gets punished.
     const a = e.attack;
-    const committed = !!a && a.t >= a.windup * (a.kind === "melee" ? 0.4 : 1) && a.t < a.windup + a.active;
-    if (committed && !opts.heavy && !opts.parry) s = 0;
+    const committed = !!a && a.t >= a.windup * (a.kind === "melee" || a.kind === "lunge" ? 0.4 : 1) && a.t < a.windup + a.active;
+    if (committed && !opts.heavy && !opts.parry && guard !== "broken") s = 0;
     if (s >= 0.08) {
       e.stagger = Math.max(e.stagger, s); e.lastStaggerAt = this.time; e.state = "stagger";
-      if (e.attack && e.attack.kind !== "charge") e.attack = null;
+      // A charge or a bruiser's rush already under way keeps going (you dodge it, not interrupt it).
+      if (e.attack && !(e.attack.kind === "charge" || (e.attack.kind === "rush" && e.attack.t >= e.attack.windup))) e.attack = null;
       if (e.token) e.token = null;
     }
-    const knock = opts.knockback * (e.boss ? 0.15 : 1);
+    const knock = opts.knockback * (e.boss ? 0.15 : e.form === "drone" ? 0.5 : 1);
     if (knock > 0) { e.vx += opts.dirX * knock * 8; e.vz += opts.dirZ * knock * 8; }
     this.bark(e, "hurt", 0.3);
-    if (!e.fleeChecked && !e.boss && e.health < e.maxHealth * 0.3) {
+    // Machines don't run away.
+    if (!e.fleeChecked && !e.boss && e.form !== "drone" && e.health < e.maxHealth * 0.3) {
       e.fleeChecked = true;
       if (this.rng() > e.arch.aggression + 0.25) { e.fleeUntil = this.time + 4 + this.rng() * 3; e.attack = null; e.token = null; }
     }
@@ -423,6 +457,41 @@ export class Sim {
       if (group.def.respawn !== undefined) this.respawn.set(group.id, Math.max(0, group.def.respawn));
       this.emit({ type: "encounterCleared", encounter: group.id });
     }
+  }
+
+  /** How a shield-bearer meets a hit: "blocked" (frontal, guard up), "broken" (frontal heavy blow
+   * or parry), or null (no shield, guard down, flank / back, or a directionless scripted hit). */
+  shieldGuard(e: Enemy, opts: { dirX: number; dirZ: number; heavy?: boolean; parry?: boolean }): "blocked" | "broken" | null {
+    if (e.form !== "shield" || !this.shieldUp(e) || (opts.dirX === 0 && opts.dirZ === 0)) return null;
+    // dir runs from the attacker to the enemy, so the attacker sits at -dir.
+    if (Math.abs(angleDiff(yawTo(-opts.dirX, -opts.dirZ), e.yaw)) > SHIELD_ARC) return null;
+    return opts.heavy || opts.parry ? "broken" : "blocked";
+  }
+  /** The shield is raised unless staggered, opened (parried / guard broken) or mid-swing. */
+  shieldUp(e: Enemy): boolean {
+    return e.deathTime < 0 && e.stagger <= 0 && this.time >= e.critUntil && !(e.attack && e.attack.t >= e.attack.windup);
+  }
+
+  /** Neutral groups of `faction` with a member within `radius` of (x, z) turn hostile and come for
+   * the player. Returns how many groups answered. */
+  callBackup(faction: string, x: number, z: number, radius: number): number {
+    let answered = 0;
+    const r2 = radius * radius;
+    for (const group of this.groups.values()) {
+      if (this.hostileOf(group.id)) continue;
+      if (!group.members.some(m => m.deathTime < 0 && m.arch.faction === faction && (m.x - x) ** 2 + (m.z - z) ** 2 <= r2)) continue;
+      this.hostility.set(group.id, true);
+      this.alertGroup(group, null);
+      answered++;
+    }
+    return answered;
+  }
+
+  /** Violence against civilians at (x, z): lawful factions nearby respond. */
+  reportCrime(x: number, z: number, radius: number): number {
+    let answered = 0;
+    for (const faction of LAW_FACTIONS) answered += this.callBackup(faction, x, z, radius);
+    return answered;
   }
 
   // ---- Token system (fairness: only a couple of enemies attack at once) ------------------------
@@ -464,7 +533,8 @@ export class Sim {
   bodyCollisions(): void {
     if (!this.playerPresent) return;
     for (const e of this.enemies) {
-      if (e.deathTime >= 0) continue;
+      // Drones hover and give way: they never shove the player around.
+      if (e.deathTime >= 0 || e.base > 0) continue;
       const dx = this.px - e.x, dz = this.pz - e.z, limit = e.radius + PLAYER_BODY;
       if (Math.abs(dx) > limit || Math.abs(dz) > limit) continue;
       const d = Math.hypot(dx, dz);

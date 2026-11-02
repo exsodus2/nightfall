@@ -71,8 +71,8 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
 
   return <div className="panel-backdrop" onClick={onClose}>
     <section className={`side-panel ${styles.lobby}`} role="dialog" aria-modal="true" aria-labelledby="mp-title" tabIndex={-1} ref={dialogRef} onClick={(event) => event.stopPropagation()}>
-      <div className="panel-heading"><div><span className="panel-kicker">Nightfall online</span><h2 id="mp-title">{connected ? "Party up." : "Bring a friend."}</h2></div><button className="close-button" onClick={onClose} aria-label="Close online panel">×</button></div>
-      <p className="panel-intro">Meet in the streets or step into the same venue. Share chat and map pins with up to eight runners. Your RPG quests, inventory and rewards stay yours.</p>
+      <div className="panel-heading"><div><span className="panel-kicker">Online // up to 8 players</span><h2 id="mp-title">{connected ? "Party up." : "Play online"}</h2></div><button className="close-button" onClick={onClose} aria-label="Close online panel">×</button></div>
+      <p className="panel-intro">Players in a room see each other on the street and inside venues, and share chat and map pins. Quests, items and credits stay in your own save.</p>
 
       {connected && view.code ? <>
         <div className={styles.room}>
@@ -81,7 +81,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
         </div>
         <h3 className="section-title">In this room <span>{view.roster.length} / 8</span></h3>
         <PlayerList roster={view.roster} />
-        <p className={styles.hint}>Press <kbd>Enter</kbd> in the city to chat. Friends appear on your minimap and atlas.</p>
+        <p className={styles.hint}>Press <kbd>Enter</kbd> in the city to chat. Other players show as coloured dots on the minimap and the city map.</p>
         <div className={styles.actions}>
           <button type="button" className={styles.button} onClick={() => { setPrefersSolo(true); onLeave(); }}>Leave room<span aria-hidden="true">↩</span></button>
           <button type="button" className={`${styles.button} ${styles.buttonPrimary}`} onClick={onResume}>Back to the city<span aria-hidden="true">↗</span></button>
@@ -104,7 +104,7 @@ export function MultiplayerLobby({ view, pose, onConnect, onLeave, onClose, onRe
           <label className={styles.field}><span>Multiplayer server</span>
             <input value={server} placeholder="wss://your-tunnel.trycloudflare.com" autoComplete="url" spellCheck={false} onChange={(event) => setServer(event.target.value)} />
           </label>
-          <p className={styles.hint}>The host runs <code>npm run server</code> (port 2567) and shares its tunnel address. Invite links fill this in for you.</p>
+          <p className={styles.hint}>The host runs <code>npm run server</code> (port 2567) and shares its tunnel address. Invite links fill this in.</p>
         </details>
       </>}
 

@@ -17,26 +17,26 @@ export const GLASSHOUSE_STATIONS: Readonly<Record<"board" | "left" | "right", In
 
 const quest: QuestDefinition2 = {
   id: QUEST, title: "A Little Night", category: "gig", giver: null,
-  summary: "Two rainfern trays need different kinds of care. Settle their roots, then give the Glasshouse nursery lamp its night back.",
-  rewardHint: "60 cr, 100 XP, neighborhood reputation", recommendedLevel: 1, start: "trays",
+  summary: "Neri left a tending shift on the Glasshouse growing board: fix two rainfern trays, then reset the nursery lamp timer.",
+  rewardHint: "60 cr, 100 XP, Civilian reputation", recommendedLevel: 1, start: "trays",
   stages: [
     {
-      id: "trays", journal: "Neri's two rainfern trays need attention. Left: standing water, so open the drain. Right: dry soil above a full reservoir, so reseat the loose wick. Use the marked planters in either order; reading alone changes nothing.",
+      id: "trays", journal: "Glasshouse, Rain Gardens. Left rainfern tray: waterlogged, drain shut. Right tray: dry, its wick has slipped out of the reservoir. Fix both, in either order, at the marked planters.",
       objectives: [
-        { id: "left-tray", kind: "choose", text: "Drain the waterlogged left tray", dialogue: LEFT, options: ["drain-left"], target: DOOR },
-        { id: "right-tray", kind: "choose", text: "Reseat the dry right tray's wick", dialogue: RIGHT, options: ["seat-wick"], target: DOOR },
+        { id: "left-tray", kind: "choose", text: "Open the drain on the left rainfern tray, Glasshouse conservatory", dialogue: LEFT, options: ["drain-left"], target: DOOR },
+        { id: "right-tray", kind: "choose", text: "Reseat the wick on the right rainfern tray, Glasshouse conservatory", dialogue: RIGHT, options: ["seat-wick"], target: DOOR },
       ],
       next: "night",
     },
     {
-      id: "night", journal: "Both trays are settled. Return to the growing board on the back counter. The rainfern nursery label calls for sixteen hours of soft light and eight hours of darkness. Restore that timer cycle; no waiting is required.",
-      objectives: [{ id: "night-cycle", kind: "choose", text: "Restore the nursery lamp's day-and-night cycle", dialogue: BOARD, options: ["restore-cycle"], target: DOOR }],
+      id: "night", journal: "Both trays are fixed. Set the nursery lamp on the growing board (back counter) to the label's cycle: 16 hours light, 8 dark. The timer runs on its own once set.",
+      objectives: [{ id: "night-cycle", kind: "choose", text: "Set the nursery lamp timer to 16 on / 8 off at the Glasshouse growing board", dialogue: BOARD, options: ["restore-cycle"], target: DOOR }],
       onComplete: [{ outcome: "rested" }],
     },
   ],
   outcomes: {
     rested: {
-      title: "Room to Grow", journal: "The left tray can drain, the right tray can drink, and the battery nursery lamp has its night cycle back. Neri marked the care log: ROOTS SETTLED. ONE SHIFT PAID. The main grow-light repairs are a separate job.",
+      title: "Room to Grow", journal: "Left tray draining, right tray drinking, nursery lamp back on 16/8. Neri's care log now reads ROOTS SETTLED. ONE SHIFT PAID.",
       effects: [{ credits: 60 }, { xp: 100 }, { rep: "civilian", by: 3 }, { setFlag: "glasshouse.nursery-tended" }],
     },
   },
@@ -53,30 +53,30 @@ const dialogues: readonly DialogueDefinition[] = [
     ],
     nodes: [
       node("offer", [
-        "[Neri's note is weighted with a smooth stone. 'The city counts towers. We count new leaves. Two rainfern trays could use a kind pair of hands.']",
-        "Left planter: too much water. Right planter: a loose drinking wick. Then reset this nursery lamp's timer. It has its own battery; the main grow-light repair is another job. One tending shift: 60 cr and 100 XP.",
+        "[A note under a stone, in Neri's square capitals: TENDING SHIFT. LEFT TRAY DROWNING. RIGHT TRAY THIRSTY. LAMP TIMER STUCK ON DAY. 60 CR + 100 XP. - N.]",
+        "[Underneath, smaller: The nursery lamp runs off its own battery. Don't touch the big grow lights, Mira's people are on those.]",
       ], [
-        { id: "accept-care", label: "Take a quiet tending shift.", condition: available(QUEST), effects: [{ startQuest: QUEST }], next: "trays" },
+        { id: "accept-care", label: "Take the tending shift. (60 cr, 100 XP)", condition: available(QUEST), effects: [{ startQuest: QUEST }], next: "trays" },
         LEAVE,
       ]),
       node("trays", [
-        "Left tray: open the drain. Right tray: reseat the wick. Either order. The little squares on the floor plan mark both planters.",
-        "Then come back here. The nursery label says SIXTEEN HOURS SOFT LIGHT / EIGHT HOURS DARK. 'Even this city should let something sleep.'",
+        "TO DO: LEFT TRAY - OPEN THE DRAIN. RIGHT TRAY - PUT THE WICK BACK IN THE RESERVOIR. Any order. Both planters are marked on the floor plan.",
+        "THEN: lamp timer, here. Label says 16 HOURS LIGHT / 8 HOURS DARK.",
       ], [LEAVE]),
       node("timer", [
-        "[Both tray tags are turned to SETTLED. The battery nursery lamp's timer is stuck on DAY.]",
-        "RAINFERN NURSERY: 16 HOURS SOFT LIGHT / 8 HOURS DARK. Program the cycle, not the city clock. The night crew will take over from here.",
+        "[Both tray tags are flipped to SETTLED. The nursery lamp timer reads DAY / DAY / DAY.]",
+        "RAINFERN NURSERY: 16 H LIGHT / 8 H DARK. Ferns that never get a dark period stop putting out new fronds.",
       ], [
-        { id: "restore-cycle", label: "Restore sixteen soft hours, then eight dark. (60 cr, 100 XP)", condition: inStage(QUEST, "night"), kind: "complete", next: "receipt" },
+        { id: "restore-cycle", label: "Set 16 hours light, 8 hours dark. (60 cr, 100 XP)", condition: inStage(QUEST, "night"), kind: "complete", next: "receipt" },
         go("constant-light", "Leave the nursery lamp on all day and night.", "no-rest", { condition: inStage(QUEST, "night") }),
         go("constant-dark", "Switch the nursery lamp off permanently.", "no-morning", { condition: inStage(QUEST, "night") }),
         LEAVE,
       ]),
-      node("no-rest", ["The timer preview shows no dark interval. Neri has drawn a tiny bed beside the eight-hour mark. 'Growing is work too.'", "Nothing was changed. Give this nursery a night as well as a day."], [go("retry-timer", "Read the nursery schedule again.", "timer"), LEAVE]),
-      node("no-morning", ["The timer preview shows no next morning. Neri's note asks for a rest, not a farewell.", "Nothing was changed. Restore both halves of the nursery schedule."], [go("retry-timer", "Read the nursery schedule again.", "timer"), LEAVE]),
+      node("no-rest", ["TIMER PREVIEW: 24 H LIGHT / 0 H DARK. Neri has written next to the dial: NO. THEY NEED THE DARK HOURS.", "Nothing was changed. The label wants 16 light, 8 dark."], [go("retry-timer", "Read the nursery schedule again.", "timer"), LEAVE]),
+      node("no-morning", ["TIMER PREVIEW: 0 H LIGHT. A tray of seedlings with no light at all is a tray of compost by Friday.", "Nothing was changed. The label wants 16 light, 8 dark."], [go("retry-timer", "Read the nursery schedule again.", "timer"), LEAVE]),
       node("receipt", [
-        "CARE LOG: LEFT DRAIN OPEN / RIGHT WICK SEATED / NURSERY CYCLE RESTORED. The timer is programmed; you do not need to wait here.",
-        "Neri leaves a clean space beside your mark. 'For the next pair of hands. Thank you for being gentle.' ONE SHIFT PAID. This log stays here; it is not another claim ticket.",
+        "CARE LOG: LEFT DRAIN OPEN / RIGHT WICK SEATED / NURSERY TIMER 16-8. TIMER RUNNING.",
+        "[Neri has initialled your line and drawn a small fern next to it.] ONE SHIFT PAID.",
       ], [LEAVE]),
     ],
   },
@@ -85,15 +85,15 @@ const dialogues: readonly DialogueDefinition[] = [
     entries: [{ condition: leftPending, node: "wet" }, { condition: active(QUEST), node: "settled" }],
     nodes: [
       node("wet", [
-        "[Water stands above the left tray's dark soil. Its drain tab is closed. A rainfern tag reads: LET THE ROOTS BREATHE.]",
-        "Neri's penciled arrow points to the drain, not the jug. This tray already had all the weather it needed.",
+        "[A centimetre of water sits on top of the left tray's soil. The drain tab underneath is shut. The fronds are going yellow at the base.]",
+        "Tag, in pencil: ROOT ROT IF LEFT. OPEN THE DRAIN.",
       ], [
         { id: "drain-left", label: "Open the drain and let the excess run off.", condition: leftPending, next: "settled" },
         go("water-left", "Reach for the watering jug.", "too-wet", { condition: leftPending }),
         LEAVE,
       ]),
-      node("too-wet", ["The tag stops you before you pour: STANDING WATER. A second drink will not fix a closed drain.", "Nothing was poured. Try giving the roots some air."], [go("retry-left", "Look at the left tray again.", "wet"), LEAVE]),
-      node("settled", ["LEFT TRAY SETTLED. The drain is open; the extra water is back in the catch channel, not around the roots.", "Leave the tag turned over. The other tray and the growing board will show what still needs doing."], [LEAVE]),
+      node("too-wet", ["You lift the jug. The tag is right in front of you: STANDING WATER. MORE WATER WILL NOT HELP.", "Nothing was poured. The drain tab is under the lip of the tray."], [go("retry-left", "Look at the left tray again.", "wet"), LEAVE]),
+      node("settled", ["LEFT TRAY SETTLED. Drain open. The water runs off into the catch channel and the soil surface shows again.", "Tag flipped. Check the right tray, then the growing board."], [LEAVE]),
     ],
   },
   {
@@ -101,15 +101,15 @@ const dialogues: readonly DialogueDefinition[] = [
     entries: [{ condition: rightPending, node: "dry" }, { condition: active(QUEST), node: "settled" }],
     nodes: [
       node("dry", [
-        "[The right tray is pale and dry, but the reservoir below it is full. Its cloth wick has slipped out and curled over the rim.]",
-        "A note says: SEAT THE WICK. LET THE TRAY SIP. Neri has crossed out the word FLOOD twice.",
+        "[The right tray's soil is pale and cracked. The reservoir underneath is full. Its cloth wick has slipped out and is hanging over the rim.]",
+        "Tag: SEEDS SOWN THURSDAY. WICK-FED ONLY. DO NOT FLOOD. Neri has underlined FLOOD twice.",
       ], [
-        { id: "seat-wick", label: "Seat the loose wick between soil and reservoir.", condition: rightPending, next: "settled" },
+        { id: "seat-wick", label: "Push the wick back down between soil and reservoir.", condition: rightPending, next: "settled" },
         go("flood-right", "Tip the reservoir across the tray.", "too-fast", { condition: rightPending }),
         LEAVE,
       ]),
-      node("too-fast", ["You pause at the penciled warning: the tiny seeds would wash to one corner. 'A drink, not a bath.'", "Nothing was tipped. Reconnect the cloth wick instead."], [go("retry-right", "Look at the right tray again.", "dry"), LEAVE]),
-      node("settled", ["RIGHT TRAY SETTLED. The wick reaches the reservoir again. The tray can take its water slowly.", "Leave the tag turned over. Once both trays are settled, the lamp timer is on the back counter."], [LEAVE]),
+      node("too-fast", ["You tilt the reservoir and stop. Thursday's seeds are sitting loose on top; a flood would wash them into one corner.", "Nothing was tipped. The wick is the grey cloth strip hanging off the rim."], [go("retry-right", "Look at the right tray again.", "dry"), LEAVE]),
+      node("settled", ["RIGHT TRAY SETTLED. The wick is back in the reservoir. A dark damp line is already creeping up into the soil.", "Tag flipped. Once both trays are done, the lamp timer is on the back counter."], [LEAVE]),
     ],
   },
 ];

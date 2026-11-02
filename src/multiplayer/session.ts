@@ -3,10 +3,10 @@
 // subscribes to a small immutable view. colyseus.js is imported on demand, so solo play never
 // downloads it and a missing server can only produce an error message.
 import type { Client, Room } from "colyseus.js";
-import type { QuestBookState } from "../city/quests";
+import type { QuestBookState } from "../city/quests.ts";
 import { ServerClock, SnapshotBuffer } from "./interpolation.ts";
 import { CHAT_MAX, INTERPOLATION_DELAY, RECONNECT_SECONDS, ROOM_NAME, SEND_INTERVAL, hexToRgb, isMode, normalizeCode, sanitizeText, type ChatMessage, type Mode, type QuestEventMessage, type WaypointMessage } from "./protocol.ts";
-import type { FriendPosition, LocalPose, MultiplayerLink, PartyQuestSync, RemoteAvatar } from "./types";
+import type { FriendPosition, LocalPose, MultiplayerLink, PartyQuestSync, RemoteAvatar } from "./types.ts";
 import { EXTERIOR_PLACE, normalizePlace, samePlace } from "./presence.ts";
 import { parseTrainCarrier, railPose, sameCarrier, type TrainCarrier } from "./rail.ts";
 

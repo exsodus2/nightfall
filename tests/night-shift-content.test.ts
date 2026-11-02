@@ -74,9 +74,9 @@ test("night-shift and the complete registered content validate with all cross-pa
   assert.ok(CONTENT_PACKS.includes(NIGHT_SHIFT_PACK));
 });
 
-test("the giver and every venue target are safe, near the real doors and cover all six interiors", () => {
+test("the giver and every venue target are safe, near the real doors and cover the six district interiors", () => {
   const venues = interiorPlaces(world);
-  assert.equal(venues.length, 6);
+  assert.equal(venues.length, 9);
   assert.ok(world.canOccupy(NIGHT_SHIFT_GIVER.x, NIGHT_SHIFT_GIVER.z));
   const tea = venues.find(venue => venue.id === "blue-hour");
   assert.ok(tea);

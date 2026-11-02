@@ -1,7 +1,7 @@
-import type { CarPose } from "../city/driving";
+import type { CarPose } from "../city/driving.ts";
 import { WORLD_EDGE } from "../city/world.ts";
 import { MAX_PLAYERS } from "./protocol.ts";
-import type { RemoteAvatar } from "./types";
+import type { RemoteAvatar } from "./types.ts";
 
 export const MAX_REMOTE_CARS = MAX_PLAYERS - 1;
 export const REMOTE_CAR_HEIGHT_TOLERANCE = 0.1;

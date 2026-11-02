@@ -20,7 +20,7 @@
 .stickHint {
   position: absolute; left: calc(var(--s-left) + 34px); bottom: calc(var(--s-bottom) + 30px);
   display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
-  font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: #9fcfc366;
+  font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #9fcfc3a6; text-shadow: 0 1px 3px #000c;
 }
 .stickHint span { width: 84px; height: 84px; border-radius: 50%; border: 1px dashed #9fcfc340; background: radial-gradient(circle, #0c282b55 0 30%, transparent 31%); }
 .stick { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 6; }
@@ -66,7 +66,7 @@
 .column { display: flex; flex-direction: column; gap: 8px; }
 .interact {
   order: -1; flex-basis: 100%; display: flex; align-items: center; gap: 10px; justify-content: flex-start;
-  min-height: 52px; max-width: 100%; padding: 6px 16px 6px 8px; border-radius: 26px; text-transform: none; letter-spacing: 0; font: 500 13px/1.25 var(--font-sans);
+  min-height: 52px; max-width: 100%; touch-action: manipulation; padding: 6px 16px 6px 8px; border-radius: 26px; text-transform: none; letter-spacing: 0; font: 500 13px/1.25 var(--font-sans);
   background: #0c2a2ef2; border-color: #baf5d7aa; box-shadow: 0 0 0 1px #baf5d722, 0 8px 26px #000a; text-align: left;
   animation: interact-in .2s ease-out both;
 }

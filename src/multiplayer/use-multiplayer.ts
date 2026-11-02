@@ -5,8 +5,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { CityController } from "@/city/engine";
 import { LOCAL_OWNER, cityWaypoints } from "@/city/waypoints";
-import { MultiplayerSession, type ConnectRequest, type SessionView } from "./session";
-import { createRoomWaypointSync } from "./waypoint-sync";
+import { MultiplayerSession, type ConnectRequest, type SessionView } from "./session.ts";
+import { createRoomWaypointSync } from "./waypoint-sync.ts";
 
 const SERVER_VIEW: SessionView = { status: "idle", error: null, code: null, serverUrl: null, selfId: null, roster: [], chat: [] };
 

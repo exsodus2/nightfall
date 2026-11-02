@@ -4,15 +4,31 @@
 
 import type { CityWorld } from "../../city/world.ts";
 import type { EventBus } from "../events.ts";
-import type { CombatCharacter, CombatEffect, EncounterDefinition, EnemyArchetype, EnemyView, ItemDefinition, PlayerCombatView, RpgFrame, WeaponSlot } from "../types.ts";
+import type { CombatCharacter, CombatEffect, EncounterDefinition, EnemyArchetype, EnemyView, ItemDefinition, PlayerAttack, PlayerCombatView, Point, RpgFrame, WeaponSlot } from "../types.ts";
 import { tickEnemy } from "./ai.ts";
 import { hazardEffects, tickHazards } from "./boss.ts";
 import { LEASH, SIM_RADIUS } from "./constants.ts";
+import type { FormedEnemyView } from "./forms.ts";
+import { hasLineOfSight } from "./raycast.ts";
 import { Sim, type Enemy, type TickInput } from "./sim.ts";
 import { MAX_TICKS_PER_FRAME, TICK, clamp, seededRandom } from "./util.ts";
 
 /** Seconds a body stays in the enemy list after death (for the dissolve). */
 const CORPSE_TIME = 8;
+/** A tick-to-tick move longer than this (m) is a teleport (walked home out of range, respawn): the
+ * view snaps instead of sliding across the map. Enemies cover at most ~0.25 m per tick. */
+const POSE_SNAP = 2;
+interface TickPose { x: number; z: number; yaw: number }
+/** Shortest-arc blend of two yaws (radians). */
+function lerpYaw(a: number, b: number, k: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * k;
+}
+/** A roaming encounter never respawns while the player could see its area from this close. */
+const RESPAWN_VIEW = 120;
+/** How far a report of violence against civilians carries to lawful patrols (m). */
+const CRIME_RADIUS = 80;
 
 export interface CombatWorldOptions {
   world: CityWorld;
@@ -36,6 +52,9 @@ export interface CombatSave {
 export class CombatWorld {
   private readonly sim: Sim;
   private acc = 0;
+  /** Each enemy's pose at the previous tick: views interpolate previous -> current by acc / TICK so
+   * motion is smooth at any refresh rate (hit tests and AI stay on the tick's own pose). */
+  private readonly prevPose = new WeakMap<Enemy, TickPose>();
   private pending = { attackPressed: false, attackReleased: false, dodge: false, reload: false, select: null as WeaponSlot | null, quick: null as 1 | 2 | null };
   private lastX = NaN; private lastZ = NaN; private lastMoveX = 0; private lastMoveZ = 0;
 
@@ -65,6 +84,45 @@ export class CombatWorld {
     const group = this.sim.groups.get(encounter);
     if (group && !hostile && group.alerted) this.sim.resetGroup(group);
   }
+  /** The player hurt a civilian at (x, z): neutral lawful patrols (CorpSec) within reach turn
+   * hostile and come running. Returns how many groups answered (street life calls this). */
+  reportCrime(x: number, z: number, radius = CRIME_RADIUS): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return 0;
+    return this.sim.reportCrime(x, z, radius);
+  }
+  /** True while the player is fighting (the HUD's inCombat), without building a full view. */
+  get engaged(): boolean { return this.inCombat(); }
+  /** Living enemies in a fight (alerted, not walking home) within `radius` of `near`, written into
+   * `out` nearest first, at most `max` (positions only; street life scatters from them). */
+  fightPositions(near: Point, radius: number, out: Point[], max: number): void {
+    const r2 = radius * radius, d2: number[] = [];
+    for (const e of this.sim.enemies) {
+      if (e.deathTime >= 0 || !e.alerted || e.returning) continue;
+      const d = (e.x - near.x) ** 2 + (e.z - near.z) ** 2;
+      if (d > r2) continue;
+      let i = out.length;
+      while (i > 0 && d2[i - 1] > d) i--;
+      if (i >= max) continue;
+      out.splice(i, 0, { x: e.x, z: e.z }); d2.splice(i, 0, d);
+      if (out.length > max) { out.pop(); d2.pop(); }
+    }
+  }
+  private seenSwing: object | null = null;
+  private seenShot = -Infinity;
+  /** The swing or shot the player started since the last call, once each, or null. */
+  takePlayerAttack(): PlayerAttack | null {
+    const sim = this.sim, player = sim.player, swing = player.swing;
+    let attack: PlayerAttack | null = null;
+    if (swing && swing !== this.seenSwing) {
+      this.seenSwing = swing;
+      attack = { x: sim.px, z: sim.pz, yaw: swing.yaw, reach: player.stats(sim).range, ranged: false };
+    }
+    if (player.lastShot > this.seenShot) {
+      this.seenShot = player.lastShot;
+      attack = { x: sim.px, z: sim.pz, yaw: sim.yaw, reach: player.stats(sim).range, ranged: true };
+    }
+    return player.dead ? null : attack;
+  }
   /** True once every member was killed (until a roaming encounter respawns). */
   encounterCleared(id: string): boolean { return this.sim.cleared.has(id); }
   /** True while the encounter has living members. */
@@ -90,7 +148,7 @@ export class CombatWorld {
     sim.baseX = frame.player.x; sim.baseZ = frame.player.z; sim.moveX = 0; sim.moveZ = 0;
     sim.eye = frame.player.eye; sim.yaw = frame.player.yaw; sim.pitch = frame.player.pitch; sim.onFoot = frame.player.onFoot;
     this.acc = Math.min(this.acc + dt, MAX_TICKS_PER_FRAME * TICK);
-    for (let n = 0; n < MAX_TICKS_PER_FRAME && this.acc >= TICK - 1e-9; n++) { this.acc -= TICK; this.step(input); }
+    for (let n = 0; n < MAX_TICKS_PER_FRAME && this.acc >= TICK - 1e-9; n++) { this.acc -= TICK; this.keepPoses(); this.step(input); }
     this.lastX = frame.player.x; this.lastZ = frame.player.z; this.lastMoveX = sim.moveX; this.lastMoveZ = sim.moveZ;
     return { move: sim.moveX !== 0 || sim.moveZ !== 0 ? { x: sim.moveX, z: sim.moveZ } : null };
   }
@@ -127,10 +185,14 @@ export class CombatWorld {
       const def = sim.encounters.get(id);
       if (!def) { sim.respawn.delete(id); continue; }
       const left = remaining - TICK;
-      // Respawn out of sight, never on top of the player.
-      if (left <= 0 && (!sim.playerPresent || Math.hypot(sim.px - def.area.x, sim.pz - def.area.z) > def.area.radius + 60)) {
-        sim.respawn.delete(id); sim.cleared.delete(id); sim.spawnGroup(id);
-      } else sim.respawn.set(id, Math.max(0, left));
+      if (left > 0) { sim.respawn.set(id, left); continue; }
+      // Respawn out of sight, never on top of the player: away from the area, and (within view
+      // range) with a building between the player and it. Too close retries next tick; in plain
+      // view retries in half a second (one ray cast, not one per tick).
+      const d = Math.hypot(sim.px - def.area.x, sim.pz - def.area.z);
+      if (sim.playerPresent && d <= def.area.radius + 60) { sim.respawn.set(id, 0); continue; }
+      if (sim.playerPresent && d < RESPAWN_VIEW && hasLineOfSight(sim.world, { x: sim.px, y: sim.eye, z: sim.pz }, { x: def.area.x, y: 1.6, z: def.area.z })) { sim.respawn.set(id, 0.5); continue; }
+      sim.respawn.delete(id); sim.cleared.delete(id); sim.spawnGroup(id);
     }
     for (const group of sim.groups.values()) {
       if (!group.alerted) continue;
@@ -156,14 +218,39 @@ export class CombatWorld {
     return out;
   }
 
-  private view(e: Enemy, locked: boolean): EnemyView {
+  /** Remembers every enemy's pose before a tick moves it (the view's interpolation start). */
+  private keepPoses(): void {
+    for (const e of this.sim.enemies) {
+      const p = this.prevPose.get(e);
+      if (p) { p.x = e.x; p.z = e.z; p.yaw = e.yaw; } else this.prevPose.set(e, { x: e.x, z: e.z, yaw: e.yaw });
+    }
+  }
+
+  /** Render-only pose between the previous and the current tick (`alpha` = acc / TICK). */
+  private viewPose(e: Enemy, alpha: number): TickPose {
+    const p = this.prevPose.get(e);
+    if (!p || alpha >= 1 || (p.x - e.x) ** 2 + (p.z - e.z) ** 2 > POSE_SNAP * POSE_SNAP) return { x: e.x, z: e.z, yaw: e.yaw };
+    return { x: p.x + (e.x - p.x) * alpha, z: p.z + (e.z - p.z) * alpha, yaw: lerpYaw(p.yaw, e.yaw, alpha) };
+  }
+
+  private view(e: Enemy, locked: boolean): FormedEnemyView {
     const sim = this.sim, a = e.attack;
+    // Views are drawn between ticks: positions interpolate from the previous tick by acc / TICK, and
+    // clocks (attack progress, hit / death ages) run on by the leftover acc, so nothing advances in
+    // 60 Hz steps on a faster display. A hit-stopped enemy's attack clock holds like the sim's.
+    const lead = Math.max(0, this.acc), alpha = clamp(this.acc / TICK, 0, 1);
+    const pose = this.viewPose(e, alpha);
     let attack = 0;
-    if (a) attack = a.t < a.windup ? a.t / a.windup : a.t <= a.windup + a.active || a.shots > 0 ? 1 : clamp(1 - (a.t - a.windup - a.active) / Math.max(a.recovery, 1e-3), 0, 1);
+    if (a) {
+      const t = a.t + (sim.time < e.frozenUntil ? 0 : lead);
+      attack = t < a.windup ? t / a.windup : t <= a.windup + a.active || a.shots > 0 ? 1 : clamp(1 - (t - a.windup - a.active) / Math.max(a.recovery, 1e-3), 0, 1);
+    }
+    const now = sim.time + lead;
     return {
+      form: e.form,
       id: e.id, archetype: e.arch.id, name: e.arch.name, faction: e.arch.faction,
-      x: e.x, z: e.z, yaw: e.yaw, health: Math.max(0, e.health), maxHealth: e.maxHealth, state: e.state,
-      attack, hitAge: sim.time - e.hitTime, deathAge: e.deathTime >= 0 ? sim.time - e.deathTime : -1,
+      x: pose.x, z: pose.z, yaw: pose.yaw, health: Math.max(0, e.health), maxHealth: e.maxHealth, state: e.state,
+      attack, hitAge: now - e.hitTime, deathAge: e.deathTime >= 0 ? now - e.deathTime : -1,
       weaponClass: e.weapon.class, look: e.arch.look, bark: e.bark, hostile: sim.hostileOf(e.group.id),
       windup: !!a && a.t < a.windup, attackKind: a?.kind ?? null, locked, vulnerable: sim.time < e.critUntil,
       boss: !!e.boss, scale: e.arch.scale ?? 1,
@@ -172,7 +259,21 @@ export class CombatWorld {
 
   /** Transient effects (tracers, sparks, slashes, numbers, muzzle flashes) plus live boss
    * telegraphs, shockwave rings and projectiles. */
-  effects(): readonly CombatEffect[] { return [...this.sim.transientFx(), ...hazardEffects(this.sim)]; }
+  effects(): readonly CombatEffect[] {
+    const all = [...this.sim.transientFx(), ...hazardEffects(this.sim)], lead = Math.max(0, this.acc);
+    if (lead <= 0) return all;
+    // Between ticks: ages run on by the leftover acc and projectiles fly on along their velocity
+    // (exact for straight flight), so effects advance every frame rather than in 60 Hz steps.
+    return all.map((fx): CombatEffect => {
+      if (fx.kind === "projectile") return { ...fx, x: fx.x + fx.vx * lead, z: fx.z + fx.vz * lead, age: fx.age + lead };
+      if (fx.kind === "telegraph") {
+        // Wind-up telegraphs fill with age (progress = age / wind-up); shockwave rings don't.
+        const progress = fx.shape !== "ring" && fx.age > 0 && fx.progress < 1 ? Math.min(1, fx.progress * (fx.age + lead) / fx.age) : fx.progress;
+        return { ...fx, progress, age: fx.age + lead };
+      }
+      return { ...fx, age: fx.age + lead };
+    });
+  }
 
   /** The current soft lock-on target's enemy id. */
   lockTarget(): string | null { const lock = this.sim.player.lock; return lock && lock.deathTime < 0 ? lock.id : null; }
@@ -194,6 +295,8 @@ export class CombatWorld {
     this.sim.player.respawn();
     this.sim.projectiles = []; this.sim.rings = [];
   }
+  /** Ground-life rest: heals a fraction of max health and refills stamina. */
+  restPlayer(healthFraction: number): void { this.sim.player.rest(healthFraction); }
   get playerDead(): boolean { return this.sim.player.dead; }
 
   /** Direct damage to an enemy (scripted events, explosions, tests). */

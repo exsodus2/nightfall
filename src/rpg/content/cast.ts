@@ -20,26 +20,26 @@ export const CAST: readonly NpcDefinition[] = [
   {
     id: "hana", name: "Hana Oduya", title: "Noodle cart", district: 4, x: -14.5, z: 96, facing: FACE.east,
     look: look([230, 120, 60], [60, 40, 30], SKIN.brown, [255, 200, 120], "cap", "lantern", "swing"),
-    greeting: ["Broth's been going since before the rain started. Same broth. I just keep adding.", "Eat something. You look like a man who fights on an empty stomach."],
+    greeting: ["Broth's been going since before the rain started. Same broth. I just keep adding.", "Eat something. You look like someone who fights on an empty stomach."],
   },
   {
-    id: "sable", name: "Sable Quist", title: "Contract clerk", district: 4, x: -14.5, z: 64, facing: FACE.east,
+    id: "sable", name: "Sable Quist", title: "Contract clerk", district: 4, x: -18, z: 55, facing: FACE.east,
     look: look([60, 60, 70], [20, 20, 24], SKIN.pale, [255, 60, 80], "visor", "case", "scan"),
     greeting: ["Board's open. Names go up, names come down.", "Try not to be one of them."],
   },
   {
-    id: "lark", name: "Lark", title: "Busker, voiceless", district: 4, x: 14.5, z: 194, facing: FACE.west,
+    id: "lark", name: "Lark", title: "Busker, voiceless", district: 4, x: 17, z: 200.5, facing: FACE.west,
     look: look([200, 180, 220], [70, 60, 90], SKIN.pale, [220, 170, 255], "bare", "umbrella", "sway"),
     greeting: ["[She taps a chalk slate: SORRY. NO SONGS TODAY. OR YESTERDAY.]"],
   },
   // ---- Neon Ward (district 1) -----------------------------------------------------------------
   {
-    id: "harrow", name: "Imani Harrow", title: "Private eye", district: 1, x: -14.5, z: -60, facing: FACE.east,
+    id: "harrow", name: "Imani Harrow", title: "Private eye", district: 1, x: -18, z: -56, facing: FACE.east,
     look: look([90, 70, 50], [30, 24, 18], SKIN.deep, [255, 210, 140], "cap", "umbrella", "breathe"),
     greeting: ["Twenty years on the force. Then the force got bought.", "Now I work for whoever still pays in cash, and I sleep fine. Mostly."],
   },
   {
-    id: "sarr", name: "Adjutant Sarr", title: "CorpSec liaison", district: 1, x: 56, z: -134, facing: FACE.west,
+    id: "sarr", name: "Adjutant Sarr", title: "CorpSec liaison", district: 1, x: 54, z: -136.5, facing: FACE.west,
     look: look([60, 70, 96], [18, 22, 30], SKIN.pale, [120, 210, 255], "visor", "antenna", "scan"),
     greeting: ["Citizen. You are standing in a Meridian Security Zone.", "Standing is permitted. For now."],
   },
@@ -50,9 +50,9 @@ export const CAST: readonly NpcDefinition[] = [
     greeting: ["You're not on any list I own.", "That's either very good or very bad. Let's find out which."],
   },
   {
-    id: "ferro", name: "Deacon Ferro", title: "Chrome Saints deacon", district: 2, x: 458, z: -262, facing: FACE.south,
+    id: "ferro", name: "Deacon Ferro", title: "Chrome Saints deacon", district: 2, x: 459, z: -265, facing: FACE.south,
     look: look([220, 222, 230], [110, 100, 70], SKIN.grey, [255, 235, 170], "bare", "lantern", "breathe"),
-    greeting: ["Flesh rots, friend. Chrome remembers.", "Which would you rather be?"],
+    greeting: ["Flesh rots, friend. Chrome you can polish.", "The cathedral takes donations in parts. Fingers are popular."],
   },
   // ---- The Foundry (district 0) ---------------------------------------------------------------
   {
@@ -62,23 +62,23 @@ export const CAST: readonly NpcDefinition[] = [
   },
   // ---- Rain Gardens (district 3) --------------------------------------------------------------
   {
-    id: "juniper", name: "Dr. Juniper Vale", title: "Street ripperdoc", district: 3, x: -376.8, z: 200, facing: FACE.west,
+    id: "juniper", name: "Dr. Juniper Vale", title: "Street ripperdoc", district: 3, x: -373.5, z: 201, facing: FACE.west,
     look: look([210, 230, 214], [40, 80, 60], SKIN.tan, [140, 255, 180], "visor", "case", "breathe"),
     greeting: ["Sit. Don't touch anything that's humming.", "Armour, stims, and the occasional organ. Cash only. The organs are cash and a signature."],
   },
   // ---- The Spillway (district 5) --------------------------------------------------------------
   {
-    id: "kestrel", name: "Mama Kestrel", title: "Afterlight Arcade owner", district: 5, x: 458, z: 262, facing: FACE.east,
+    id: "kestrel", name: "Mama Kestrel", title: "Afterlight Arcade owner", district: 5, x: 459, z: 266, facing: FACE.east,
     look: look([255, 190, 90], [80, 50, 20], SKIN.deep, [255, 210, 90], "bare", "lantern", "sway"),
     greeting: ["Open until the end of the world, baby.", "We've had three ends of the world already. Still open."],
   },
   {
-    id: "nimbus", name: "Mr. Nimbus", title: "Definitely not a weatherman", district: 5, x: 504, z: 262, facing: FACE.west,
+    id: "nimbus", name: "Mr. Nimbus", title: "Definitely not a weatherman", district: 5, x: 502, z: 266, facing: FACE.west,
     look: look([110, 120, 140], [40, 44, 54], SKIN.tan, [180, 220, 255], "hood", "umbrella", "scan"),
     greeting: ["Lovely weather. I mean. I wouldn't know.", "I don't do weather. Never have. Why do you ask?"],
   },
   {
-    id: "gristle", name: "Gristle", title: "Razorback lieutenant", district: 5, x: 391.2, z: 184.8, facing: FACE.west,
+    id: "gristle", name: "Gristle", title: "Razorback lieutenant", district: 5, x: 392, z: 181, facing: FACE.west,
     look: look([170, 60, 30], [50, 20, 10], SKIN.tan, [255, 170, 40], "cap", null, "swing"),
     greeting: ["You lost, or you shopping?", "Either way there's a fee."],
   },
@@ -121,32 +121,40 @@ const RUMOURS: readonly DialogueOptionDef[] = [
 const hubs: DialogueDefinition[] = [
   hub("hana", CAST[0].greeting, RUMOURS, [
     { condition: RESTORED, lines: ["Lark sang at my cart last night. Whole queue went quiet to listen. Good quiet.", "Your bowl's on the house. Don't argue, I'm old."] },
-    { condition: KEPT, lines: ["Quiet night. They're all quiet nights now.", "Eat. You look like you're carrying something heavy."] },
+    { condition: KEPT, lines: ["Quiet night. Half my regulars order by pointing now.", "Eat. Whatever you're carrying in that pocket is humming."] },
     { condition: flagIs("vendetta.general-strike", true), lines: ["Every vending machine on the avenue is on strike. Business has never been better.", "Whoever organised that, I owe them a bowl."], priority: 2 },
   ], undefined, [
     node("rumours", [
       "Kestrel down at the Afterlight is looking for somebody with a spine. Her weatherman vanished, and the Razorbacks are squeezing her.",
       "The vending machine up the avenue in Neon Ward has stopped vending. It says it's on strike. I say it's haunted.",
       "And Tomas at the Ember Core coughs like a broken fan. Juniper in the Gardens says she can fix that. For a price.",
+    ], [{ id: "more", label: "Anything out on the Rim?", kind: "continue", next: "rumours-rim" }, { id: "thanks", label: "Thanks, Hana.", kind: "leave", next: null }]),
+    node("rumours-rim", [
+      "Salt, the quay runner at Silk Harbour, straight down the avenue to the sea, has a crate she wants carried. She always has a crate.",
+      "The stationmaster down there lost an engineer at Floodgate. And Billie, the keeper in Rootwood Park, says someone's stealing the lanterns.",
+      "Out in the Foundry, Brakka Venn charges a toll on every train at Foundry Gate. If she offers you work, count the money twice.",
     ], [{ id: "thanks", label: "Thanks, Hana.", kind: "leave", next: null }]),
   ]),
   hub("sable", CAST[1].greeting, [opens("board", "Show me the board.", "bounty.sable", "board", { level: 1 })], [
     { condition: RESTORED, lines: ["Forty-one people walked into the market this week and bought things out loud.", "Good for trade. Bad for my nerves. Board's open."] },
-    { condition: KEPT, lines: ["Board's open. It's always open. The city's just quieter about it now."] },
+    { condition: KEPT, lines: ["Board's open. Nobody shouts prices in the market any more. Easier to hear myself count."] },
   ]),
   hub("lark", CAST[2].greeting, [], [
     { condition: RESTORED, lines: ["[Lark is singing. It's a song about rain, which is cheating, but nobody minds.]", "Hey. HEY. It's you. I got my voice back and I have been using ALL of it."], priority: 8 },
     { condition: KEPT, lines: ["[She taps the slate. The chalk is worn down to a stub: STILL NOTHING. THEY SAY IT'S GONE FOR GOOD.]", "[Underneath, smaller: DO YOU KNOW WHERE IT WENT?]"], priority: 8 },
   ]),
   hub("harrow", CAST[3].greeting, [job("witness", "Got any work, detective?", "witness.harrow")], [
-    { condition: RESTORED, lines: ["Heard you went into the park and came out with the city's voice in your pocket.", "Don't let it go to your head. The rain doesn't care who you are."] },
-    { condition: flagIs("witness.proof", true), lines: ["Ines testified. Meridian's lawyers are billing overtime.", "That phone you pulled off the spotter? Best evidence I've had in ten years."], priority: 3 },
+    { condition: RESTORED, lines: ["Heard you went into the park and came out with the city's voice in your pocket.", "Don't let it go to your head. Meridian still owns the cops."] },
+    { condition: flagIs("witness.proof", true), lines: ["Ines testified. Meridian's lawyers are billing overtime.", "That phone you pulled off the paymaster? Best evidence I've had in ten years."], priority: 3 },
   ]),
   hub("sarr", CAST[4].greeting, [], [
     { condition: { quest: "quiet-money", outcome: "betrayed" }, lines: ["Asset. Your cooperation has been logged.", "Your file now says 'useful'. Try to keep it that way."], priority: 3 },
     { condition: KEPT, lines: ["Our analysts are very interested in a certain seed.", "When you're ready to discuss a price, Meridian is ready to be generous. Generously."] },
   ]),
-  hub("nix", CAST[5].greeting, [job("quiet-money", "Heard you have a job.", "qm.nix")], [
+  hub("nix", CAST[5].greeting, [job("quiet-money", "Heard you have a job.", "qm.nix"), job("two-ledgers", "About the relay on Brakka's stack.", "ci.nix")], [
+    { condition: flagIs("foundry.truce", "ghosts"), lines: ["Kettle sends CorpSec a route every night. Every one of them ends at a flooded culvert.", "Couriers walk past Foundry Gate for free now. Brakka waves. I wave back. It's very civilised."], priority: 5 },
+    { condition: flagIs("foundry.truce", "razorbacks"), lines: ["My couriers pay Brakka's toll now, like everyone else. In full. With a receipt.", "I'm not angry. I'm keeping notes."], priority: 5 },
+    { condition: flagIs("foundry.truce", "truce"), lines: ["Half toll at Foundry Gate, and a CorpSec harbour desk with no sergeant. Okafor-Lisle was reassigned to a lighthouse.", "You made two people who hate each other share a page. Do it again sometime; I want to watch."], priority: 5 },
     { condition: { quest: "quiet-money", outcome: "betrayed" }, lines: ["Oh, look. It's the CorpSec asset.", "I'll still sell to you. At prices that reflect my feelings."], priority: 4 },
     { condition: { quest: "quiet-money", outcome: "delivered" }, lines: ["My favourite contractor. The core had eleven years of Meridian payroll fraud on it.", "The Ghosts are going to have a very merry leak."], priority: 3 },
     { condition: KEPT, lines: ["That seed you're carrying. I can hear it from here. Forty-one voices on a chip the size of a tooth.", "If you ever want to sell, I don't ask questions. I just ask forty thousand."] },
@@ -157,6 +165,8 @@ const hubs: DialogueDefinition[] = [
   ]),
   hub("gauge", CAST[7].greeting, [], [
     { condition: { quest: "cold-chain", outcome: "sold" }, lines: ["That lung you sold me? Bought a crate of rifle rounds with it.", "Don't look at me like that. Tomas is old. Rounds are forever."], priority: 3 },
+    { condition: flagIs("foundry.truce", "razorbacks"), lines: ["Brakka's tightened the toll at Foundry Gate. My crates pay double now, and I hear that's your doing.", "Prices on the table went up to match. Nothing personal. Everything's personal."], priority: 2 },
+    { condition: flagIs("foundry.truce", "truce"), lines: ["Half toll for the Ghosts at Foundry Gate, full toll for honest arms dealers. Explain that to me.", "Don't. I'll just get angry. Buy something."], priority: 2 },
   ]),
   hub("juniper", CAST[8].greeting, [job("cold-chain", "Need anything carried?", "cc.juniper")], [
     { condition: flagIs("tomas.lung", "new"), lines: ["Tomas sent me a thank-you note. Written in soot, but still.", "Good work. Organs are hard. Couriers are harder."], priority: 3 },
@@ -180,35 +190,35 @@ const hubs: DialogueDefinition[] = [
   ]),
   // Base cast (src/city/npcs.ts). Juno's legacy lines outlive the relay chip, so her hub is
   // conditional on it being done and outranks them; Tomas and Wren have no legacy lines.
-  hub("juno", ["Every tower in this ward is shouting. I just listen for the quiet ones."], [job("signal-cathedral", "Mara says you've been listening.", "hush.juno")], [
+  hub("juno", ["Ninety ad feeds on this block. I log the ones that go dead air when they shouldn't.", "Lately that's a lot of them."], [job("signal-cathedral", "Mara says you've been listening.", "hush.juno")], [
     { condition: { all: [RESTORED, flagIs("hush.vesper", "spared")] }, lines: ["Someone's broadcasting lullabies on the old emergency band. Two a.m., every night.", "Sounds like an apology. I let it play."], priority: 16 },
-    { condition: RESTORED, lines: ["The quiet ones are loud again. I can't get any sleep. I love it."], priority: 15 },
-    { condition: KEPT, lines: ["The towers still have a hole in them, forty-one voices wide.", "You did what you thought was right. I'm still listening for them."], priority: 15 },
+    { condition: RESTORED, lines: ["The dead channels are carrying voices again. Forty-one of them, all talking over each other.", "I can't get any sleep. I love it."], priority: 15 },
+    { condition: KEPT, lines: ["The towers still have a hole in them, forty-one voices wide.", "I keep their channels open anyway. Habit."], priority: 15 },
   ], { condition: { quest: "relay-chip" }, priority: 12 }),
-  hub("tomas", ["Forty years I've kept the Ember Core burning.", "They say it's automated now. Somebody still has to listen to it breathe."], [
+  hub("tomas", ["Forty years on the Ember Core's coolant valves.", "The board says it's automated now. The board can't hear a seal starting to whistle. I can."], [
     job("ember-core", "You look worried, Tomas.", "ec.tomas"),
     job("root-access", "Did you know a Vesper Kade?", "hush.tomas"),
   ], [
     { condition: flagIs("tomas.lung", "new"), lines: ["I can breathe all the way down. Forgot what that was like.", "The Core sounds different with two good lungs listening."], priority: 2 },
     { condition: flagIs("tomas.lung", "tired"), lines: ["The lung works. Mostly. I wheeze in B-flat now.", "Juniper says that's not a medical term. I say it's accurate."], priority: 2 },
-    { condition: RESTORED, lines: ["Vesper used to say every machine in the city hums one note.", "Tonight the Core hums something new. I think it's relief."], priority: 4 },
+    { condition: RESTORED, lines: ["The Core's running two degrees cooler since the Choir went quiet.", "Don't ask me why. I just read the gauges."], priority: 4 },
   ]),
-  hub("wren", ["The Last Tree was here before the first foundation.", "Stand under it a while. It doesn't ask for anything."], [job("hollow-choir", "Is the Tree ready?", "hush.wren")], [
+  hub("wren", ["The Last Tree's roots crack the plaza a little more every year. The council paves it; I unpave it.", "Mind the seed trays. Rain's the only thing that waters them for free."], [job("hollow-choir", "Is the Tree ready?", "hush.wren")], [
     { condition: RESTORED, lines: ["Listen. The Tree is humming on its own again. No borrowed voices.", "Thank you. It won't say it, so I will."], priority: 5 },
-    { condition: KEPT, lines: ["The roots are quiet. Too quiet. Like a held breath.", "Whatever you took from the heart of it - keep it dry."], priority: 5 },
+    { condition: KEPT, lines: ["The roots stopped humming. The new shoots came up grey this year.", "Whatever you took from the heart of it, keep it dry."], priority: 5 },
   ]),
 ];
 
 /** Shops: street food in the Silk Market, arms in the Foundry, armour and meds in the Gardens,
  * tech on the Ghost Circuit. Prices are value x markup (ammo sells in boxes). */
 const vendors: NonNullable<ContentPack["vendors"]> = [
-  { npc: "hana", markup: 1.1, stock: ["synth-ration", "stim", "coolant-can", "medkit", "haste-inhaler", "neon-tube"] },
+  { npc: "hana", markup: 1.1, stock: ["hana-broth", "kiln-coffee", "synth-ration", "stim", "sealant-spray", "coolant-can", "medkit", "haste-inhaler", "hyphen", "neon-tube", "harbour-kelp"] },
   {
     npc: "gauge", markup: 1.25,
-    stock: ["pipe-operator", "forward-slash", "segfault", "hash-hammer", "caret-45", "asterisk-smg", "colon-scatter", "quote-magnum", "semicolon", "ammo-pistol", "ammo-shell", "ammo-rifle"],
+    stock: ["pipe-operator", "query", "forward-slash", "segfault", "less-than", "hash-hammer", "shebang", "caret-45", "asterisk-smg", "colon-scatter", "tab-stop", "quote-magnum", "semicolon", "kernel-plate", "ammo-pistol", "ammo-shell", "ammo-rifle", "underscore", "full-stop"],
   },
-  { npc: "juniper", markup: 1.2, stock: ["mesh-hoodie", "kevlar-weave", "firewall-vest", "visor-cap", "riot-helm", "stim", "medkit", "shield-cell"] },
-  { npc: "nix", markup: 1.35, stock: ["focus-chip", "shield-cell", "haste-inhaler", "tilde-whip", "brace-burst", "halo-rig", "ammo-pistol"] },
+  { npc: "juniper", markup: 1.2, stock: ["sandbox-poncho", "mesh-hoodie", "patch-notes", "kevlar-weave", "firewall-vest", "visor-cap", "welders-mask", "riot-helm", "sealant-spray", "stim", "moss-poultice", "medkit", "shield-cell", "flood-wall"] },
+  { npc: "nix", markup: 1.35, stock: ["defrag-patch", "glare-drops", "focus-chip", "overclock-tab", "shield-cell", "haste-inhaler", "open-paren", "tilde-whip", "interrupt", "brace-burst", "null-hood", "halo-rig", "ammo-pistol", "port-scanner"] },
 ];
 
 /** Named NPCs, their shops and hub conversations. */

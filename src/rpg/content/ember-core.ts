@@ -36,49 +36,49 @@ const interactables: InteractableDefinition[] = [{
 
 const quest: QuestDefinition2 = {
   id: Q, title: "Hold the Ember", category: "side", giver: "tomas",
-  summary: "The Razorbacks are coming to crack the Ember Core's coolant manifold. Hold the plaza through three waves.",
-  rewardHint: "500 cr and Tomas's old shotgun", recommendedLevel: 6, start: "brace",
-  onFail: [{ setFlag: "ember.scrammed" }, { rep: "razorbacks", by: 5 }, { message: "The Ember Core scrams. The Foundry goes dark for a night, and somewhere in the Spillway, coolant goes on sale.", tone: "danger" }],
+  summary: "The Razorbacks are coming to crack the Ember Core's coolant manifold and sell the coolant. Hold the Core plaza in the Foundry through three waves.",
+  rewardHint: "500 cr and the Kernel Panic shotgun (300 cr and a lesser gun if the Core vents)", recommendedLevel: 6, start: "brace",
+  onFail: [{ setFlag: "ember.scrammed" }, { rep: "razorbacks", by: 5 }, { message: "The Ember Core scrams. The Foundry goes dark for a night and Spillway stalls start selling coolant.", tone: "danger" }],
   stages: [
     {
-      id: "brace", journal: "Tomas says they come at shift change. Stock up, then tell him you're ready.",
-      objectives: [{ id: "ready", kind: "choose", text: "Tell Tomas you're ready", dialogue: "ec.tomas", options: ["ready"] }],
+      id: "brace", journal: "Tomas says the Razorbacks hit at shift change. Stock up on stims and ammo (Gauge, a block east of the Core, sells ammo), then tell Tomas at the Ember Core you're ready.",
+      objectives: [{ id: "ready", kind: "choose", text: "Tell Tomas at the Ember Core you're ready", dialogue: "ec.tomas", options: ["ready"] }],
       next: "wave-1",
     },
     {
-      id: "wave-1", journal: "First wave, from the north street. Strippers with pipes.",
+      id: "wave-1", journal: "First wave at the Ember Core, coming down the north street: four Razorback strippers with pipes and a pistol.",
       onEnter: [{ spawn: "ec-wave-1" }, { message: "Here they come - north side!", tone: "danger" }],
-      objectives: [{ id: "clear", kind: "clear", text: "Break the first wave", encounter: "ec-wave-1" }],
+      objectives: [{ id: "clear", kind: "clear", text: "Stop the first wave on the north street", encounter: "ec-wave-1" }],
       next: "wave-2",
     },
     {
-      id: "wave-2", journal: "Second wave, up from the station. A lieutenant with a shotgun.",
+      id: "wave-2", journal: "Second wave at the Ember Core, coming up from the Foundry station to the south: a Razorback lieutenant with a shotgun and his crew.",
       onEnter: [{ spawn: "ec-wave-2" }, { message: "South side! From the station!", tone: "danger" }],
-      objectives: [{ id: "clear", kind: "clear", text: "Break the second wave", encounter: "ec-wave-2" }],
+      objectives: [{ id: "clear", kind: "clear", text: "Stop the second wave coming up from the station", encounter: "ec-wave-2" }],
       next: "wave-3",
     },
     {
-      id: "wave-3", journal: "The Duchess sent her heavies, and a sapper crew for the manifold. Kill them and hold the plaza while the Core vents - before they get to work.",
+      id: "wave-3", journal: "The Duchess sent a brute and a sapper crew for the manifold. Kill them all and hold the Ember Core plaza for 45 seconds. If any are still standing after 75 seconds, they crack the manifold.",
       onEnter: [{ spawn: "ec-wave-3" }, { message: "A brute and a sapper crew, all sides. Hold the plaza!", tone: "danger" }],
       timeLimit: 75, onTimeout: "manifold",
       objectives: [
-        { id: "clear", kind: "clear", text: "Break the Duchess's heavies", encounter: "ec-wave-3" },
-        { id: "hold", kind: "survive", text: "Hold the plaza while the Core vents", seconds: 45, area: PLAZA },
+        { id: "clear", kind: "clear", text: "Take down the Duchess's heavies on the plaza", encounter: "ec-wave-3" },
+        { id: "hold", kind: "survive", text: "Hold the Ember Core plaza for 45 seconds", seconds: 45, area: PLAZA },
       ],
       next: "report",
     },
     {
-      id: "manifold", journal: "They cracked the manifold. Coolant is venting. Seal the valve by hand before the Core scrams.",
+      id: "manifold", journal: "They cracked the manifold and coolant is venting. Seal the valve on the east side of the plaza by hand within 40 seconds, or the Core scrams.",
       timeLimit: 40,
       objectives: [
-        { id: "valve", kind: "interact", text: "Seal the manifold valve", object: "ec-valve" },
-        { id: "clear", kind: "clear", text: "Finish the heavies", encounter: "ec-wave-3" },
+        { id: "valve", kind: "interact", text: "Seal the coolant valve, east side of the plaza", object: "ec-valve" },
+        { id: "clear", kind: "clear", text: "Finish off the heavies", encounter: "ec-wave-3" },
       ],
       next: "report",
     },
     {
-      id: "report", journal: "The Core is breathing. Tell Tomas.",
-      objectives: [{ id: "report", kind: "choose", text: "Tell Tomas it's over", dialogue: "ec.tomas", options: ["report"] }],
+      id: "report", journal: "The Core is still running. Tell Tomas, by the Ember Core in the Foundry, that the Razorbacks are done.",
+      objectives: [{ id: "report", kind: "choose", text: "Tell Tomas at the Ember Core it's over", dialogue: "ec.tomas", options: ["report"] }],
       next: [{ if: { flag: "ember-core.valve" }, stage: "end-vented" }, { stage: "end-held" }],
     },
     ending("end-held", "The Core never missed a breath.", "held"),
@@ -105,14 +105,14 @@ const dialogues: DialogueDefinition[] = [{
   ],
   nodes: [
     node("offer", [
-      "The Razorbacks want my coolant. Their Duchess sells it in the Spillway for the price of blood.",
+      "The Razorbacks want my coolant. Their Duchess cuts it with tap water and sells it in the Spillway at forty a litre.",
       "They'll crack the manifold at shift change. Three crews, maybe four. I'm sixty-eight and I have a lantern.",
-      "Hold the plaza for me.",
+      "Hold the plaza for me. I can pay five hundred, and there's something under the furnace I've kept forty years for a day like this.",
     ], [
       { id: "accept", label: "Nobody touches your Core.", effects: [{ startQuest: Q }], next: "brace" },
       bye("Sorry, Tomas.", "decline"),
     ]),
-    node("brace", ["Buy stims if you need them. Gauge by the station sells shells. Tell me when you're ready and I'll open the gates."], [
+    node("brace", ["Buy stims if you need them. Gauge sells shells from his table a block east of the Core. Tell me when you're ready and I'll open the gates."], [
       { id: "ready", label: "Open the gates. I'm ready.", kind: "continue", next: null },
       bye("Give me a minute."),
     ]),

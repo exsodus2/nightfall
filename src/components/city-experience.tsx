@@ -37,18 +37,29 @@ import { useMobileShell } from "./use-mobile-shell";
 import { isTouchFirst } from "@/city/device";
 // RPG UI: inventory & character (I / Tab), vendor, death screen, pickup prompt, loot feed (src/components/rpg).
 import { InventoryButton, RpgPrompt, RpgScreens, useRpgUi } from "./rpg";
-import { interiorPlaces } from "@/city/interiors";
+import { interiorPlaces, interiorTitle } from "@/city/interiors";
 import { InteriorMap } from "./interior-map";
-import { TRAIN_EYE_HEIGHT } from "@/city/metro";
+import { LINES, TRAIN_EYE_HEIGHT, lineStations } from "@/city/metro";
+// Photo mode (P) and the first-visit key hints.
+import { PhotoStrip, usePhotoMode } from "./photo-mode";
+import { OnboardingHints } from "./onboarding-hints";
 
 type Phase = "loading" | "intro" | "playing" | "paused" | "error" | "lost"; // Mobile: "lost" = WebGL context lost
 type Panel = "map" | "settings" | "transit" | null;
 type BootStage = "opening" | CityBootStage;
 const BOOT_STAGES: readonly CityBootStage[] = ["materials", "scene", "glyphs"];
-const BOOT_LABELS: Record<BootStage, string> = { opening: "Opening the city.", materials: "Preparing light, glass and reflections.", scene: "Preparing streets and sheltered rooms.", glyphs: "Fitting the letters to your screen." };
-const BOOT_STEPS: Record<CityBootStage, string> = { materials: "Lights", scene: "Streets", glyphs: "Letters" };
+const BOOT_LABELS: Record<BootStage, string> = { opening: "Starting the renderer.", materials: "Compiling light, glass and reflection shaders.", scene: "Laying out streets, traffic and interiors.", glyphs: "Building the glyph atlas for this screen." };
+const BOOT_STEPS: Record<CityBootStage, string> = { materials: "Shaders", scene: "Streets", glyphs: "Glyphs" };
+const QUALITY_NOTES: Record<Exclude<Quality, "auto">, string> = {
+  low: "Performance: large characters, short view distance, no holograms, haze or bloom.",
+  balanced: "Balanced: medium characters with the full set of effects.",
+  high: "Fine: the smallest characters and the longest view. Needs a strong GPU.",
+};
+const HEADINGS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"] as const;
+/** Compass heading for the travel HUD (yaw 0 faces north and grows clockwise). */
+function heading(yaw: number): string { return HEADINGS[((Math.round(yaw / (Math.PI / 4)) % 8) + 8) % 8]; }
 const DEFAULT_SETTINGS: CitySettings = { rain: true, effects: true, sound: false, motion: true, quality: "high", sensitivity: 1 };
-const INITIAL_SNAPSHOT: CitySnapshot = { ...SPAWN, sceneTime: 0, metroTime: 0, visibleBuildings: 0, district: 4, distance: 0, fps: 0, discovered: [], nearby: null, mode: "walk", altitude: WALK_HEIGHT, speed: 0, destination: null, progress: 0, cars: 0, residents: 0, interaction: null, station: null, cabin: null, population: { walking: 0, waiting: 0, visiting: 0, riding: 0, commuters: 0 }, quests: { credits: 0, log: [], nearbyNpc: null, tracked: null } };
+const INITIAL_SNAPSHOT: CitySnapshot = { ...SPAWN, sceneTime: 0, signalTime: 0, metroTime: 0, visibleBuildings: 0, district: 4, distance: 0, fps: 0, discovered: [], nearby: null, mode: "walk", altitude: WALK_HEIGHT, speed: 0, destination: null, progress: 0, cars: 0, residents: 0, interaction: null, station: null, cabin: null, population: { walking: 0, waiting: 0, visiting: 0, riding: 0, commuters: 0 }, quests: { credits: 0, log: [], nearbyNpc: null, tracked: null } };
 
 function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: () => void }) {
   return <button type="button" className="setting-row" role="switch" aria-checked={checked} onClick={onChange}>
@@ -63,6 +74,13 @@ function presencePose(snapshot: CitySnapshot): LocalPose {
 }
 
 function coordinate(value: number): string { return `${value < 0 ? "−" : ""}${Math.abs(Math.round(value)).toString().padStart(4, "0")}`; }
+
+/** Pause-screen status line: what you have done so far, in numbers. */
+function pausedSummary(snapshot: CitySnapshot): string {
+  const open = snapshot.quests.log.filter((entry) => entry.status === "active" || entry.status === "ready").length;
+  const distance = snapshot.distance >= 1000 ? `${(snapshot.distance / 1000).toFixed(1)} km` : `${Math.round(snapshot.distance)} m`;
+  return `${distance} travelled. ${snapshot.discovered.length} of ${LANDMARKS.length} landmarks found. ${open === 0 ? "No open jobs" : open === 1 ? "1 open job" : `${open} open jobs`}. ${Math.round(snapshot.quests.credits).toLocaleString("en-US")} CR on you.`;
+}
 
 export function CityExperience() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,6 +154,10 @@ export function CityExperience() {
       try {
         const { createCity } = await import("@/city/engine");
         if (cancelled || !canvas) return;
+        // A hot reload re-runs this effect on a canvas whose WebGL context the previous city released
+        // (engine.ts destroy marks it retired): booting on it fails with a null shader error, so ask
+        // React for a fresh canvas instead (the canvas is keyed by bootKey).
+        if (canvas.dataset.retired) { setBootKey((key) => key + 1); return; }
         const initial: CitySettings = settingsRef.current && bootKey > 0 ? settingsRef.current : { ...DEFAULT_SETTINGS, quality: isTouchFirst() ? "auto" : DEFAULT_SETTINGS.quality }; // Mobile: phones start on Auto
         setSettings(initial);
         city = createCity(canvas, initial, {
@@ -231,10 +253,21 @@ export function CityExperience() {
   const dismissToast = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
   const chooseDialogue = useCallback((optionId: string) => controller.current?.chooseDialogue(optionId), []);
   const closeDialogue = useCallback(() => controller.current?.closeDialogue(), []);
-  useQuestLogHotkey(ready && !dialogue, questLog, openQuestLog, closeQuestLog);
+  // Photo mode: pauses the city (P resumes it if it was running) and hides every overlay. `photoGate`
+  // is refreshed after the hooks below, so P only opens when no conversation, panel or screen is up.
+  const photoGate = useRef(false);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const photo = usePhotoMode({
+    controller, canvas: canvasRef, ready,
+    canOpen: () => photoGate.current,
+    pauseCity: () => { const running = phaseRef.current === "playing"; controller.current?.pause(); setPhase((current) => current === "playing" ? "paused" : current); return running; },
+    resumeCity: () => enter(),
+  });
+  useQuestLogHotkey(ready && !dialogue && !photo.active, questLog, openQuestLog, closeQuestLog);
   // RPG UI: renders nothing until snapshot.rpg exists. Its screens pause like the quest log; feed lines become toasts.
   const rpgUi = useRpgUi({
-    real: snapshot.rpg, controller, canvas: canvasRef, ready, phase, dialogue: !!dialogue, others: !!panel || questLog || lobby,
+    real: snapshot.rpg, controller, canvas: canvasRef, ready, phase, dialogue: !!dialogue || photo.active /* Photo mode: no I / Tab */, others: !!panel || questLog || lobby,
     pauseCity: () => { controller.current?.pause(); setPhase((current) => current === "playing" ? "paused" : current); },
     resumeCity: () => enter(),
     closeOthers: () => { setPanel(null); setQuestLog(false); setLobby(false); },
@@ -243,7 +276,9 @@ export function CityExperience() {
   // Radio: duck the rain bed while the radio is audible.
   const duckRain = useCallback((audible: boolean) => { radioAudible.current = audible; controller.current?.duckAmbience(audible ? 0.4 : 1); }, []);
   // World map: M toggles it without pausing; conversations, panels, the quest log and the lobby close it.
-  const worldMap = useWorldMap({ ready, phase, blocked: !ready || !!dialogue || !!panel || questLog || lobby || rpgUi.blocking /* RPG UI */, controller, canvas: canvasRef });
+  const worldMap = useWorldMap({ ready, phase, blocked: !ready || !!dialogue || !!panel || questLog || lobby || rpgUi.blocking /* RPG UI */ || photo.active, controller, canvas: canvasRef });
+  const photoOpenable = (phase === "playing" || phase === "paused") && !dialogue && !panel && !questLog && !lobby && !worldMap.open && !rpgUi.blocking;
+  useEffect(() => { photoGate.current = photoOpenable; }, [photoOpenable]);
   const waypointState = useWaypointState();
   const [minimapRotate, setMinimapRotate] = useState(false);
   const linkWaypointToast = useCallback((label: string) => toast(`Waypoint added from link: ${label}`), [toast]);
@@ -274,13 +309,13 @@ export function CityExperience() {
   function freeMode(mode: "walk" | "fly") { controller.current?.setMode(mode); enter(); }
   function changeSetting<K extends keyof CitySettings>(key: K, value: CitySettings[K]) { setSettings((current) => ({ ...current, [key]: value })); }
 
-  return <main className="city-experience" data-touch={touchUi /* Mobile */} data-quality={snapshot.render ? `${settings.quality}:${snapshot.render.level}:${snapshot.render.cell}` : ""} data-phase={phase} data-mode={snapshot.mode} data-station={snapshot.station ?? ""} data-cabin-u={snapshot.cabin?.u.toFixed(2) ?? ""} data-cabin-v={snapshot.cabin?.v.toFixed(2) ?? ""} data-doors={snapshot.cabin?.doors.toFixed(2) ?? ""} data-dialogue={!!dialogue /* Quest UI */}>
+  return <main className="city-experience" data-touch={touchUi /* Mobile */} data-quality={snapshot.render ? `${settings.quality}:${snapshot.render.level}:${snapshot.render.cell}` : ""} data-phase={phase} data-mode={snapshot.mode} data-station={snapshot.station ?? ""} data-cabin-u={snapshot.cabin?.u.toFixed(2) ?? ""} data-cabin-v={snapshot.cabin?.v.toFixed(2) ?? ""} data-doors={snapshot.cabin?.doors.toFixed(2) ?? ""} data-dialogue={!!dialogue /* Quest UI */} data-photo={photo.active}>
     <canvas key={bootKey /* Mobile: a fresh canvas (and WebGL context) after a lost context */} ref={canvasRef} className="city-canvas" tabIndex={0} aria-label="First-person cyberpunk city. Use W A S D to walk, mouse or arrow keys to look, and Escape to pause." />
     <div className="edge-shade" aria-hidden="true" />
     {/* Mobile: phone controls. Rendered before the HUD so the minimap, quest tracker and radio stay tappable above its zones. */}
     {phase === "playing" && touchUi && !worldMap.open && !dialogue ? <TouchControls controller={controller} snapshot={snapshot} online={multiplayer.view.status === "connected"} radioOpen={radioOpen}
       onPause={() => { controller.current?.pause(); setPhase("paused"); }} onTransit={() => openPanel("transit")} onMap={worldMap.openMap} onQuests={openQuestLog} onInventory={rpgUi.rpg ? rpgUi.openInventory : undefined /* RPG UI */}
-      onRadio={() => setRadioOpen((open) => !open)} onOnline={openLobby} onSettings={() => openPanel("settings")} /> : null}
+      onRadio={() => setRadioOpen((open) => !open)} onOnline={openLobby} onSettings={() => openPanel("settings")} onPhoto={() => photo.open()} /> : null}
     {touchUi && (phase === "intro" || phase === "playing") ? <RotateHint /> : null}
     <SceneStudio city={controller} snapshot={snapshot} onExplore={enter} />
 
@@ -299,30 +334,30 @@ export function CityExperience() {
 
     <div className="location-strip" aria-live="off">
       <span className="status-light" aria-hidden="true" />
-      <span>{snapshot.interior?.name ?? district.name}</span><span className="location-divider">/</span><span className="location-description">{snapshot.interior ? `${district.name} · Indoors` : district.description}</span>
+      <span>{snapshot.interior ? interiorTitle(snapshot.interior) : district.name}</span><span className="location-divider">/</span><span className="location-description">{snapshot.interior ? `${district.name} · Indoors` : district.description}</span>
     </div>
 
     {phase === "loading" ? <div className="loading-state" role="status" aria-atomic="true" data-boot-stage={bootStage}>
       <span className="loading-glyph" aria-hidden="true">▒</span>
-      <h1>{bootKey > 0 ? "Rebuilding the city" : "Building the skyline"}</h1>
+      <h1>{bootKey > 0 ? "Rebuilding the city" : "Loading Nightfall"}</h1>
       <p>{BOOT_LABELS[bootStage]}</p>
       <div className="loading-stages" aria-hidden="true">{BOOT_STAGES.map((stage, index) => {
         const current = BOOT_STAGES.findIndex(candidate => candidate === bootStage);
         return <span key={stage} data-state={current > index ? "done" : current === index ? "current" : "waiting"}><span>{current > index ? "[x]" : current === index ? "[>]" : "[ ]"}</span>{BOOT_STEPS[stage]}</span>;
       })}</div>
-      <p className="loading-hint">First visits can take longer while your browser prepares the graphics.</p>
+      <p className="loading-hint">The first load compiles the graphics and takes the longest. Later visits start faster.</p>
       <span className="loading-line" aria-hidden="true" />
     </div> : null}
-    {phase === "lost" ? <div className="error-state" role="alert"><h1>The city lost its graphics context.</h1><p>Your browser released the graphics context. Rebuild the city to continue from your last position.</p><button className="primary-button" onClick={rebuildCity}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
-    {phase === "error" ? <div className="error-state" role="alert"><h1>The city couldn’t start.</h1><p>This experience needs a browser with WebGL2 and hardware acceleration enabled.</p><details><summary>Technical details</summary><p>{error}</p></details><button className="primary-button" onClick={() => location.reload()}>Try again</button></div> : null}
+    {phase === "lost" ? <div className="error-state" role="alert"><h1>Graphics reset</h1><p>The browser dropped the WebGL context, usually after sleep or a driver update. Rebuild to carry on from where you stood. Quests, items and credits are kept.</p><button className="primary-button" onClick={rebuildCity}>Rebuild the city<span aria-hidden="true">↻</span></button><button className="reset-position" onClick={() => location.reload()}>Reload the page <span aria-hidden="true">↗</span></button></div> : null}{/* Mobile */}
+    {phase === "error" ? <div className="error-state" role="alert"><h1>Nightfall couldn’t start</h1><p>It needs WebGL2 with hardware acceleration. Check that acceleration is on in your browser settings, then try again.</p><details><summary>Technical details</summary><p>{error}</p></details><button className="primary-button" onClick={() => location.reload()}>Try again</button></div> : null}
 
-    {(phase === "intro" || phase === "paused") && !panel && !worldMap.open /* World map */ ? <section className="entry-panel" aria-label={phase === "intro" ? "Welcome to Nightfall" : "City paused"}>
-      <div className="entry-index"><span className="entry-rule" />{phase === "intro" ? "Free to wander. Nothing to outrun." : "Take a breath. The city can wait."}</div>
-      <h1>{phase === "intro" ? <>Somewhere,<br />after midnight.</> : snapshot.interior ? <>Out of the rain.<br />For a moment.</> : <>Still here.<br />Still raining.</>}</h1>
-      <p className="entry-description">{phase === "intro" ? "Street traffic. Last trains. Lights above the rain. Walk six districts, hail a cab, or take to the skyline." : `${district.name}. ${Math.round(snapshot.distance)} metres behind you. A whole city still ahead.`}</p>
+    {(phase === "intro" || phase === "paused") && !panel && !worldMap.open /* World map */ && !photo.active ? <section className="entry-panel" aria-label={phase === "intro" ? "Welcome to Nightfall" : "City paused"}>
+      <div className="entry-index"><span className="entry-rule" />{phase === "intro" ? "ASCII action RPG // 6 districts // open all night" : "Game paused // mouse released"}</div>
+      <h1>{phase === "intro" ? <>The night shift<br />is hiring.</> : <>Paused.<br />{snapshot.interior?.name ?? district.name}</>}</h1>
+      <p className="entry-description">{phase === "intro" ? "Take jobs from the people who live here, fight when a deal goes bad, and get paid in credits and gear. Walk, drive, or ride the cabs, the monorail and the sky taxi." : pausedSummary(snapshot)}</p>
       <button className="primary-button" onClick={enter}>{phase === "intro" ? "Enter the city" : snapshot.mode === "walk" ? "Keep walking" : "Continue journey"}<span aria-hidden="true">↗</span></button>
       <div className="entry-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span><span><span className="mouse-symbol" aria-hidden="true" /> look</span><span><kbd>Shift</kbd> run</span></div>
-      <p className="touch-instructions">Left thumb moves: the stick appears where you touch, push past its ring to run. Right thumb: swipe to look.</p>
+      <p className="touch-instructions">Left thumb: move (push past the ring to run). Right thumb: swipe to look.</p>
     </section> : null}
 
     {phase === "playing" ? <>
@@ -333,10 +368,10 @@ export function CityExperience() {
       {/* RPG UI: the pickup prompt takes the same slot when E would pick up (cars and people come first; loot beats the street lift). */}
       {rpgUi.rpg?.prompt && snapshot.mode === "walk" && (!snapshot.interaction || snapshot.interaction === "Take lift to the platform") ? <RpgPrompt prompt={rpgUi.rpg.prompt} onInteract={() => controller.current?.interact()} />
         : snapshot.interaction ? <button className="interaction-prompt" disabled={snapshot.interaction.startsWith("Walk") || snapshot.interaction === "Lift in motion" || snapshot.interaction === "Finish combat before entering"} onClick={() => controller.current?.interact()}><kbd>E</kbd>{snapshot.interaction}</button> : null}
-      <div className="walking-hint"><kbd>Esc</kbd> pause <span /> <kbd>T</kbd> transport <span /> <kbd>{snapshot.mode === "fly" ? "Q / C" : "Space"}</kbd> {snapshot.mode === "fly" ? "rise / descend" : "jump"}</div>
+      <div className="walking-hint"><kbd>Esc</kbd> pause <span /> <kbd>T</kbd> transit <span /> <kbd>{snapshot.mode === "fly" ? "Q / C" : "Space"}</kbd> {snapshot.mode === "fly" ? "rise / descend" : "jump"}</div>
       <div className="travel-hud" aria-label="Locomotion status">
         <span className="travel-symbol" aria-hidden="true">{snapshot.mode === "walk" ? "↟" : snapshot.mode === "metro" ? "═" : "↗"}</span>
-        <div><small>{snapshot.interior ? "Indoors · Explore the room" : MODE_NAMES[snapshot.mode]}</small><strong>{snapshot.interior?.name ?? snapshot.destination ?? (snapshot.mode === "fly" ? `${Math.round(snapshot.altitude)} m above the street` : "Follow the lights")}</strong>
+        <div><small>{snapshot.interior ? "Indoors" : snapshot.destination ? `${MODE_NAMES[snapshot.mode]} to` : MODE_NAMES[snapshot.mode]}</small><strong>{snapshot.interior?.name ?? snapshot.destination ?? (snapshot.mode === "fly" ? `${Math.round(snapshot.altitude)} m up, heading ${heading(snapshot.yaw)}` : `Heading ${heading(snapshot.yaw)}`)}</strong>
           {snapshot.destination ? <div className="journey-progress"><span style={{ width: `${snapshot.progress * 100}%` }} /></div> : null}
         </div>
         {!snapshot.interior ? <span className="travel-speed">{Math.round(snapshot.speed * 3.6)}<small>km/h</small></span> : null}
@@ -349,7 +384,7 @@ export function CityExperience() {
       {/* World map: the north mark toggles a heading-up minimap; the minimap opens the world map and shows waypoints. */}
       <div className="map-heading"><span>{snapshot.interior ? "Room layout" : "Local streets"}</span>{!snapshot.interior ? <button type="button" className={`north-mark ${mapStyles.minimapToggle}`} aria-pressed={minimapRotate} onClick={() => setMinimapRotate((value) => !value)} title={minimapRotate ? "Heading up: click for north up" : "North up: click for heading up"}>{minimapRotate ? "▲ ahead" : "N ↑"}</button> : <span>Exit ↓</span>}</div>
       <button className="minimap-button" onClick={worldMap.openMap} aria-label="Open city map" aria-describedby={snapshot.interior ? "interior-map-description" : undefined}>{snapshot.interior ? <InteriorMap place={snapshot.interior} snapshot={snapshot} /> : <CityMap world={world} snapshot={snapshot} waypoints={waypointState.waypoints} activeWaypointId={waypointState.activeId} rotate={minimapRotate} />}<span className="map-corner top-left" /><span className="map-corner bottom-right" /></button>
-      <div className="map-caption"><span className="you-dot" />You are here<span>{snapshot.interior ? "Sheltered" : `${snapshot.discovered.length} / 6 found`}</span></div>
+      <div className="map-caption"><span className="you-dot" />You<span>{snapshot.interior ? "Indoors" : `Landmarks ${snapshot.discovered.length}/${LANDMARKS.length}`}</span></div>
     </aside> : null}
 
     {/* Quest UI: tracker + credits, NPC conversation, notifications and the quest log. */}
@@ -367,44 +402,55 @@ export function CityExperience() {
     {ready || phase === "lost" || phase === "loading" && bootKey > 0 /* Mobile: a lost GPU context must not stop the music */ ? <Radio active={ready && !dialogue && !panel && !questLog && !lobby && !rpgUi.blocking /* RPG UI */} visible={ready && !panel && !questLog && !lobby && (!touchUi || radioOpen) /* Mobile: opened from the touch drawer */} driving={snapshot.mode === "drive"} onAudibleChange={duckRain} /> : null}
 
     <footer className="city-footer">
-      <div className="footer-place"><span>Night cycle</span><span className="footer-dash" /><span>{snapshot.interior ? "Sheltered from the rain" : settings.rain ? "Persistent rain" : "Clear skies"}</span></div>
+      <div className="footer-place"><span>Weather</span><span className="footer-dash" /><span>{snapshot.interior ? "Indoors" : settings.rain ? "Rain" : "Clear"}</span></div>
       <div className="coordinates" aria-label="Player coordinates" data-x={snapshot.x.toFixed(2)} data-z={snapshot.z.toFixed(2)} data-y={snapshot.altitude.toFixed(2)} data-yaw={snapshot.yaw.toFixed(4)} data-cars={snapshot.cars} data-residents={snapshot.residents}><span>{coordinate(snapshot.x)} E</span><span>{coordinate(-snapshot.z)} N</span><span className="fps-count">{snapshot.fps || "—"} fps</span></div>
     </footer>
 
-    <div className="discovery-notice" data-visible={!!notice} role="status" aria-live="polite">{notice ? <><span className="discovery-symbol" aria-hidden="true">◇</span><div><small>Place discovered</small><strong>{notice.name}</strong><p>{notice.description}</p></div></> : null}</div>
+    {ready && !touchUi ? <OnboardingHints visible={phase === "playing" && !notice && !dialogue && !worldMap.open && !photo.active && !snapshot.interior} /> : null}
+    <div className="discovery-notice" data-visible={!!notice} role="status" aria-live="polite">{notice ? <><span className="discovery-symbol" aria-hidden="true">◇</span><div><small>Landmark found · {snapshot.discovered.length}/{LANDMARKS.length}</small><strong>{notice.name}</strong><p>{notice.description}</p></div></> : null}</div>
 
     {panel ? <div className="panel-backdrop" onClick={() => setPanel(null)}>
       <section className="side-panel" role="dialog" aria-modal="true" aria-labelledby="panel-title" tabIndex={-1} ref={dialogRef} onClick={(event) => event.stopPropagation()}>
-        <div className="panel-heading"><div><span className="panel-kicker">Nightfall city services</span><h2 id="panel-title">{panel === "map" ? "Find your way." : panel === "transit" ? "Enjoy the ride." : "Make it yours."}</h2></div><button className="close-button" onClick={() => setPanel(null)} aria-label="Close panel">×</button></div>
+        <div className="panel-heading"><div><span className="panel-kicker">{panel === "settings" ? "Changes apply at once" : `From ${snapshot.interior?.name ?? district.name}`}</span><h2 id="panel-title">{panel === "map" ? "Getting around" : panel === "transit" ? "Transit" : "Settings"}</h2></div><button className="close-button" onClick={() => setPanel(null)} aria-label="Close panel">×</button></div>
         {panel !== "settings" ? <>
-          <p className="panel-intro">Hail a cab, catch the elevated loop, or explore above the skyline.</p>
+          <p className="panel-intro">Pick a ride, then a district. Rides are free. You can also walk to a venue or a landmark from the lists below.</p>
           <div className="transit-modes" aria-label="Transportation mode">{(["taxi", "metro", "sky"] as RideMode[]).map(mode => <button key={mode} aria-label={MODE_NAMES[mode]} aria-pressed={rideMode === mode} onClick={() => setRideMode(mode)}><span aria-hidden="true">{mode === "taxi" ? "▰" : mode === "metro" ? "═" : "↗"}</span>{MODE_NAMES[mode]}</button>)}</div>
-          <p className="ride-description">{rideMode === "taxi" ? "A street-level cab ride through the grid. Door-to-door, with every turn along the way." : rideMode === "metro" ? "Visit a station. Press E at the lift, walk to an open train door, and board. Explore all three carriages while the city passes. Step off at any of the six stations." : "Lift off vertically, cross the skyline above the towers, and descend into your destination."}</p>
+          <p className="ride-description">{rideMode === "taxi" ? "A cab drives you through the streets to the district you pick. Press E to get out early." : rideMode === "metro" ? "Puts you at the street lift below a station. Press E at the lift and step through an open train door. The City Loop circles the six districts; the higher Rim Line runs the city edge above the harbour. Press E at any platform to get off." : "Climbs above the towers, flies straight to the district you pick and lands you on the street. The fastest way across town."}</p>
           <CityMap world={world} snapshot={snapshot} full />
           <div className="atlas-legend"><span><i className="you-dot" /> Your position</span><span>◇ Landmark</span><span className="atlas-quest-key">◆ Quest</span><span>North ↑</span></div>
-          <h3 className="section-title">{rideMode === "metro" ? "Visit a station" : "Choose your destination"} <span>{MODE_NAMES[rideMode]}</span></h3>
-          <div className="district-stops">{DISTRICTS.map((item) => <button key={item.id} onClick={() => ride(item.id)}><span className="line-color" style={{ background: item.hex }} /><span>{item.name}</span><small>{Math.round(Math.hypot(snapshot.x - item.x, snapshot.z - item.z))} m</small><span aria-hidden="true">↗</span></button>)}</div>
+          <h3 className="section-title">{rideMode === "metro" ? "Choose a station" : "Choose a district"} <span>{MODE_NAMES[rideMode]}</span></h3>
+          {rideMode === "metro" ? LINES.map(line => <div key={line.id} role="group" aria-label={line.name}>
+            <h4 className="section-title"><span className="line-color" style={{ background: line.hex }} /> {line.name} <span>{lineStations(line.id).length} stations</span></h4>
+            <div className="district-stops">{lineStations(line.id).map((station) => <button key={station.index} onClick={() => ride(station.index)}><span className="line-color" style={{ background: station.hex }} /><span>{station.name}</span><small>{Math.round(Math.hypot(snapshot.x - station.x, snapshot.z - station.z))} m</small><span aria-hidden="true">↗</span></button>)}</div>
+          </div>) : <div className="district-stops">{DISTRICTS.map((item) => <button key={item.id} onClick={() => ride(item.id)}><span className="line-color" style={{ background: item.hex }} /><span>{item.name}</span><small>{Math.round(Math.hypot(snapshot.x - item.x, snapshot.z - item.z))} m</small><span aria-hidden="true">↗</span></button>)}</div>}
           <div className="free-modes"><button onClick={() => freeMode("walk")}>Explore on foot <kbd>WASD</kbd></button><button onClick={() => freeMode("fly")}>Free flight <kbd>F</kbd></button></div>
-          <h3 className="section-title">Step inside <span>6 open doors</span></h3>
-          <p className="ride-description">Visit a doorway, then press E to enter. Each district has a place to get out of the rain.</p>
+          <h3 className="section-title">Step inside <span>{world ? interiorPlaces(world).length : 6} venues</span></h3>
+          <p className="ride-description">Takes you to the street door. Press E at the lit doorway to go in. One venue per district, each with people to talk to.</p>
           <div className="landmark-list">{world ? interiorPlaces(world).map(place => <button key={place.id} onClick={() => travel(place.entrance.x, place.entrance.z, place.entrance.yaw)} aria-label={`Visit ${place.name}`}><span className="landmark-found" aria-hidden="true">⌂</span><span>{place.name}<small>{DISTRICTS[place.district].name} · {Math.round(Math.hypot(snapshot.x - place.entrance.x, snapshot.z - place.entrance.z))} m</small></span><span aria-hidden="true">↗</span></button>) : null}</div>
-          <h3 className="section-title">Places worth finding <span>{snapshot.discovered.length}/6</span></h3>
+          <h3 className="section-title">Landmarks <span>{snapshot.discovered.length}/{LANDMARKS.length} found</span></h3>
           <div className="landmark-list">{LANDMARKS.map((landmark) => <button key={landmark.id} onClick={() => travel(landmark.arrivalX, landmark.arrivalZ)} aria-label={`Travel to ${landmark.name}`}><span className={snapshot.discovered.includes(landmark.id) ? "landmark-found" : "landmark-marker"}>{snapshot.discovered.includes(landmark.id) ? "✓" : "◇"}</span><span>{landmark.name}<small>{Math.round(Math.hypot(snapshot.x - landmark.x, snapshot.z - landmark.z))} m away</small></span><span aria-hidden="true">↗</span></button>)}</div>
         </> : <>
-          <p className="panel-intro">Tune the atmosphere. The streets will be here when you’re ready.</p>
-          <Toggle label="Rain" description="Falling rain and wet street reflections" checked={settings.rain} onChange={() => changeSetting("rain", !settings.rain)} />
-          <Toggle label="Neon bloom" description="A soft glow around emissive characters" checked={settings.effects} onChange={() => changeSetting("effects", !settings.effects)} />
-          <Toggle label="City ambience" description="A quiet bed of rain while you walk" checked={settings.sound} onChange={() => changeSetting("sound", !settings.sound)} />
-          <Toggle label="Ambient motion" description="Traffic, residents, rain, steam, and live billboards" checked={settings.motion} onChange={() => changeSetting("motion", !settings.motion)} />
-          <div className="quality-setting"><h3>Detail level</h3><div className="segmented-control" aria-label="Detail level">{(["auto", "low", "balanced", "high"] as Quality[]).map((quality) => <button key={quality} aria-pressed={settings.quality === quality} onClick={() => changeSetting("quality", quality)}>{quality === "auto" ? "Auto" : quality === "low" ? "Performance" : quality === "high" ? "Fine" : "Balanced"}</button>)}</div><p>{settings.quality === "auto" ? `Auto tunes character size, view distance and effects to keep a steady 60 fps (level ${snapshot.render?.level ?? 0} · ${snapshot.render?.cell ?? 10} px characters).` : "Performance uses larger characters, a shorter view, and no post-processing."}</p></div>
+          <p className="panel-intro">Graphics, sound and controls. The game stays paused while this is open.</p>
+          <Toggle label="Rain" description="Falling rain and wet street reflections." checked={settings.rain} onChange={() => changeSetting("rain", !settings.rain)} />
+          <Toggle label="Neon bloom" description="Glow around signs, windows and lamps. Off is slightly faster." checked={settings.effects} onChange={() => changeSetting("effects", !settings.effects)} />
+          <Toggle label="City ambience" description="Synthesized rain, city hum, district sounds, trains, traffic and footsteps. Starts when you enter the city; the radio has its own volume." checked={settings.sound} onChange={() => changeSetting("sound", !settings.sound)} />
+          <Toggle label="Ambient motion" description="Moving traffic, residents, steam and animated signs. Turn off if motion bothers you." checked={settings.motion} onChange={() => changeSetting("motion", !settings.motion)} />
+          <button type="button" className="setting-row" onClick={() => { setPanel(null); photo.open(() => openPanel("settings")); }}>{/* Photo mode */}
+            <span><strong>Photo mode / clean screen</strong><small>Hides the interface for a clean shot. Save a PNG or copy the frame as text. Press P any time.</small></span>
+            <kbd aria-hidden="true">P</kbd>
+          </button>
+          <div className="quality-setting"><h3>Detail level</h3><div className="segmented-control" aria-label="Detail level">{(["auto", "low", "balanced", "high"] as Quality[]).map((quality) => <button key={quality} aria-pressed={settings.quality === quality} onClick={() => changeSetting("quality", quality)}>{quality === "auto" ? "Auto" : quality === "low" ? "Performance" : quality === "high" ? "Fine" : "Balanced"}</button>)}</div><p>{settings.quality === "auto" ? `Auto: adjusts character size, view distance and effects to hold 60 fps. Now at level ${snapshot.render?.level ?? 0}, ${snapshot.render?.cell ?? 10} px characters.` : QUALITY_NOTES[settings.quality]}</p></div>
           {touchUi ? <TouchSettings /> : null}{/* Mobile */}
           <label className="sensitivity-setting"><span>Look sensitivity <output>{settings.sensitivity.toFixed(1)}×</output></span><input type="range" min="0.4" max="2" step="0.1" value={settings.sensitivity} onChange={(event) => changeSetting("sensitivity", Number(event.target.value))} /></label>
-          <div className="keyboard-guide"><h3>Your way around</h3><p><span>Walk / fly</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></p><p><span>Run / flight boost</span><kbd>Shift</kbd></p><p><span>Jump / rise</span><kbd>Space</kbd></p><p><span>Flight rise / descend</span><span><kbd>Q</kbd><kbd>C</kbd></span></p><p><span>Toggle free flight</span><kbd>F</kbd></p><p><span>Call transport / exit ride</span><span><kbd>T</kbd><kbd>E</kbd></span></p><p><span>Look</span><span>Mouse / <kbd>←</kbd><kbd>→</kbd></span></p><p><span>Pause / release mouse</span><kbd>Esc</kbd></p><p><span>City map &amp; waypoints</span><kbd>M</kbd></p><p><span>Quest log</span><kbd>J</kbd></p><small>If mouse capture is unavailable, drag to look or use the arrow keys.</small></div>
+          <div className="keyboard-guide"><h3>Controls</h3><p><span>Walk / fly</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></p><p><span>Run / flight boost</span><kbd>Shift</kbd></p><p><span>Jump / rise</span><kbd>Space</kbd></p><p><span>Flight rise / descend</span><span><kbd>Q</kbd><kbd>C</kbd></span></p><p><span>Toggle free flight</span><kbd>F</kbd></p><p><span>Talk, use, get in or out</span><kbd>E</kbd></p><p><span>Transit</span><kbd>T</kbd></p><p><span>Look</span><span>Mouse / <kbd>←</kbd><kbd>→</kbd></span></p><p><span>Pause / release mouse</span><kbd>Esc</kbd></p><p><span>City map &amp; waypoints</span><kbd>M</kbd></p><p><span>Quest log</span><kbd>J</kbd></p><p><span>Inventory / character</span><span><kbd>I</kbd><kbd>Tab</kbd></span></p><p><span>Room chat (online)</span><kbd>Enter</kbd></p><p><span>Radio on / off</span><kbd>R</kbd></p><p><span>Photo mode</span><kbd>P</kbd></p>
+            <h3>Combat</h3><p><span>Attack (hold for heavy)</span><span>Left mouse</span></p><p><span>Block / aim</span><span>Right mouse</span></p><p><span>Melee / sidearm / primary / fists</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span></p><p><span>Dodge</span><kbd>C</kbd></p><p><span>Reload</span><kbd>X</kbd></p><p><span>Quick slots</span><span><kbd>Q</kbd><kbd>Z</kbd></span></p><p><span>Car camera</span><kbd>V</kbd></p>
+            <small>If mouse capture is unavailable, drag to look or use the arrow keys.</small></div>
           <button className="reset-position" onClick={() => travel(SPAWN.x, SPAWN.z, SPAWN.yaw)}>Return to the starting street <span aria-hidden="true">↗</span></button>
           <p className="credits">Rendered with <a href="https://code.textmode.art/" target="_blank" rel="noreferrer">textmode.js</a> and its official synth &amp; filters addons.</p>
         </>}
         <button className="primary-button panel-resume" onClick={enter}>Back to the streets <span aria-hidden="true">↗</span></button>
       </section>
     </div> : null}
+    <PhotoStrip photo={photo} place={snapshot.interior?.name ?? district.name} driving={snapshot.mode === "drive"} />{/* Photo mode */}
   </main>;
 }

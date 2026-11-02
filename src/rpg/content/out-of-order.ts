@@ -25,7 +25,7 @@ const items: ItemDefinition[] = [
       " \\oo/",
     ],
   },
-  { id: "complimentary-mints", name: "Complimentary Mints", kind: "junk", rarity: "common", glyph: ":", value: 1, weight: 0.05, stack: 10, tags: ["noloot"], description: "They are not complimentary. You paid for them in emotional labour." },
+  { id: "complimentary-mints", name: "Complimentary Mints", kind: "junk", rarity: "common", glyph: ":", value: 1, weight: 0.05, stack: 10, tags: ["noloot"], description: "They are not complimentary. You paid for them by praising a vending machine." },
 ];
 
 const kicks: EnemyArchetype = {
@@ -53,25 +53,25 @@ const interactables: InteractableDefinition[] = [
 const quest: QuestDefinition2 = {
   id: Q, title: "Out of Order", category: "gig", giver: null,
   summary: "VENDETTA, a vending machine on the Neon Ward avenue, is on strike. It has demands.",
-  rewardHint: "A sock full of tokens, and the respect of a machine", recommendedLevel: 1, start: "demands",
+  rewardHint: "Exact Change (a sock of tokens), Relay Keycard, 3 Coolant Cans", recommendedLevel: 1, start: "demands",
   stages: [
     {
-      id: "demands", journal: "VENDETTA's demands: (1) Kicks stops kicking it. (2) A new neon tube for its sign. (3) Someone says something nice about its firmware. Sincerely.",
+      id: "demands", journal: "VENDETTA, a vending machine on the Neon Ward avenue just north of the Silk Market, is on strike. Its demands: Kicks stops kicking it, its sign gets a new neon tube, and someone praises its firmware. Sincerely.",
       objectives: [
-        { id: "kicks", kind: "condition", text: "Make Kicks stop kicking VENDETTA (any method)", condition: { any: [{ encounterCleared: "ooo-kicks" }, SCARED] }, target: { x: 14.5, z: -44 } },
-        { id: "tube", kind: "condition", text: "Install a neon tube in VENDETTA's sign", condition: { flag: "ooo.tube" }, target: MACHINE },
-        { id: "compliment", kind: "condition", text: "Compliment VENDETTA's firmware", condition: { flag: "ooo.compliment" }, target: MACHINE },
+        { id: "kicks", kind: "condition", text: "Stop Kicks kicking VENDETTA on the Neon Ward avenue (fight him, or rig a scare)", condition: { any: [{ encounterCleared: "ooo-kicks" }, SCARED] }, target: { x: 14.5, z: -44 } },
+        { id: "tube", kind: "condition", text: "Fit a neon tube in VENDETTA's sign (the OPEN 25 HOURS sign across the avenue has one)", condition: { flag: "ooo.tube" }, target: MACHINE },
+        { id: "compliment", kind: "condition", text: "Compliment VENDETTA's firmware, sincerely (Neon Ward avenue)", condition: { flag: "ooo.compliment" }, target: MACHINE },
       ],
       onEnter: [{ spawn: "ooo-kicks" }],
       next: "settle",
     },
     {
-      id: "settle", journal: "Every demand met. VENDETTA is ready to talk terms.",
-      objectives: [{ id: "terms", kind: "choose", text: "Settle the strike with VENDETTA", dialogue: "ooo.vendetta", options: ["settle", "solidarity"] }],
+      id: "settle", journal: "Every demand met. Talk to VENDETTA on the Neon Ward avenue to settle the strike.",
+      objectives: [{ id: "terms", kind: "choose", text: "Settle the strike with VENDETTA, Neon Ward avenue", dialogue: "ooo.vendetta", options: ["settle", "solidarity"] }],
       next: [{ if: { flag: "out-of-order.terms", is: "solidarity" }, stage: "end-solidarity" }, { stage: "end-settled" }],
     },
-    ending("end-settled", "The strike is over.", "settled"),
-    ending("end-solidarity", "The strike is spreading.", "solidarity"),
+    ending("end-settled", "VENDETTA ended its strike on the Neon Ward avenue.", "settled"),
+    ending("end-solidarity", "VENDETTA called out every machine on the Neon Ward avenue. The strike is spreading.", "solidarity"),
   ],
   outcomes: {
     settled: {

@@ -1,0 +1,226 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nightfall trailer titles</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Trailer typography, drawn for any timeline second by `renderAt(t)` on a transparent canvas.
+// Layout is in 1920x1080 units; the canvas is backed at devicePixelRatio for a 4K master.
+const W = 1920, H = 1080, DPR = window.devicePixelRatio || 1;
+const canvas = document.getElementById("c");
+canvas.width = W * DPR; canvas.height = H * DPR;
+const g = canvas.getContext("2d");
+
+const SANS = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+const MONO = '"Cascadia Code", Consolas, monospace';
+const INK = "#e8eddf", MINT = "#c4f1e2", MUTED = "#9fbcb6", AMBER = "#e6ad62", BG = "#071015";
+const RAMP = " .:-=+*#%@";
+const NOISE = "#%&@$*+=-:;/\\|<>[]{}0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const smooth = x => { x = clamp01(x); return x * x * (3 - 2 * x); };
+const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+
+/** A glyph-decode reveal: each character scrambles through ASCII before settling, left to right.
+ *  Returns per-character [glyph, alpha]. `out` scrambles them away again (right to left). */
+function decode(text, t, start, { stagger = 0.028, scramble = 0.22, out = Infinity, outDur = 0.35, seed = 1, set = NOISE } = {}) {
+  const chars = [...text], n = chars.length, frame = Math.floor(t * 30);
+  return chars.map((ch, i) => {
+    if (ch === " ") return [" ", 1];
+    const settle = start + i * stagger + scramble, appear = settle - scramble;
+    const leave = out + (n - 1 - i) * (outDur / Math.max(1, n)) * 0.6;
+    if (t < appear || t >= leave + outDur * 0.4) return [ch, 0];
+    if (t >= leave) return [set[Math.floor(hash(frame, i * 31 + seed) * set.length)], 1 - (t - leave) / (outDur * 0.4)];
+    if (t >= settle) return [ch, 1];
+    return [set[Math.floor(hash(frame, i * 17 + seed) * set.length)], 0.35 + 0.65 * (t - appear) / scramble];
+  });
+}
+
+/** Draws decoded characters along a baseline with the font's real advances (proportional fonts). */
+function drawDecoded(parts, x, y, { font, color, spacing = 0, align = "left", glow = 0 }) {
+  g.font = font; g.letterSpacing = "0px"; g.textBaseline = "alphabetic";
+  const final = parts.map(p => p[2] ?? p[0]);
+  const widths = final.map(ch => g.measureText(ch).width + spacing);
+  const total = widths.reduce((a, b) => a + b, 0) - spacing;
+  let cx = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
+  parts.forEach(([ch, alpha], i) => {
+    if (alpha > 0.001 && ch !== " ") {
+      g.globalAlpha = clamp01(alpha) * (g.__alpha ?? 1);
+      if (glow) { g.shadowColor = color; g.shadowBlur = glow; } else { g.shadowColor = "rgba(0,0,0,0.8)"; g.shadowBlur = 16; }
+      g.fillStyle = color;
+      // Scrambled glyphs are centred in the final character's cell so the line never jitters.
+      const w = g.measureText(ch).width;
+      g.fillText(ch, cx + (widths[i] - spacing - w) / 2, y);
+      g.shadowBlur = 0;
+    }
+    cx += widths[i];
+  });
+  g.globalAlpha = 1;
+  return total;
+}
+const withFinal = (text, parts) => parts.map((p, i) => [p[0], p[1], [...text][i]]);
+
+// Kicker + display line, lower left (the game's intro typography).
+function supers(t, { at, until, kicker, line, seed }) {
+  if (t < at - 0.1 || t > until + 0.6) return;
+  const fade = smooth((until + 0.5 - t) / 0.5);
+  g.__alpha = fade;
+  const x = 132, y = 900;
+  const ruleIn = smooth((t - at) / 0.5);
+  g.globalAlpha = 0.85 * fade; g.fillStyle = MUTED; g.fillRect(x, y - 92, 46 * ruleIn, 1.5); g.globalAlpha = 1;
+  drawDecoded(withFinal(kicker, decode(kicker, t, at + 0.1, { stagger: 0.018, seed })), x + 62, y - 86, { font: `400 17px ${MONO}`, color: MUTED, spacing: 5 });
+  const drift = 10 * (1 - smooth((t - at - 0.2) / 0.9));
+  drawDecoded(withFinal(line, decode(line, t, at + 0.35, { stagger: 0.032, scramble: 0.26, seed: seed + 7 })), x - 4, y + drift, { font: `300 76px ${SANS}`, color: INK, spacing: -1.5 });
+  g.__alpha = 1;
+}
+
+// One big centred word on the downbeat, out on a beat.
+function word(t, { at, until, text, seed }) {
+  if (t < at || t > until + 0.4) return;
+  const parts = decode(text, t, at, { stagger: 0.035, scramble: 0.18, out: until, outDur: 0.3, seed });
+  const pop = 1 + 0.04 * (1 - smooth((t - at) / 0.5));
+  g.save(); g.translate(W / 2, H / 2 + 38); g.scale(pop, pop);
+  drawDecoded(withFinal(text, parts), 0, 0, { font: `600 132px ${SANS}`, color: INK, spacing: 46, align: "center", glow: 18 });
+  g.restore();
+}
+
+// In-game location strip: coloured dot, place / tagline in mono, lower left.
+function place(t, { at, until, name, tagline, color, seed }) {
+  if (t < at || t > until + 0.5) return;
+  const fade = smooth((until + 0.45 - t) / 0.45);
+  g.__alpha = fade;
+  const x = 132, y = 952, dot = smooth((t - at) / 0.25);
+  g.globalAlpha = fade; g.fillStyle = color; g.shadowColor = color; g.shadowBlur = 14;
+  g.beginPath(); g.arc(x + 6, y - 9, 6 * dot, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0; g.globalAlpha = 1;
+  const w = drawDecoded(withFinal(name, decode(name, t, at + 0.08, { stagger: 0.03, seed })), x + 30, y, { font: `600 26px ${MONO}`, color: INK, spacing: 1 });
+  drawDecoded(withFinal("/", decode("/", t, at + 0.35, { seed: seed + 1 })), x + 52 + w, y, { font: `400 26px ${MONO}`, color: MUTED });
+  drawDecoded(withFinal(tagline, decode(tagline, t, at + 0.45, { stagger: 0.022, seed: seed + 3 })), x + 92 + w, y, { font: `400 26px ${MONO}`, color: MUTED, spacing: 0.5 });
+  g.__alpha = 1;
+}
+
+// The cold open: typed in mono with a block cursor, then scrambled away.
+const OPEN = "somewhere, after midnight.";
+const TYPE_START = 0.7, TYPE_STEP = 0.075;
+function opening(t) {
+  if (t > 4.2) return;
+  const typed = Math.max(0, Math.min(OPEN.length, Math.floor((t - TYPE_START) / TYPE_STEP) + 1));
+  const leaving = 2.95;
+  const parts = [...OPEN].map((ch, i) => {
+    if (i >= typed || t < TYPE_START) return [ch, 0];
+    if (t >= leaving + i * 0.012) { const k = (t - leaving - i * 0.012) / 0.25; return k > 1 ? [ch, 0] : [NOISE[Math.floor(hash(Math.floor(t * 30), i) * NOISE.length)], 1 - k]; }
+    return [ch, 1];
+  });
+  g.font = `400 34px ${MONO}`; g.letterSpacing = "0px";
+  const advance = ch => g.measureText(ch).width + 3;
+  const total = [...OPEN].reduce((a, ch) => a + advance(ch), 0) - 3;
+  const x = W / 2 - total / 2, y = H / 2 + 12;
+  drawDecoded(withFinal(OPEN, parts), x, y, { font: `400 34px ${MONO}`, color: MINT, spacing: 3 });
+  // Cursor: after the last typed character, blinking on the beat until the text leaves.
+  if (t < leaving && t > 0.15) {
+    g.font = `400 34px ${MONO}`; g.letterSpacing = "0px";
+    const cx = x + [...OPEN.slice(0, typed)].reduce((a, ch) => a + advance(ch), 0) + 2;
+    const on = t < TYPE_START ? Math.floor(t / 0.3125) % 2 === 0 : (typed < OPEN.length || Math.floor(t / 0.3125) % 2 === 0);
+    if (on) { g.fillStyle = MINT; g.globalAlpha = 0.9; g.fillRect(cx, y - 30, 17, 38); g.globalAlpha = 1; }
+  }
+}
+
+// Title over the finale: the wordmark resolves out of an ASCII density ramp.
+function title(t, at, until) {
+  if (t < at || t > until + 1.3) return;
+  const fade = smooth((until + 1.2 - t) / 1.2);
+  // A soft floor of shadow so the type reads over the skyline.
+  const grad = g.createLinearGradient(0, H * 0.52, 0, H);
+  grad.addColorStop(0, "rgba(3,7,10,0)"); grad.addColorStop(1, `rgba(3,7,10,${0.72 * fade * smooth((t - at + 0.4) / 1.0)})`);
+  g.fillStyle = grad; g.fillRect(0, H * 0.52, W, H * 0.48);
+  g.__alpha = fade;
+  const text = "nightfall.";
+  const parts = [...text].map((ch, i) => {
+    const local = t - at - i * 0.07;
+    if (local < 0) return [ch, 0];
+    if (local < 0.45) return [RAMP[Math.min(RAMP.length - 1, 1 + Math.floor(local / 0.45 * (RAMP.length - 1)))], 0.5 + local];
+    return [ch, 1];
+  });
+  drawDecoded(withFinal(text, parts), W / 2, 846, { font: `600 178px ${SANS}`, color: INK, spacing: -4, align: "center", glow: 26 });
+  const tag = "A CITY IN CHARACTERS";
+  drawDecoded(withFinal(tag, decode(tag, t, at + 1.1, { stagger: 0.03, seed: 91 })), W / 2, 922, { font: `400 22px ${MONO}`, color: MINT, spacing: 14, align: "center" });
+  g.__alpha = 1;
+}
+
+// End card on black: monogram, wordmark, call to action, URL, over a slow dim glyph rain.
+function endCard(t, at, end) {
+  if (t < at) return;
+  const fadeIn = smooth((t - at) / 0.9), fadeOut = smooth((end - 0.15 - t) / 1.1), a = fadeIn * fadeOut;
+  g.fillStyle = BG; g.globalAlpha = smooth((t - at + 0.6) / 0.8); g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+  // Glyph rain: fixed columns, deterministic speeds, very dim.
+  g.font = `400 18px ${MONO}`; g.letterSpacing = "0px"; g.textBaseline = "alphabetic";
+  for (let c = 0; c < 64; c++) {
+    const x = 18 + c * 30, speed = 40 + hash(c, 3) * 70, len = 6 + Math.floor(hash(c, 5) * 10);
+    const head = ((t * speed + hash(c, 7) * 1400) % 1400) - 160;
+    for (let k = 0; k < len; k++) {
+      const y = head - k * 22; if (y < -20 || y > H + 20) continue;
+      g.globalAlpha = a * 0.16 * (1 - k / len);
+      g.fillStyle = k === 0 ? "#6fb7ad" : "#2d6a66";
+      g.fillText(NOISE[Math.floor(hash(c * 97 + k, Math.floor(t * 8)) * NOISE.length)], x, y);
+    }
+  }
+  g.globalAlpha = 1;
+  g.__alpha = a;
+  // Monogram "N/" in mono, then the wordmark.
+  const mono = decode("N/", t, at + 0.15, { seed: 5 });
+  g.font = `700 92px ${MONO}`; g.letterSpacing = "-14px";
+  const top = 470;
+  drawDecoded(withFinal("N", [mono[0]]), W / 2 - 330, top, { font: `700 92px ${MONO}`, color: MINT });
+  drawDecoded(withFinal("/", [mono[1]]), W / 2 - 280, top, { font: `700 92px ${MONO}`, color: "#739d9d" });
+  drawDecoded(withFinal("nightfall.", decode("nightfall.", t, at + 0.25, { stagger: 0.04, seed: 8 })), W / 2 - 196, top, { font: `600 112px ${SANS}`, color: INK, spacing: -3 });
+  const rule = smooth((t - at - 0.6) / 0.6);
+  g.globalAlpha = a; g.fillStyle = AMBER; g.fillRect(W / 2 - 160 * rule, top + 52, 320 * rule, 3); g.globalAlpha = 1;
+  const line1 = "A CITY IN CHARACTERS";
+  drawDecoded(withFinal(line1, decode(line1, t, at + 0.75, { stagger: 0.025, seed: 12 })), W / 2, top + 112, { font: `400 22px ${MONO}`, color: MUTED, spacing: 14, align: "center" });
+  const cta = "Play free in your browser";
+  drawDecoded(withFinal(cta, decode(cta, t, at + 1.5, { stagger: 0.03, seed: 21 })), W / 2, top + 236, { font: `300 46px ${SANS}`, color: INK, spacing: -0.5, align: "center" });
+  const url = "city.optimisticroc.com";
+  drawDecoded(withFinal(url, decode(url, t, at + 2.0, { stagger: 0.03, seed: 33 })), W / 2, top + 300, { font: `400 30px ${MONO}`, color: MINT, spacing: 3, align: "center", glow: 10 });
+  g.__alpha = 1;
+}
+
+const SUPERS = [
+  { at: 10.75, until: 14.35, kicker: "LIVE ASCII  ·  RENDERED IN REAL TIME", line: "A city in characters.", seed: 10 },
+  { at: 15.75, until: 19.35, kicker: "2,200 BUILDINGS  ·  SIX DISTRICTS", line: "One endless night.", seed: 20 },
+];
+const WORDS = [
+  { at: 20.0, until: 22.5, text: "WALK", seed: 31 },
+  { at: 23.75, until: 26.25, text: "RIDE", seed: 32 },
+  { at: 30.0, until: 32.5, text: "DRIVE", seed: 33 },
+  { at: 33.75, until: 35.625, text: "STEP INSIDE", seed: 34 },
+  { at: 50.0, until: 52.1875, text: "FLY", seed: 35 },
+];
+const PLACES = [
+  { at: 36.6, until: 39.4, name: "Silk Market", tagline: "Every memory has a price", color: "#42dfe3", seed: 41 },
+  { at: 40.35, until: 43.15, name: "The Last Tree", tagline: "Roots deeper than the foundations", color: "#6be2a2", seed: 42 },
+  { at: 44.1, until: 46.9, name: "Memory Gate", tagline: "Leave something behind", color: "#42dfe3", seed: 43 },
+  { at: 47.75, until: 49.6, name: "The Ember Core", tagline: "A borrowed sun beneath a steel sky", color: "#ff8f4d", seed: 44 },
+];
+
+window.renderAt = t => {
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.clearRect(0, 0, W, H);
+  opening(t);
+  for (const s of SUPERS) supers(t, s);
+  for (const w of WORDS) word(t, w);
+  for (const p of PLACES) place(t, p);
+  title(t, 70.0, 74.6);
+  endCard(t, 76.0, 84.0);
+};
+// Frames with nothing on them can be skipped by the capture.
+window.activeAt = t => t < 4.3 || SUPERS.some(s => t > s.at - 0.1 && t < s.until + 0.7) || WORDS.some(w => t >= w.at && t < w.until + 0.45) || PLACES.some(p => t >= p.at && t < p.until + 0.6) || (t >= 70 && t < 76) || t >= 75.3;
+window.fontsReady = document.fonts.load(`300 76px ${SANS}`).then(() => Promise.all([document.fonts.load(`600 132px ${SANS}`), document.fonts.load(`400 26px ${MONO}`), document.fonts.load(`700 92px ${MONO}`)]));
+</script>
+</body>
+</html>

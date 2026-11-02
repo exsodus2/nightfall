@@ -2,12 +2,12 @@
 // plus a floating name tag. Geometry is written against PropCanvas, so it records into the GPU
 // prop instances like residents; the tags need textmode's print and are drawn directly.
 import type { Textmodifier } from "textmode.js";
-import { cuboid as box, drawCar, ink, propRange, restorePropRange, type ActivityView } from "../city/activity";
-import type { PropCanvas } from "../city/prop-canvas";
-import type { RGB } from "../city/world";
-import { project, type ViewCamera } from "../city/vfx";
-import type { RemoteAvatar } from "./types";
-import { drawHuman, type HumanPaint } from "../city/human-model";
+import { cuboid as box, drawCar, ink, propRange, restorePropRange, type ActivityView } from "../city/activity.ts";
+import type { PropCanvas } from "../city/prop-canvas.ts";
+import type { RGB } from "../city/world.ts";
+import { project, type ViewCamera } from "../city/vfx.ts";
+import type { RemoteAvatar } from "./types.ts";
+import { drawHuman, FigureMotions, type HumanPaint, type MotionTargets } from "../city/human-model.ts";
 
 const DEG = 180 / Math.PI;
 const PANTS: RGB = [44, 50, 60];
@@ -39,22 +39,32 @@ export function drawRemotePlayers(t: PropCanvas, view: ActivityView, remotes: re
   restorePropRange(outer);
 }
 
+/** Per-peer stride weight (bounded; see FigureMotions): a stop arrives as one packet with speed 0,
+ *  so the gait eases out over 0.25 s (and in again) instead of the legs snapping together. Their
+ *  heading is already interpolated between packets and is drawn as it is. */
+const GAITS = new FigureMotions<string>(256);
+const GAIT_TARGET: MotionTargets = { yaw: 0, glance: 0, gait: 0, talk: 0, sit: 0, hold: 0, phone: 0 };
+
 function drawRunner(t: PropCanvas, r: RemoteAvatar, time: number, detail: boolean, paint: HumanPaint = ink): void {
   const flying = r.mode === "fly" && r.y > 0.6;
   const moving = Math.abs(r.speed) > 0.4;
-  const bob = !flying && moving ? Math.abs(Math.cos(r.stride)) * 0.06 : 0;
+  GAIT_TARGET.yaw = r.heading; GAIT_TARGET.gait = moving && !flying ? 1 : 0;
+  const gait = GAITS.update(r.id, time, r.x, r.z, GAIT_TARGET).gait;
+  const bob = !flying ? Math.abs(Math.cos(r.stride)) * 0.06 * gait : 0;
   const seed = hash(r.id), jacket = dim(r.color, 0.42), trim = r.color;
   t.push(); t.translate(r.x, -(r.y + bob), r.z); t.rotateY(-r.heading * DEG);
   // Flight: lean into the direction of travel, legs trailing, a hover ring and thruster glow.
   if (flying) { t.translate(0, -1.2, 0); t.rotateX(-Math.min(1, Math.abs(r.speed) / 60) * 38 - 6); t.translate(0, 1.2, 0); }
-  drawHuman(t, { coat: jacket, trim: PANTS, skin: SKINS[(seed >>> 8) % SKINS.length], light: trim, headwear: HEADWEAR[(seed >>> 4) % HEADWEAR.length], idle: "breathe", prop: null }, { time, seed, stride: r.stride, moving: moving && !flying, detail, distant: !detail }, paint);
+  drawHuman(t, { coat: jacket, trim: PANTS, skin: SKINS[(seed >>> 8) % SKINS.length], light: trim, headwear: HEADWEAR[(seed >>> 4) % HEADWEAR.length], idle: "breathe", prop: null }, { time, seed, stride: r.stride, moving: moving && !flying, gait, detail, distant: !detail }, paint);
   if (detail) {
     const outer = propRange(150);
-    paint(t, trim, "-", 0.8 + Math.sin(time * 2.4 + r.stride * 0.1) * 0.12);
+    // Ring swell on the clock alone (0.38 Hz): stride no longer speeds it up while they run.
+    paint(t, trim, "-", 0.8 + Math.sin(time * 2.4 + (seed % 7)) * 0.12);
     t.translate(0, -0.04, 0); t.torus(0.8, 0.035); t.translate(0, 0.04, 0);
     if (flying) {
-      paint(t, trim, "*", 1.4 + Math.sin(time * 18) * 0.3);
-      for (const side of [-1, 1]) box(t, side * 0.2, -0.12, 0.1, 0.16, 0.16 + Math.abs(Math.sin(time * 23 + side)) * 0.25, 0.16);
+      // Thruster glow: a slow swell (0.38 Hz), not a 3 Hz flicker (motion comfort: no strobing).
+      paint(t, trim, "*", 1.4 + Math.sin(time * 2.4) * 0.12);
+      for (const side of [-1, 1]) box(t, side * 0.2, -0.12, 0.1, 0.16, 0.28 + Math.sin(time * 2.4 + side) * 0.08, 0.16);
     }
     restorePropRange(outer);
   }

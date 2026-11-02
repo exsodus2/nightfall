@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { STATIONS, TRACK_LENGTH, METRO_CYCLE, trackPose, trainAt, boardingTrain, localToWorld, worldToLocal, moveInTrain, canWalkInTrain, doorAt, BENCH, BENCH_PARTS, BENCHES, CARRIAGE_CENTERS, SEATS, SEATED_BODY, SEATED_POSE, seatedBox, seatedYaw, type FurnitureBox, SEAT_LOOK, SEAT_REACH, SEATED_EYE_HEIGHT, TRAIN_EYE_HEIGHT, clampSeatedLook, nearestFreeSeat, seatStand, seatTurnSeconds, seatedEye, windowYaw } from "../src/city/metro.ts";
+import { STATIONS, TRACK_LENGTH, METRO_CYCLE, trackPose, trainAt, boardingTrain, localToWorld, worldToLocal, moveInTrain, canWalkInTrain, doorAt, BENCH, BENCH_PARTS, BENCHES, CARRIAGE_CENTERS, SEATS, SEATED_BODY, SEATED_POSE, seatedBox, seatedYaw, type FurnitureBox, SEAT_LOOK, SEAT_REACH, SEATED_EYE_HEIGHT, TRAIN_EYE_HEIGHT, clampSeatedLook, nearestFreeSeat, seatStand, seatTurnSeconds, seatedEye, windowYaw, nextTrain, stationArrival, departureBoard, BOARD_STEP } from "../src/city/metro.ts";
 import { CityPopulation } from "../src/city/people.ts";
 import { CityWorld } from "../src/city/world.ts";
 
@@ -198,4 +198,37 @@ test("a seat the player holds is never given to a commuter, and seats commuters 
   assert.ok(boarded > 0, "commuters still ride train 0");
   // Releasing the reservation is accepted (and idempotent).
   population.reservePlayerSeat(null); population.reservePlayerSeat(null);
+});
+
+test("the departure boards' next train agrees with the timetable on both lines", () => {
+  for (const station of STATIONS) {
+    for (let time = 0.37; time < 900; time += 7.31) {
+      const next = nextTrain(time, station.index), arrival = stationArrival(time, station.index);
+      const train = trainAt(time, next.train);
+      if (next.docked) {
+        assert.equal(train.station, station.index, `${station.name} at ${time}: a docked board train stands there`);
+        assert.ok(Math.abs(next.seconds - train.remaining) < 1e-6);
+        continue;
+      }
+      assert.notEqual(train.station, station.index);
+      assert.ok(Math.abs(Math.ceil(next.seconds) - arrival.seconds) <= 1, `${station.name} at ${time}: ${next.seconds} vs ${arrival.seconds}`);
+      // That train really is there a moment after the board's time, and not long before.
+      assert.equal(trainAt(time + next.seconds + 0.05, next.train).station, station.index);
+      if (next.seconds > 0.5) assert.notEqual(trainAt(time + next.seconds - 0.5, next.train).station, station.index);
+    }
+  }
+});
+
+test("departure boards change their letters at most once per BOARD_STEP and only show sign letters", () => {
+  for (const station of STATIONS) {
+    let last = departureBoard(0, station.index), changedAt = 0;
+    for (let time = 0.1; time < 600; time += 0.1) {
+      const board = departureBoard(time, station.index);
+      for (const text of [board.status, board.destination]) assert.match(text, /^[A-Z0-9 ]{1,16}$/);
+      if (board.status !== last.status || board.destination !== last.destination) {
+        assert.ok(time - changedAt >= BOARD_STEP - 0.11, `${station.name} changed after ${time - changedAt}s`);
+        changedAt = time; last = board;
+      }
+    }
+  }
 });

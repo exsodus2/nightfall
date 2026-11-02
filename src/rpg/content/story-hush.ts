@@ -29,7 +29,7 @@ const art = (block: string): readonly string[] => {
 const items: ItemDefinition[] = [
   {
     id: "bell-character", name: "Bell Character", kind: "melee", rarity: "legendary", glyph: "7", value: 12000, weight: 5, stack: 1,
-    description: "ASCII 0x07: the character that makes the terminal ring. Kade's conductor's bell, cast into a hammer. Every hit is a note nobody can steal.",
+    description: "ASCII 0x07: the character that makes the terminal ring. Kade's conductor's bell, cast into a hammer. Every hit rings like a fire alarm in a library.",
     weapon: { class: "blunt", damage: 78, range: 3.0, cooldown: 0.68, staminaCost: 16, heavyMultiplier: 2.6, arc: 100, knockback: 3.4, stagger: 1.2, critChance: 0.12, critMultiplier: 2.0 },
     tags: ["street", "cool", "noloot", "unique"],
     art: art(String.raw`
@@ -46,7 +46,7 @@ const items: ItemDefinition[] = [
   {
     id: "choir-mantle", name: "Choir Mantle", kind: "armor", rarity: "legendary", glyph: "U", value: 9500, weight: 4, stack: 1,
     armor: { slot: "body", protection: 0.45 }, tags: ["cool", "tech", "noloot", "unique"],
-    description: "Kade's coat, woven from root fibre and dead antenna wire. It hums one low note when something is about to hit you.",
+    description: "Kade's coat, woven from root fibre and dead antenna wire. The lining hums half a second before something hits you.",
     art: art(String.raw`
     .-~~~~~~~~~-.
    /  ) ) ) ) )  \
@@ -58,12 +58,12 @@ const items: ItemDefinition[] = [
   },
   {
     id: "hush-seed", name: "Hush Seed", kind: "junk", rarity: "legendary", glyph: "?", value: 6000, weight: 0.1, stack: 1, tags: ["noloot", "unique", "tech"],
-    description: "A crystal the size of a tooth, warm, faintly singing. Forty-one voices are in there. Nobody will stop asking you what you want for it.",
+    description: "A crystal the size of a tooth, warm, faintly singing. Forty-one voices are in there. Every broker in the city will ask your price.",
   },
   {
     id: "last-leaf", name: "Last Leaf", kind: "consumable", rarity: "rare", glyph: "f", value: 260, weight: 0.1, stack: 5, tags: ["noloot"],
     consumable: { heal: 120, duration: 20, effect: "regen" },
-    description: "A leaf from The Last Tree, chewed. Bitter, green, and it closes wounds like it remembers when you did not have them.",
+    description: "A leaf from The Last Tree. Chew it. Tastes like pennies and cut grass; the wound knits over twenty seconds.",
   },
   { id: "tap-log", name: "Tap Work Order", kind: "quest", rarity: "uncommon", glyph: "t", value: 0, weight: 0, stack: 1, tags: ["quest"], description: "WORK ORDER 7-HUSH. INSTALL 3 UNITS, SILK MKT LAMPS. ROUTE: CATHEDRAL UPLINK -> WEST. PAID BY: K." },
   { id: "kade-journal", name: "Kade's Journal", kind: "quest", rarity: "rare", glyph: "j", value: 0, weight: 0, stack: 1, tags: ["quest"], description: "A waterproof notebook in tidy engineer's capitals. The last page just says: THE TREE CAN HOLD THEM." },
@@ -76,14 +76,14 @@ const boss: EnemyArchetype = {
   weapon: "tilde-whip", reaction: 0.25, aggression: 1, perception: { sight: 60, fovDegrees: 180, hearing: 70 }, scale: 1.7,
   look: look([210, 220, 215], [60, 90, 80], [200, 180, 165], [150, 255, 235], "bare", "antenna", "sway"),
   loot: "choirmaster", xp: 2500, tags: ["choir", "boss"],
-  barks: { alert: ["YOU CAME ALL THIS WAY TO MAKE NOISE?"], hurt: ["SHH. SHH.", "YOU'RE OUT OF TUNE."], death: ["...listen... it's so quiet..."] },
+  barks: { alert: ["YOU CAME HERE TO MAKE NOISE?"], hurt: ["SHH. SHH.", "YOU'RE OUT OF TUNE."], death: ["...they're... leaving..."] },
   boss: {
     title: "The Choirmaster",
     phases: [
-      { atHealth: 1, message: "Vesper Kade lifts a conductor's baton. The rain stops to listen.", attacks: ["sweep", "barrage", "charge"] },
-      { atHealth: 0.7, message: "The roots hum. Hush wardens rise out of the soil.", spawn: "hush-adds-1", speedMultiplier: 1.1, damageMultiplier: 1.15, attacks: ["barrage", "summon", "sweep", "slam"] },
-      { atHealth: 0.4, message: "Every stolen voice sings at once. The ground keeps time.", spawn: "hush-adds-2", speedMultiplier: 1.2, damageMultiplier: 1.3, attacks: ["shockwave", "charge", "summon", "barrage", "slam"] },
-      { atHealth: 0.15, message: "She is singing with YOUR voice now.", speedMultiplier: 1.35, damageMultiplier: 1.5, attacks: ["shockwave", "slam", "charge", "sweep"] },
+      { atHealth: 1, message: "Vesper Kade lifts a conductor's baton. Forty-one voices come in on the downbeat.", attacks: ["sweep", "barrage", "charge"] },
+      { atHealth: 0.7, message: "The roots hum a chord. Hush wardens climb out of the soil.", spawn: "hush-adds-1", speedMultiplier: 1.1, damageMultiplier: 1.15, attacks: ["barrage", "summon", "sweep", "slam"] },
+      { atHealth: 0.4, message: "Every stolen voice sings at once. The ground shakes on the beat.", spawn: "hush-adds-2", speedMultiplier: 1.2, damageMultiplier: 1.3, attacks: ["shockwave", "charge", "summon", "barrage", "slam"] },
+      { atHealth: 0.15, message: "She is singing with YOUR voice now. Badly.", speedMultiplier: 1.35, damageMultiplier: 1.5, attacks: ["shockwave", "slam", "charge", "sweep"] },
     ],
   },
 };
@@ -138,7 +138,7 @@ const encounters: EncounterDefinition[] = [
 
 // ---- Interactables -----------------------------------------------------------------------------
 
-const TAP_TEXT = "A matte box clamped to the lamp post. Inside: a receiver, a crystal the size of a tooth, and a fibre line running down into the drain. It is warm. It is humming a lullaby.";
+const TAP_TEXT = "Matte box clamped to the lamp post: a receiver, a tooth-sized crystal and a fibre line down the drain. Warm. Humming a lullaby.";
 const tap = (id: string, x: number, z: number, extra: string): InteractableDefinition => ({
   id, label: "Humming box on a lamp post", x, z, y: 3.2, glyph: "#", once: true,
   condition: inStage("dead-air", "taps"),
@@ -148,9 +148,9 @@ const tap = (id: string, x: number, z: number, extra: string): InteractableDefin
 const WRECK = arenaPoint(Math.PI, 8);
 const HEART = arenaPoint(Math.PI, 5.5);
 const interactables: InteractableDefinition[] = [
-  tap("hush-tap-gate", 15.2, 201, "You pry the crystal loose. For a second you hear a woman singing about rain. Then nothing."),
-  tap("hush-tap-corner", 72.2, 133, "The pups on the corner watch you work. 'That's Ghost kit,' one says. 'Don't touch Ghost kit.' You touch it."),
-  tap("hush-tap-south", -56, 264, "Scratched inside the lid: a K, and a little drawing of a tree."),
+  tap("hush-tap-gate", 15, 203.5, "You pry the crystal loose. For a second it plays a woman singing about rain, then cuts out."),
+  tap("hush-tap-corner", 72.5, 136.5, "The pups on the corner watch you work. 'That's Ghost kit,' one says. 'Don't touch Ghost kit.' You touch it."),
+  tap("hush-tap-south", -56, 264, "Scratched inside the lid: the letter K and a small drawing of a tree."),
   {
     id: "hush-uplink", label: "Cathedral uplink console", x: 492, z: -308, y: 1.4, glyph: ">", once: true,
     condition: inStage("signal-cathedral", "uplink"),
@@ -162,31 +162,31 @@ const interactables: InteractableDefinition[] = [
   {
     id: "kade-bench", label: "Scorched workbench", x: -391.2, z: -164, y: 1.1, glyph: "=", once: true,
     condition: inStage("root-access", "search"),
-    effects: [{ message: "Jars of rainwater, each growing a crystal like the lamp taps. The labels are names from Mara's index.", tone: "info" }],
+    effects: [{ message: "Jars of rainwater, each growing a crystal like the ones in the lamp taps. The labels are names from Mara's index.", tone: "info" }],
   },
   {
     id: "kade-journal-spot", label: "Waterproof notebook", x: -391.2, z: -156, y: 1.0, glyph: "j", once: true,
     condition: inStage("root-access", "search"),
     effects: [
       { give: "kade-journal" },
-      { message: "\"The city is too loud. Every voice is a wound that won't close. I can hold them. The roots run under every district - every cable in this city was laid along them. The Last Tree is the oldest antenna we have.\"", tone: "quest" },
+      { message: "\"Too loud. Every voice in this city, all night. I can hold them. The first cables were laid along the roots, so the roots reach every district. The Last Tree is the oldest antenna we have.\"", tone: "quest" },
     ],
   },
   {
     id: "kade-recorder", label: "Dusty voice recorder", x: -376.8, z: -164, y: 1.2, glyph: "o", once: true,
     condition: inStage("root-access", "search"),
-    effects: [{ message: "A woman's voice, calm: \"If you're hearing this, you followed my boxes. Good. Someone should hear it before it's quiet. The seed keeper has the wardens' seal. She'll never give it to me.\"", tone: "quest" }],
+    effects: [{ message: "A woman's voice, calm: \"If you're hearing this, you followed my boxes. Good. The seed keeper by the Last Tree has the wardens' seal. She will never give it to me. She might give it to you.\"", tone: "quest" }],
   },
   {
     id: "hush-warden-gate", label: "Warden gate (the sigil fits)", x: GATE.x, z: GATE.z, y: 2.2, glyph: "S",
     condition: { all: [inStage("hollow-choir", "gate"), { item: "warden-sigil" }] },
-    effects: [{ message: "The brass sigil turns in the gate with a sound like a held breath let go. Beneath the Tree, something starts to sing.", tone: "danger" }],
+    effects: [{ message: "The brass sigil turns with a clunk. The gate swings in. Under the Tree, something starts to sing.", tone: "danger" }],
   },
   {
     // A way back into the fight if the boss was lost (leash reset, reload): re-summons her fresh.
     id: "hush-bell", label: "Ring the warden bell (call her out)", x: GATE.x + 3, z: GATE.z, y: 2.4, glyph: "*",
     condition: { all: [inStage("hollow-choir", "choir"), { not: { encounterCleared: "hush-boss" } }] },
-    effects: [{ spawn: "hush-boss" }, { message: "The bell's note rolls under the roots. The Choirmaster answers.", tone: "danger" }],
+    effects: [{ spawn: "hush-boss" }, { message: "The bell rings out under the roots. The Choirmaster comes to see who rang it.", tone: "danger" }],
   },
   { id: "hush-kade", label: "Vesper Kade, in the wreck of her frame", x: WRECK.x, z: WRECK.z, y: 1.2, glyph: "@", condition: inStage("hollow-choir", "verdict"), dialogue: "hush.kade" },
   { id: "hush-heart", label: "The heart of the roots", x: HEART.x, z: HEART.z, y: 1.0, glyph: "?", condition: inStage("hollow-choir", "seed"), dialogue: "hush.seed" },
@@ -196,79 +196,79 @@ const interactables: InteractableDefinition[] = [
 
 const deadAir: QuestDefinition2 = {
   id: "dead-air", title: "Dead Air", category: "story", giver: "mara",
-  summary: "The relay chip was an index of forty voiceprints. The people on it are going silent. Find out who is pulling voices out of the Silk Market.",
-  requires: { quest: "relay-chip" }, rewardHint: "250 cr, the start of something", recommendedLevel: 2, start: "lark",
+  summary: "Mara's relay chip held an index of forty voiceprints, and the people on it are losing their voices. Find out who is doing it.",
+  requires: { quest: "relay-chip" }, rewardHint: "250 cr, 450 XP", recommendedLevel: 2, start: "lark",
   stages: [
     {
-      id: "lark", journal: "Mara says a busker called Lark lost her voice mid-song, by the Memory Gate. Start with her.",
-      objectives: [{ id: "slate", kind: "choose", text: "Talk to Lark by the Memory Gate", dialogue: "hush.lark", options: ["promise"] }],
+      id: "lark", journal: "Mara says Lark, a busker, lost her voice mid-song at the Memory Gate in the Silk Market. Start with her.",
+      objectives: [{ id: "slate", kind: "choose", text: "Talk to Lark the busker at the Memory Gate, Silk Market", dialogue: "hush.lark", options: ["promise"] }],
       next: "taps",
     },
     {
-      id: "taps", journal: "Lark's slate: THE LIGHT HUMMED MY SONG BACK AT ME. BOXES ON THREE LIGHTS. Find the boxes.",
+      id: "taps", journal: "Lark wrote that a streetlight by the Memory Gate hummed her song back at her, and that there are boxes on three lights around the Silk Market. Check all three lamps.",
       objectives: [
-        { id: "tap-gate", kind: "interact", text: "Check the lamp by the Memory Gate", object: "hush-tap-gate" },
-        { id: "tap-corner", kind: "interact", text: "Check the lamp on the pups' corner (east)", object: "hush-tap-corner" },
-        { id: "tap-south", kind: "interact", text: "Check the lamp south-west of the gate", object: "hush-tap-south" },
+        { id: "tap-gate", kind: "interact", text: "Open the box on the lamp at the Memory Gate", object: "hush-tap-gate" },
+        { id: "tap-corner", kind: "interact", text: "Open the box on the lamp at the Razorback pups' corner, a block north-east of the Memory Gate", object: "hush-tap-corner" },
+        { id: "tap-south", kind: "interact", text: "Open the box on the lamp south-west of the Memory Gate", object: "hush-tap-south" },
       ],
       next: "installers",
     },
     {
-      id: "installers", journal: "Your comm fills with static. Somebody is jamming it - figures in the rain by the Memory Gate. The installers came to see who's touching their boxes.",
-      onEnter: [{ spawn: "hush-s1-ghosts" }, { message: "Static on every channel. Movement by the Memory Gate.", tone: "danger" }],
-      objectives: [{ id: "clear", kind: "clear", text: "Deal with the tap installers", encounter: "hush-s1-ghosts" }],
-      onComplete: [{ give: "tap-log" }, { message: "One of them carried a work order. Paid by 'K'.", tone: "loot" }],
+      id: "installers", journal: "Your comm is full of static. The Ghosts who installed the boxes are at the Memory Gate, and they saw you take them apart.",
+      onEnter: [{ spawn: "hush-s1-ghosts" }, { message: "Static on every channel. Two Ghosts at the Memory Gate.", tone: "danger" }],
+      objectives: [{ id: "clear", kind: "clear", text: "Take down the Ghost installers at the Memory Gate", encounter: "hush-s1-ghosts" }],
+      onComplete: [{ give: "tap-log" }, { message: "One installer had a work order in his pocket. Paid by 'K'.", tone: "loot" }],
       next: "report",
     },
     {
-      id: "report", journal: "A work order: three taps, routed through the Signal Cathedral uplink, then west. Paid by 'K'. Mara will want this.",
-      objectives: [{ id: "deliver", kind: "deliver", text: "Bring the work order to Mara", item: "tap-log", count: 1, npc: "mara" }],
+      id: "report", journal: "The work order: three taps, routed through the Signal Cathedral uplink and then west. Paid by 'K'. Take it to Mara Voss on the Silk Market avenue.",
+      objectives: [{ id: "deliver", kind: "deliver", text: "Bring the work order to Mara Voss in the Silk Market", item: "tap-log", count: 1, npc: "mara" }],
     },
   ],
   outcomes: {
     done: {
-      title: "Somebody Is Listening", journal: "Mara read the work order twice, then burned it. 'Juno hears the quiet ones,' she said. 'Go and ask her what the Cathedral has been singing.'",
-      effects: [{ credits: 250 }, { xp: 450 }, { setFlag: "hush.s1" }, { waypoint: { x: 15, z: -137, label: "Juno Reyes" } }],
+      title: "Somebody Is Listening", journal: "Mara read the work order twice, then burned it. 'Juno Reyes tracks every signal in Neon Ward. Ask her what the Cathedral uplink is carrying.'",
+      effects: [{ credits: 250 }, { xp: 450 }, { setFlag: "hush.s1" }, { waypoint: { x: 16, z: -139.5, label: "Juno Reyes" } }],
     },
   },
 };
 
 const signalCathedral: QuestDefinition2 = {
   id: "signal-cathedral", title: "The Signal Cathedral", category: "story", giver: "juno",
-  summary: "The taps route through the Signal Cathedral's uplink. The Chrome Saints squat the array and think it talks to God. Get to the routing table.",
-  requires: { quest: "dead-air" }, rewardHint: "400 cr, a marksman rifle", recommendedLevel: 6, start: "cathedral",
+  summary: "The lamp taps route through the Signal Cathedral's uplink. The Chrome Saints occupy the array and think it talks to God. Read its routing table.",
+  requires: { quest: "dead-air" }, rewardHint: "400 cr, Semicolon marksman rifle", recommendedLevel: 6, start: "cathedral",
   stages: [
     {
-      id: "cathedral", journal: "Deacon Ferro keeps the Cathedral for the Chrome Saints. Talk your way to the uplink - or don't.",
-      onEnter: [{ spawn: "hush-s2-guard" }, { waypoint: { x: 458, z: -262, label: "Deacon Ferro" } }],
-      objectives: [{ id: "entry", kind: "choose", text: "Get past Deacon Ferro at the Signal Cathedral", dialogue: "hush.ferro", options: ["granted", "fight"] }],
+      id: "cathedral", journal: "Juno wants the routing table off the Signal Cathedral uplink in the Ghost Circuit. Deacon Ferro guards the Cathedral door for the Chrome Saints. Talk, bribe or fight your way past him.",
+      onEnter: [{ spawn: "hush-s2-guard" }, { waypoint: { x: 459, z: -265, label: "Deacon Ferro" } }],
+      objectives: [{ id: "entry", kind: "choose", text: "Get past Deacon Ferro at the Signal Cathedral, Ghost Circuit", dialogue: "hush.ferro", options: ["granted", "fight"] }],
       next: [{ if: { flag: "signal-cathedral.entry", is: "fight" }, stage: "fight" }, { stage: "uplink" }],
     },
     {
-      id: "fight", journal: "Diplomacy is over. The uplink guard is between you and the console.",
-      objectives: [{ id: "clear", kind: "clear", text: "Break the uplink guard", encounter: "hush-s2-guard" }],
+      id: "fight", journal: "Talking failed. Four Saints stand between you and the uplink console.",
+      objectives: [{ id: "clear", kind: "clear", text: "Defeat the Saints guarding the Signal Cathedral uplink", encounter: "hush-s2-guard" }],
       next: "uplink",
     },
     {
-      id: "uplink", journal: "The uplink console hums behind the array.",
-      objectives: [{ id: "console", kind: "interact", text: "Read the uplink routing table", object: "hush-uplink" }],
+      id: "uplink", journal: "The uplink console is behind the array, on the north-east side of the Signal Cathedral.",
+      objectives: [{ id: "console", kind: "interact", text: "Read the routing table on the uplink console, north-east side of the Signal Cathedral", object: "hush-uplink" }],
       next: "report",
     },
     {
-      id: "report", journal: "Forty voices in, one trunk out - west, to a root node called LT-0. Operator: V. Kade. Tell Juno.",
-      objectives: [{ id: "report", kind: "choose", text: "Tell Juno what the Cathedral is singing", dialogue: "hush.juno", options: ["report"] }],
+      id: "report", journal: "Forty voice channels in, one trunk out, west to a root node called LT-0. Operator: V. Kade. Tell Juno Reyes, under the Meridian Spire.",
+      objectives: [{ id: "report", kind: "choose", text: "Report to Juno Reyes under the Meridian Spire, Neon Ward", dialogue: "hush.juno", options: ["report"] }],
       next: [{ if: { flag: "signal-cathedral.entry", is: "fight" }, stage: "end-bloody" }, { stage: "end-clean" }],
     },
-    ending("end-clean", "Juno went pale at the name.", "clean"),
-    ending("end-bloody", "Juno went pale at the name. Then paler at the blood on your coat.", "bloody"),
+    ending("end-clean", "Juno knew the operator's name.", "clean"),
+    ending("end-bloody", "Juno knew the operator's name. She also noticed the chrome filings on your coat.", "bloody"),
   ],
   outcomes: {
     clean: {
-      title: "Holy Ground", journal: "The Saints let you walk in and walk out. Juno knew the name Kade: 'Emergency broadcast. Meridian erased her. Ask Tomas - he knew the night shift.'",
+      title: "Holy Ground", journal: "The Saints let you in and out. Juno knew the name: Vesper Kade, Meridian's emergency-broadcast engineer, erased from the payroll. Tomas at the Ember Core worked nights with her.",
       effects: [{ credits: 400 }, { xp: 1400 }, { give: "semicolon" }, { rep: "chrome-saints", by: 10 }, { setFlag: "hush.s2" }],
     },
     bloody: {
-      title: "Chrome on the Floor", journal: "You took the uplink by force. Juno knew the name Kade: 'Emergency broadcast. Meridian erased her. Ask Tomas - he knew the night shift.'",
+      title: "Chrome on the Floor", journal: "You took the uplink by force. Juno knew the name: Vesper Kade, Meridian's emergency-broadcast engineer, erased from the payroll. Tomas at the Ember Core worked nights with her.",
       effects: [{ credits: 400 }, { xp: 1500 }, { give: "semicolon" }, { rep: "chrome-saints", by: -20 }, { setFlag: "hush.s2" }],
     },
   },
@@ -276,38 +276,38 @@ const signalCathedral: QuestDefinition2 = {
 
 const rootAccess: QuestDefinition2 = {
   id: "root-access", title: "Root Access", category: "story", giver: "tomas",
-  summary: "Vesper Kade used to sit with Tomas and listen to the Ember Core breathe. Her old workshop is two streets east of the Core. Nobody has been in since the fire.",
-  requires: { quest: "signal-cathedral" }, rewardHint: "500 cr, the wardens' seal", recommendedLevel: 8, start: "workshop",
+  summary: "Vesper Kade used to keep Tomas company on the Ember Core night shift. Her workshop, two streets south-east of the Core in the Foundry, has been empty since it burned.",
+  requires: { quest: "signal-cathedral" }, rewardHint: "500 cr, 2200 XP, the Warden Sigil", recommendedLevel: 8, start: "workshop",
   stages: [
     {
-      id: "workshop", journal: "Tomas: 'She said every machine hums one note, if you listen long enough.' Find Kade's workshop east of the Core.",
-      objectives: [{ id: "arrive", kind: "reach", text: "Find Kade's burned-out workshop", area: area(-384, -160, 10) }],
+      id: "workshop", journal: "Tomas says Vesper Kade's burned-out workshop is two streets east and two south of the Ember Core in the Foundry, past the pipes. Nobody has been inside since the fire.",
+      objectives: [{ id: "arrive", kind: "reach", text: "Find Kade's burned-out workshop south-east of the Ember Core, Foundry", area: area(-384, -160, 10) }],
       next: "search",
     },
     {
-      id: "search", journal: "Soot, rainwater, and the smell of hot glass. Search the workshop.",
+      id: "search", journal: "Kade's workshop in the Foundry: soot, puddles and the smell of hot glass. Tomas says she wrote everything down. Find her notebook.",
       objectives: [
-        { id: "journal", kind: "interact", text: "Find Kade's notes", object: "kade-journal-spot" },
-        { id: "bench", kind: "interact", text: "Search the workbench", object: "kade-bench", optional: true },
-        { id: "recorder", kind: "interact", text: "Play the recorder", object: "kade-recorder", optional: true },
+        { id: "journal", kind: "interact", text: "Find Kade's waterproof notebook in the burned workshop", object: "kade-journal-spot" },
+        { id: "bench", kind: "interact", text: "Search the scorched workbench in Kade's workshop", object: "kade-bench", optional: true },
+        { id: "recorder", kind: "interact", text: "Play the dusty voice recorder in Kade's workshop", object: "kade-recorder", optional: true },
       ],
       next: "ambush",
     },
     {
-      id: "ambush", journal: "Pale figures step out of the smoke, humming. Kade's Choir keeps her secrets.",
-      onEnter: [{ spawn: "hush-s3-wardens" }, { message: "Humming, from every direction. The Choir has found you.", tone: "danger" }],
-      objectives: [{ id: "clear", kind: "clear", text: "Survive the Hush wardens", encounter: "hush-s3-wardens" }],
+      id: "ambush", journal: "Pale figures in hoods step out of the smoke in Kade's workshop, humming. Her Choir guards the place.",
+      onEnter: [{ spawn: "hush-s3-wardens" }, { message: "Humming from every direction. Hush wardens in the workshop.", tone: "danger" }],
+      objectives: [{ id: "clear", kind: "clear", text: "Fight off the Hush wardens in Kade's workshop", encounter: "hush-s3-wardens" }],
       next: "wren",
     },
     {
-      id: "wren", journal: "The Last Tree is the antenna. The seed keeper holds the wardens' seal. Go to Sister Wren in the Rain Gardens.",
+      id: "wren", journal: "Kade is using the Last Tree as an antenna. Sister Wren, the seed keeper, holds the seal to the warden gate. Find her by the Last Tree in Rootwood Park, Rain Gardens.",
       onEnter: [{ waypoint: { x: -494, z: 272, label: "Sister Wren" } }],
-      objectives: [{ id: "sigil", kind: "choose", text: "Ask Sister Wren for the wardens' seal", dialogue: "hush.wren", options: ["take-sigil", "show-journal"] }],
+      objectives: [{ id: "sigil", kind: "choose", text: "Ask Sister Wren for the seal, at the Last Tree in Rootwood Park", dialogue: "hush.wren", options: ["take-sigil", "show-journal"] }],
     },
   ],
   outcomes: {
     done: {
-      title: "The Seed Keeper's Seal", journal: "Wren pressed the Warden Sigil into your hand. 'The gate is on the north side of the roots. Come back when you're ready. Not before.'",
+      title: "The Seed Keeper's Seal", journal: "Wren gave you the Warden Sigil. The warden gate is on the north side of the stone circle, south of the Last Tree. Talk to her again when you are ready to go in.",
       effects: [{ credits: 500 }, { xp: 2200 }, { setFlag: "hush.s3" }],
     },
   },
@@ -315,38 +315,38 @@ const rootAccess: QuestDefinition2 = {
 
 const hollowChoir: QuestDefinition2 = {
   id: "hollow-choir", title: "The Hollow Choir", category: "story", giver: "wren",
-  summary: "Under The Last Tree, Vesper Kade conducts forty-one stolen voices through the roots of the city. The Warden Sigil opens the gate. End the song.",
-  requires: { quest: "root-access" }, rewardHint: "Legendary: the Bell Character and the Choir Mantle", recommendedLevel: 10, start: "approach",
+  summary: "In the stone circle south of the Last Tree, where its roots surface, Vesper Kade is broadcasting forty-one stolen voices. The Warden Sigil opens the gate. Stop her.",
+  requires: { quest: "root-access" }, rewardHint: "1500 cr, 4000 XP, two legendaries: Bell Character and Choir Mantle", recommendedLevel: 10, start: "approach",
   stages: [
     {
-      id: "approach", journal: "Rootwood Park after dark. The Choir patrols the paths to the warden gate.",
+      id: "approach", journal: "Sister Wren's sigil opens the warden gate on the north side of the stone circle, south of the Last Tree in Rootwood Park. Choir wardens patrol the paths to it.",
       onEnter: [{ spawn: "hush-s4-patrol" }, { waypoint: { x: GATE.x, z: GATE.z, label: "Warden gate" } }],
       objectives: [
-        { id: "gate", kind: "reach", text: "Reach the warden gate at the roots", area: area(GATE.x, GATE.z, 8) },
-        { id: "patrol", kind: "clear", text: "Silence the Choir patrol", encounter: "hush-s4-patrol", optional: true },
+        { id: "gate", kind: "reach", text: "Reach the warden gate, north side of the stone circle in Rootwood Park", area: area(GATE.x, GATE.z, 8) },
+        { id: "patrol", kind: "clear", text: "Take out the Choir patrol on the paths north of the warden gate", encounter: "hush-s4-patrol", optional: true },
       ],
       next: "gate",
     },
     {
-      id: "gate", journal: "The gate is brass and older than the city. The sigil fits.",
-      objectives: [{ id: "open", kind: "interact", text: "Open the warden gate with the sigil", object: "hush-warden-gate" }],
+      id: "gate", journal: "The warden gate on the north side of the stone circle is old brass with a sigil-shaped slot. Use the Warden Sigil on it.",
+      objectives: [{ id: "open", kind: "interact", text: "Open the warden gate (north side of the stone circle) with the Warden Sigil", object: "hush-warden-gate" }],
       next: "choir",
     },
     {
-      id: "choir", journal: "The Choirmaster holds court beneath the Tree. Forty-one voices sing through her. Break the frame.",
+      id: "choir", journal: "Vesper Kade is inside a frame of root and antenna wire in the stone circle, singing with forty-one voices. Break it.",
       onEnter: [{ spawn: "hush-boss" }],
-      objectives: [{ id: "boss", kind: "kill", text: "Defeat Vesper Kade, the Choirmaster", count: 1, archetype: "choirmaster", encounter: "hush-boss" }],
+      objectives: [{ id: "boss", kind: "kill", text: "Defeat Vesper Kade, the Choirmaster, in the stone circle", count: 1, archetype: "choirmaster", encounter: "hush-boss" }],
       next: "verdict",
     },
     {
-      id: "verdict", journal: "The frame is in pieces. Inside it, tangled in root and wire, Vesper Kade is still breathing.",
-      onEnter: [{ message: "The song stops. Somewhere in the wreck, someone coughs.", tone: "quest" }],
-      objectives: [{ id: "vesper", kind: "choose", text: "Decide what happens to Vesper Kade", dialogue: "hush.kade", options: ["spare", "finish"] }],
+      id: "verdict", journal: "The frame in the stone circle is in pieces. Vesper Kade is tangled in the wreck, still breathing. Spare her or finish it.",
+      onEnter: [{ message: "The song stops. In the wreck of the frame, someone coughs.", tone: "quest" }],
+      objectives: [{ id: "vesper", kind: "choose", text: "Decide what to do with Vesper Kade, in the wreck of her frame in the stone circle", dialogue: "hush.kade", options: ["spare", "finish"] }],
       next: "seed",
     },
     {
-      id: "seed", journal: "At the heart of the roots, a crystal the size of a tooth holds forty-one voices.",
-      objectives: [{ id: "heart", kind: "choose", text: "Decide what happens to the Hush Seed", dialogue: "hush.seed", options: ["destroy", "take"] }],
+      id: "seed", journal: "In the stone circle, where the Last Tree's roots knot together, sits the Hush Seed: a crystal the size of a tooth holding forty-one voices. Crush it to free them, or take it.",
+      objectives: [{ id: "heart", kind: "choose", text: "Decide what to do with the Hush Seed, where the roots knot together", dialogue: "hush.seed", options: ["destroy", "take"] }],
       next: [{ if: { flag: "hollow-choir.heart", is: "take" }, stage: "end-kept" }, { stage: "end-restored" }],
     },
     ending("end-restored", "You crushed the seed.", "restored"),
@@ -354,12 +354,12 @@ const hollowChoir: QuestDefinition2 = {
   ],
   outcomes: {
     restored: {
-      title: "Say Something", journal: "The seed cracked like a knuckle. Across the city, forty-one people cleared their throats at the same moment, and the rain sounded like rain again.",
+      title: "Say Something", journal: "The seed cracked like a knuckle. Across the city, forty-one people cleared their throats at the same moment. One of them started swearing at a cab.",
       effects: [{ setFlag: "hush.ending", value: "restored" }, { xp: 4000 }, { credits: 1500 }, { rep: "civilian", by: 25 }, { give: "last-leaf", count: 3 }, { message: "Somewhere by the Memory Gate, Lark starts to sing.", tone: "quest" }],
     },
     kept: {
-      title: "A Quieter City", journal: "You kept the seed. Forty-one voices hum in your pocket. The city is a little quieter, and every broker from the Spire to the Circuit wants to know your price.",
-      effects: [{ setFlag: "hush.ending", value: "kept" }, { xp: 4000 }, { credits: 1500 }, { rep: "ghosts", by: 10 }, { rep: "corpsec", by: 10 }, { message: "The seed is warm. It is humming a lullaby.", tone: "quest" }],
+      title: "A Quieter City", journal: "You kept the seed. Forty-one voices hum in your pocket, and every broker from the Spire to the Ghost Circuit wants your price.",
+      effects: [{ setFlag: "hush.ending", value: "kept" }, { xp: 4000 }, { credits: 1500 }, { rep: "ghosts", by: 10 }, { rep: "corpsec", by: 10 }, { message: "The seed is warm in your pocket and humming a lullaby.", tone: "quest" }],
     },
   },
 };
@@ -387,15 +387,15 @@ const dialogues: DialogueDefinition[] = [
         bye("Not my problem, Mara.", "decline"),
       ]),
       node("accepted", ["Lark's on the avenue by the Memory Gate. She can't tell you much. She can write, though."], [LEAVE]),
-      node("reminder", ["Somebody is pulling voices out of my market, and I can't sell what I can't hear.", "Lark first. Then whatever she points you at."], [LEAVE]),
-      node("after", ["Juno hears the quiet ones. If the Cathedral is singing, she'll know the tune."], [LEAVE]),
+      node("reminder", ["Somebody is pulling voices out of my market, and I can't sell what I can't hear.", "Lark first. She's at the Memory Gate. Then whatever she points you at."], [LEAVE]),
+      node("after", ["Juno's under the Meridian Spire in Neon Ward. If anything is riding the Cathedral uplink, she's already logged it."], [LEAVE]),
       node("after-restored", ["Forty-one voices back on the market. My index is worthless now.", "I've never been happier to lose money. Don't tell anyone."], [LEAVE]),
       node("after-kept", ["You're carrying the only copy of forty-one people.", "That makes you the most valuable thing in this market. Try not to get mugged."], [LEAVE]),
       node("seed", ["Is that - you brought it to me.", "I'll give you five thousand for it. And yes, I'll give them back. Eventually. For a fee."], [
         { id: "sell-seed", label: "Sell the Hush Seed (+5000 cr)", kind: "complete", condition: { item: "hush-seed" }, effects: [{ take: "hush-seed" }, { credits: 5000 }, { setFlag: "hush.seed-sold" }, { message: "Mara Voss now owns forty-one voices.", tone: "loot" }], next: "sold" },
         bye("It's not for sale."),
       ]),
-      node("sold", ["Pleasure. The rain remembers people who keep their word.", "It remembers people who sell voices too. Just differently."], [LEAVE]),
+      node("sold", ["Pleasure doing business.", "I'll start the bidding at six figures. Some of these people owe me money; now they owe me a voice."], [LEAVE]),
     ],
   },
   {
@@ -405,10 +405,10 @@ const dialogues: DialogueDefinition[] = [
       node("slate", ["[Lark wipes the slate with her sleeve and writes fast.]", "[IT WAS RAINING. I WAS SINGING. THE STREETLIGHT HUMMED MY SONG BACK AT ME.]", "[THEN I HAD NO SONG.]"], [
         go("lights", "Which streetlight?", "boxes"),
       ]),
-      node("boxes", ["[She points up at the lamp over your head, then two fingers east, then one south-west.]", "[BOXES ON THREE LIGHTS. THEY HUM AT NIGHT. NOBODY ELSE HEARS IT.]"], [
+      node("boxes", ["[She points up at the lamp over your head, then two fingers north-east, then one south-west.]", "[BOXES ON THREE LIGHTS. THEY HUM AT NIGHT. NOBODY ELSE HEARS IT.]"], [
         { id: "promise", label: "I'll find your song.", kind: "continue", next: "promised" },
       ]),
-      node("promised", ["[She writes: DON'T PROMISE. JUST LOOK.]"], [LEAVE]),
+      node("promised", ["[She writes: DON'T PROMISE. JUST CHECK THE LIGHTS.]"], [LEAVE]),
       node("waiting", ["[The slate says: THE BOXES. PLEASE.]"], [LEAVE]),
     ],
   },
@@ -428,7 +428,7 @@ const dialogues: DialogueDefinition[] = [
         bye("Later.", "decline"),
       ]),
       node("accepted", ["Ghost Circuit, far north-east. Deacon Ferro runs the door. He likes chrome, money and being right. Pick one."], [LEAVE]),
-      node("reminder", ["The Cathedral. The uplink. The routing table. I'll be here, listening."], [LEAVE]),
+      node("reminder", ["Signal Cathedral, Ghost Circuit. Get me the routing table off the uplink console. I'll be here."], [LEAVE]),
       node("report", ["Well? What is it singing?"], [
         { id: "report", label: "Forty voices in, one trunk out. West. Operator: V. Kade.", kind: "complete", next: "kade" },
       ]),
@@ -462,14 +462,14 @@ const dialogues: DialogueDefinition[] = [
     nodes: [
       node("offer", [
         "Vesper. Vesper Kade. She used to sit where you're standing and listen to the Core breathe.",
-        "Said every machine in the city hums one note if you listen long enough. Said the rain hums it too.",
-        "Her workshop was two streets east of here. Nobody's been in since the fire. Nobody wanted to.",
+        "She could name a failing relay from the street by the pitch it whined at. Said the whole city was too loud to think in.",
+        "Her workshop was two streets south-east of here. Nobody's been in since the fire. Nobody wanted to.",
       ], [
         { id: "accept", label: "I'll go in.", effects: [{ startQuest: "root-access" }], next: "accepted" },
         bye("Not yet.", "decline"),
       ]),
-      node("accepted", ["East along the street, past the pipes. If you hear humming, that's not the Core."], [LEAVE]),
-      node("reminder", ["Find her notes. She wrote everything down. Engineers do."], [LEAVE]),
+      node("accepted", ["Two streets east, then two south, past the pipes. If you hear humming, that's not the Core."], [LEAVE]),
+      node("reminder", ["Two streets east, two south, past the pipes. Find her notes. She wrote everything down. Engineers do."], [LEAVE]),
     ],
   },
   {
@@ -487,21 +487,21 @@ const dialogues: DialogueDefinition[] = [
         { id: "take-sigil", label: "Give me the sigil. I'll end it.", kind: "complete", effects: [{ give: "warden-sigil" }], next: "given" },
         { id: "show-journal", label: "Show her Kade's journal.", kind: "complete", condition: { item: "kade-journal" }, hideIfUnavailable: true, effects: [{ give: "warden-sigil" }, { give: "last-leaf", count: 2 }], next: "read" },
       ]),
-      node("given", ["Here. It's heavier than it looks. Most things that open doors are."], [LEAVE]),
+      node("given", ["Here. Brass, two kilos, older than the city. Don't drop it in a drain.", "Come back to me when you're ready to open the gate."], [LEAVE]),
       node("read", [
         "[She reads the last page for a long time.]",
-        "'The Tree can hold them.' She never did understand that holding and keeping are different things.",
+        "'The Tree can hold them.' She means the Tree can keep them. Forever, if nobody stops her.",
         "Take the seal. And these leaves - chew them when it hurts. It will hurt.",
       ], [LEAVE]),
       // The finale's offer and the in-quest reminder.
       node("offer", [
-        "Tonight the Tree sings loudest. The warden gate is on the north side of the roots. The sigil opens it.",
-        "What waits behind it was a person once. Try to remember that. Or don't. I'm a seed keeper, not a priest.",
+        "Tonight the Tree sings loudest. The roots surface in the old stone circle south of it, and the warden gate is on the circle's north side. The sigil opens it.",
+        "Vesper is behind it. She was a person once, and a good engineer. Do what you have to. I'm a seed keeper; I don't hand out absolution.",
       ], [
         { id: "accept", label: "I'm ready.", effects: [{ startQuest: "hollow-choir" }], next: "go" },
         bye("Not tonight.", "decline"),
       ]),
-      node("go", ["North side of the roots. Mind the ones who hum."], [LEAVE]),
+      node("go", ["The stone circle, south of the Tree. The gate's on its north side. The wardens hum before they swing. Listen for it."], [LEAVE]),
     ],
   },
   {
@@ -516,7 +516,7 @@ const dialogues: DialogueDefinition[] = [
         { id: "spare", label: "Walk away. Let her live with the quiet.", kind: "continue", effects: [{ setFlag: "hush.vesper", value: "spared" }], next: "spared" },
         { id: "finish", label: "End it.", kind: "continue", effects: [{ setFlag: "hush.vesper", value: "dead" }, { credits: 300 }, { rep: "chrome-saints", by: 10 }], next: "finished" },
       ]),
-      node("spared", ["[She closes her eyes.] \"...Thank you. I think. It's so loud out here.\""], [LEAVE]),
+      node("spared", ["[She closes her eyes.] \"...Thank you. I think. It's so loud out here.\"", "[She is still lying in the roots when you turn away.]"], [LEAVE]),
       node("finished", ["[It is quick. Her pockets hold 300 credits and a conductor's tuning fork, still humming.]", "[Word will reach the Chrome Saints. They called her a heretic.]"], [LEAVE]),
     ],
   },
@@ -525,7 +525,7 @@ const dialogues: DialogueDefinition[] = [
     entries: [{ node: "heart" }],
     nodes: [
       node("heart", [
-        "[Where the roots knot together, a crystal the size of a tooth pulses in time with nothing.]",
+        "[Where the roots knot together, a crystal the size of a tooth blinks like a cheap LED. It is warm.]",
         "[Put your ear to it and you hear them: a busker's song, a cab driver swearing, a child counting to ten. Forty-one voices.]",
       ], [
         { id: "destroy", label: "Crush it. Let them go home.", kind: "complete", next: null },

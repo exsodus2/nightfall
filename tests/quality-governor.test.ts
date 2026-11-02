@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GOVERNOR, QualityGovernor, renderProfile } from "../src/city/quality-governor.ts";
+import { DESKTOP_LEVELS, GOVERNOR, QualityGovernor, renderProfile } from "../src/city/quality-governor.ts";
 
 // Feeds `seconds` of frames at a fixed interval; returns the level changes seen.
 function run(governor: QualityGovernor, clock: { now: number }, seconds: number, frameMs: number, cpuMs = 4): number[] {
@@ -59,4 +59,20 @@ test("uneven misses on a high-refresh display (18 ms frames, few over the slow l
   let changes = 0;
   for (let i = 0; i < 600; i++) { const ms = i % 5 === 0 ? 48 : 18.2; clock.now += ms; if (governor.sample(ms, 14, clock.now) !== null) changes++; }
   assert.ok(changes >= 1 && governor.level >= 1, "mean ~24 ms (< 50 fps) lowers quality");
+});
+
+test("motion comfort: the desktop governor never changes the draw distance more than once per 3 s", () => {
+  // Slow, recovering, oscillating and jittery loads, including 144 Hz-style short frames.
+  const patterns: ((i: number) => number)[] = [() => 40, i => (i % 3 ? 30 : 12), i => (Math.floor(i / 200) % 2 ? 7 : 45), i => 6.9 + (i * 7919 % 13) * 2.4];
+  for (const pattern of patterns) {
+    const governor = new QualityGovernor(DESKTOP_LEVELS.length - 1);
+    governor.hold(0);
+    let now = 0, last = -Infinity;
+    for (let i = 0; i < 20000; i++) {
+      const ms = pattern(i); now += ms;
+      if (governor.sample(ms, ms > 20 ? 12 : 3, now) === null) continue;
+      assert.ok(now - last >= 3000, `level changes ${(now - last).toFixed(0)} ms apart`);
+      last = now;
+    }
+  }
 });

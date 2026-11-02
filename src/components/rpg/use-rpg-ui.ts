@@ -76,6 +76,8 @@ export function useRpgUi(options: RpgUiOptions) {
   }, [useMock, mock, controller]);
 
   const vendorOpen = !!rpg?.vendor;
+  const hackOpen = !!rpg?.hack; // Hacking: the breach screen pauses and blocks like the vendor
+  const screenOpen = vendorOpen || hackOpen;
   const dead = !!rpg?.combat.dead;
 
   // ---- Inventory open / close ------------------------------------------------------------------
@@ -85,7 +87,7 @@ export function useRpgUi(options: RpgUiOptions) {
   // Another panel took over (J, T, Settings, Online): close without resuming. The vendor and death
   // screens replace it too. Derived during render (no effect round trip).
   if (others !== wasOthers) { setWasOthers(others); if (others && open) setOpen(false); }
-  if (open && (vendorOpen || dead || dialogue || !rpg || !ready)) setOpen(false);
+  if (open && (screenOpen || dead || dialogue || !rpg || !ready)) setOpen(false);
 
   const relock = useRef<AbortController | null>(null);
   useEffect(() => () => relock.current?.abort(), []);
@@ -128,8 +130,8 @@ export function useRpgUi(options: RpgUiOptions) {
   const resumeFromInventory = useCallback(() => { setOpen(false); resumeOnClose.current = false; resume(); }, [resume]);
 
   // ---- Hotkeys: I toggles (playing or paused), Tab opens while playing ---------------------------
-  const state = useRef({ open, rpg: !!rpg, vendorOpen, dead });
-  useEffect(() => { state.current = { open, rpg: !!rpg, vendorOpen, dead }; }, [open, rpg, vendorOpen, dead]);
+  const state = useRef({ open, rpg: !!rpg, vendorOpen: screenOpen, dead });
+  useEffect(() => { state.current = { open, rpg: !!rpg, vendorOpen: screenOpen, dead }; }, [open, rpg, screenOpen, dead]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code !== "KeyI" && event.code !== "Tab") return;
@@ -154,10 +156,11 @@ export function useRpgUi(options: RpgUiOptions) {
   const vendorWasOpen = useRef(false);
   useEffect(() => {
     if (!ready) { vendorWasOpen.current = false; return; }
-    if (vendorOpen) { vendorWasOpen.current = true; opts.current.pauseCity(); return; }
+    if (screenOpen) { vendorWasOpen.current = true; opts.current.pauseCity(); return; }
     if (vendorWasOpen.current) { vendorWasOpen.current = false; resume(); }
-  }, [vendorOpen, ready, resume]);
+  }, [screenOpen, ready, resume]);
   const closeVendor = useCallback(() => act({ kind: "closeVendor" }), [act]);
+  const closeHack = useCallback(() => act({ kind: "closeHack" }), [act]); // Hacking: dismiss the result
 
   const respawning = useRef(false);
   useEffect(() => {
@@ -181,8 +184,9 @@ export function useRpgUi(options: RpgUiOptions) {
     rpg, act,
     inventoryOpen, openInventory, closeInventory, resumeFromInventory,
     vendorOpen, closeVendor,
+    hackOpen, closeHack,
     dead, respawn,
     /** Any RPG screen is up (the world map and radio keys should stand down). */
-    blocking: inventoryOpen || vendorOpen || dead,
+    blocking: inventoryOpen || screenOpen || dead,
   };
 }

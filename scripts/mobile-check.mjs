@@ -6,18 +6,20 @@ import { setTimeout as delay } from "node:timers/promises";
 // iPhone 16 emulation check (Chrome DevTools Protocol, no test dependency): Safari iOS user agent,
 // 852x393 landscape / 393x852 portrait at DPR 3, touch emulation with synthesized multi-touch
 // (joystick + look + a button at once), frame-time sampling and screenshots in artifacts/mobile/.
-//   node scripts/mobile-check.mjs [--gpu] [--seconds=6] [--cpu=1] [--quality=auto|low|balanced|high] [--skip-map]
+//   node scripts/mobile-check.mjs [--gpu] [--seconds=6] [--cpu=1] [--quality=auto|low|balanced|high] [--skip-map] [--port=9341] [--out=mobile] [--walk=20]
+// --walk holds the joystick forward (with slow look swipes) for that many seconds after the touch
+// checks and samples frames meanwhile: the governor's view of sustained play with new content.
 // Chrome is not Safari: this checks layout, input and the render profile, not WebKit itself.
 const args = new Map(process.argv.slice(2).map((arg) => { const [key, value = "1"] = arg.replace(/^--/, "").split("="); return [key, value]; }));
-const out = resolve("artifacts", "mobile");
+const out = resolve("artifacts", args.get("out") ?? "mobile");
 await mkdir(out, { recursive: true });
 const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].filter(Boolean);
 let executable;
 for (const candidate of candidates) { try { await access(candidate); executable = candidate; break; } catch { /* next */ } }
 if (!executable) throw new Error("Set CHROME_PATH to an installed Chromium browser.");
-const port = 9341;
+const port = Number(args.get("port") ?? 9341);
 const chrome = spawn(executable, [
-  "--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve(out, "profile")}`,
+  "--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve(out, `profile-${port}`)}`,
   "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--enable-webgl", "--ignore-gpu-blocklist",
   ...(args.has("gpu") ? [] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]),
   "--window-size=1000,1000", "about:blank",
@@ -27,7 +29,8 @@ const IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebK
 const LANDSCAPE = { width: 852, height: 393, deviceScaleFactor: 3, mobile: true, screenOrientation: { type: "landscapePrimary", angle: 90 } };
 const PORTRAIT = { width: 393, height: 852, deviceScaleFactor: 3, mobile: true, screenOrientation: { type: "portraitPrimary", angle: 0 } };
 let socket;
-const report = { errors: [], landscape: null, portrait: null, checks: {} };
+const report = { errors: [], landscape: null, portrait: null, checks: {}, reloads: 0 };
+let failureDetail = null; // set once evaluate() exists: the start-up error text, if the page shows one
 try {
   let tabs;
   for (let i = 0; i < 60; i++) { try { tabs = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json()); break; } catch { await delay(200); } }
@@ -39,11 +42,14 @@ try {
   socket.addEventListener("message", ({ data }) => {
     const message = JSON.parse(data);
     if (message.id && pending.has(message.id)) { const p = pending.get(message.id); pending.delete(message.id); if (message.error) p.reject(new Error(JSON.stringify(message.error))); else p.resolve(message.result); }
+    // Dev-server hot reloads (other edits) restart the city mid-check: count them.
+    if (message.method === "Page.frameNavigated" && !message.params.frame.parentId) report.reloads++;
     if (message.method === "Runtime.exceptionThrown") report.errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
     if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") report.errors.push(message.params.args.map((arg) => arg.description ?? arg.value).join(" "));
   });
   const call = (method, params = {}) => new Promise((ok, fail) => { const id = ++counter; pending.set(id, { resolve: ok, reject: fail }); socket.send(JSON.stringify({ id, method, params })); setTimeout(() => { if (pending.has(id)) { pending.delete(id); fail(new Error(`CDP timeout ${method}`)); } }, 30000); });
   const evaluate = async (expression) => { const r = await call("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text); return r.result.value; };
+  failureDetail = () => evaluate("document.querySelector('.error-state details p')?.textContent ?? null");
   const shot = async (name) => { const image = await call("Page.captureScreenshot", { format: "png" }); await writeFile(resolve(out, `${name}.png`), Buffer.from(image.data, "base64")); };
   const rect = (selector) => evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; })()`);
   const touch = (type, points) => call("Input.dispatchTouchEvent", { type, touchPoints: points.map((p) => ({ x: p.x, y: p.y, id: p.id, radiusX: 8, radiusY: 8, force: 1 })) });
@@ -63,7 +69,12 @@ try {
   await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   if (Number(args.get("cpu") ?? 1) > 1) await call("Emulation.setCPUThrottlingRate", { rate: Number(args.get("cpu")) });
   await call("Page.navigate", { url: process.env.CITY_URL ?? "http://127.0.0.1:3000/?perf=1" });
-  for (let i = 0; i < 150; i++) { if ((await dataset().catch(() => ({}))).phase === "intro") break; await delay(200); }
+  // A cold start compiles three shader programs (~30 s on a busy machine): wait up to 2 minutes.
+  const loadStart = Date.now();
+  for (let i = 0; i < 600; i++) { const phase = (await dataset().catch(() => ({}))).phase; if (phase === "intro") break; if (phase === "error") break; await delay(200); }
+  await delay(1000);
+  if ((await dataset()).phase === "error") throw new Error(`Start-up failed: ${await evaluate("document.querySelector('.error-state details p')?.textContent ?? document.body.innerText.slice(-400)")}`);
+  report.loadMs = Date.now() - loadStart;
   report.gpu = await evaluate("(() => { const gl = document.createElement('canvas').getContext('webgl2'); const ext = gl?.getExtension('WEBGL_debug_renderer_info'); return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown'; })()");
   await shot("landscape-intro");
   report.checks.noOverflow = await evaluate("document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight");
@@ -73,6 +84,7 @@ try {
     await delay(300); await tapButton(label); await delay(300); await shot("landscape-settings");
     await tapButton("Back to the streets");
   } else await tapButton("Enter the city");
+  for (let i = 0; i < 50; i++) { if ((await dataset()).phase === "playing") break; await delay(200); }
   await delay(3500);
   await shot("landscape-playing");
   report.landscape = { ...(await sample(Number(args.get("seconds") ?? 6))), state: await dataset() };
@@ -115,7 +127,9 @@ try {
   } else report.checks.multitouch = "no touch zone (old controls)";
 
   if (!args.has("skip-map") && zone) {
-    await tap(await rect("[data-touch-action='menu']")); await delay(250);
+    // Open the drawer (unless the previous check left it open) and wait for it to appear.
+    if (!(await evaluate("!!document.querySelector('[data-touch-drawer]')"))) await tap(await rect("[data-touch-action='menu']"));
+    for (let i = 0; i < 10 && !(await evaluate("!!document.querySelector('[data-touch-drawer] button')")); i++) await delay(150);
     await tapButton("Map"); await delay(900);
     const area = await rect("[data-world-map] canvas");
     if (area) {
@@ -132,6 +146,24 @@ try {
     }
   }
 
+  if (args.has("walk") && zone) {
+    // Sustained walk: stick forward, a slow look swipe back and forth, frames sampled throughout.
+    const seconds = Number(args.get("walk")) > 1 ? Number(args.get("walk")) : 20;
+    const stick = { x: 150, y: 290, id: 1 }, look = { x: 620, y: 200, id: 2 };
+    await touch("touchStart", [stick]); await delay(40);
+    await touch("touchMove", [{ ...stick, y: stick.y - 70 }]);
+    const sampling = sample(seconds);
+    const end = Date.now() + seconds * 1000;
+    for (let sweep = 0; Date.now() < end - 1500; sweep++) {
+      await touch("touchMove", [{ ...stick, y: stick.y - 70 }, look]);
+      for (let i = 1; i <= 20; i++) { await touch("touchMove", [{ ...stick, y: stick.y - 70 }, { ...look, x: look.x + (sweep % 2 ? -i : i) * 4 }]); await delay(40); }
+      await touch("touchMove", [{ ...stick, y: stick.y - 70 }]); await delay(400);
+    }
+    report.walk = { ...(await sampling), state: await dataset() };
+    await touch("touchEnd", []); await delay(300);
+    await shot("landscape-walk");
+  }
+
   await call("Emulation.setDeviceMetricsOverride", PORTRAIT);
   await delay(2500);
   await shot("portrait-playing");
@@ -141,6 +173,7 @@ try {
   await call("Emulation.setDeviceMetricsOverride", LANDSCAPE);
   await delay(1500); await shot("landscape-paused");
 } finally {
+  report.failure = await Promise.race([failureDetail?.().catch(() => null) ?? null, delay(3000, null)]);
   console.log(JSON.stringify(report, null, 2));
   socket?.close();
   chrome.kill();

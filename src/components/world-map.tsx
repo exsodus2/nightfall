@@ -5,10 +5,16 @@ import type { CitySnapshot } from "@/city/engine";
 import { DISTRICTS, WORLD_EDGE, districtAt, type CityWorld } from "@/city/world";
 import { placeName, streetNameAt } from "@/city/streets";
 import { WAYPOINT_COLORS, cityWaypoints, formatMetres, waypointBearing, waypointLink, type Waypoint } from "@/city/waypoints";
-import { interiorPlaces, type InteriorPlace } from "@/city/interiors";
+import { GROUND_FLOOR_KINDS, interiorPlaces, type GroundFloorKind, type InteriorPlace } from "@/city/interiors";
 import { trackVenueEntrance, waypointAtEntrance } from "@/city/venue-navigation";
-import { MAX_SCALE, TerrainLayer, drawOverlay, minScale, toWorld, waypointAt, type MapFriend, type MapView } from "./world-map-render";
+import { MAX_SCALE, SIGHT_MARK, TerrainLayer, drawOverlay, minScale, toWorld, waypointAt, type MapFriend, type MapView } from "./world-map-render";
 import { useWaypointState } from "./use-waypoints";
+import { LINES } from "@/city/metro";
+import { HARBOUR_REACH, harbourZone } from "@/city/harbour";
+import { EVENT_GLYPH, EVENT_INK, mapEvents, type MapEvent } from "./event-map-layer";
+import { HARBOUR_ZONE_NAME, SWELL_INK, WALL_INK, sightAt } from "./harbour-map-layer";
+import { CLUB_INK, VENUE_INK, venueGlyph, venueInk } from "./venue-map-layer";
+import { GROUND_GLYPH, GROUND_ICON_SCALE, GROUND_INK, GROUND_LABEL, groundFloorAt, groundLabel, groundVisitCount, noteGroundVisit, groundFilterMemory } from "./ground-floor-map-layer";
 import styles from "./world-map.module.css";
 
 interface WorldMapProps {
@@ -32,8 +38,30 @@ function friendsOf(snapshot: CitySnapshot): MapFriend[] {
 }
 const ownerName = (snapshot: CitySnapshot, owner: string): string => snapshot.friends?.find((friend) => friend.id === owner)?.name ?? "a friend";
 
-// The map remembers its zoom and whether it follows you between openings (per page session).
-const memory = { scale: 1.3, follow: true, cx: 0, cz: 0 };
+// The map remembers its zoom, whether it follows you and the legend between openings (per page session).
+const memory = { scale: 1.3, follow: true, cx: 0, cz: 0, legend: false };
+
+/** One legend for the side panel and the on-map toggle (L): glyph, its map ink and a short name. */
+const LEGEND: readonly { glyph: string; color: string; label: string }[] = [
+  { glyph: "▲", color: "#e6fff5", label: "You" },
+  { glyph: "◆", color: "#ffb347", label: "Waypoint" },
+  { glyph: "═", color: LINES[0].hex, label: LINES[0].name },
+  { glyph: "═", color: LINES[1].hex, label: LINES[1].name },
+  { glyph: "━", color: "#e9fff6", label: "Train" },
+  { glyph: "▣", color: "#42dfe3", label: "Station" },
+  { glyph: "◇", color: "#ff4794", label: "Landmark" },
+  { glyph: "□", color: SIGHT_MARK[0] ?? "#2f7c80", label: "Harbour sight" },
+  { glyph: "⌂", color: VENUE_INK, label: "Venue entrance" },
+  { glyph: "♫", color: CLUB_INK, label: "Nightclub" },
+  { glyph: "◘", color: GROUND_INK.arcade, label: "Ground floor (zoom in)" },
+  { glyph: "◆", color: "#e6ad62", label: "Quest" },
+  { glyph: EVENT_GLYPH, color: EVENT_INK, label: "Live event" },
+  { glyph: "○", color: "#9d8cff", label: "Friend" },
+  { glyph: "#", color: "#ff8f4d", label: "Tower" },
+  { glyph: "+", color: "#2d6166", label: "Crossing" },
+  { glyph: "─", color: WALL_INK, label: "Flood wall" },
+  { glyph: "~", color: SWELL_INK, label: "Harbour water" },
+];
 
 export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
   const venues = interiorPlaces(world);
@@ -48,6 +76,16 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
   const [follow, setFollow] = useState(memory.follow);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState<{ id: string; link: string; ok: boolean } | null>(null);
+  const [legend, setLegend] = useState(memory.legend);
+  const [groundHidden, setGroundHidden] = useState<ReadonlySet<GroundFloorKind>>(groundFilterMemory.hidden);
+  const groundHiddenRef = useRef<ReadonlySet<GroundFloorKind>>(groundFilterMemory.hidden);
+  const pickedGround = useRef<string | null>(null); // tap an icon once to read it, again to track its door
+  const toggleLegend = useCallback(() => setLegend((shown) => !shown), []);
+  useEffect(() => { memory.legend = legend; }, [legend]);
+  useEffect(() => { groundFilterMemory.hidden = new Set(groundHidden); groundHiddenRef.current = groundHidden; }, [groundHidden]);
+  const toggleGroundKind = useCallback((kind: GroundFloorKind) => setGroundHidden((hidden) => { const next = new Set(hidden); if (next.has(kind)) next.delete(kind); else next.add(kind); return next; }), []);
+  const setAllGround = useCallback((show: boolean) => setGroundHidden(show ? new Set() : new Set(GROUND_FLOOR_KINDS)), []);
+  const events = mapEvents(snapshot.signalTime ?? snapshot.sceneTime);
   const { waypoints, activeId } = useWaypointState();
   const selectedWaypoint = selected ? waypoints.find((waypoint) => waypoint.id === selected) ?? null : null;
   const editable = !!selectedWaypoint && cityWaypoints.isMine(selectedWaypoint.id);
@@ -60,7 +98,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     const low = minScale(v.width, v.height);
     v.scale = Math.max(low, Math.min(MAX_SCALE, v.scale));
     v.target = Math.max(low, Math.min(MAX_SCALE, v.target));
-    const limit = WORLD_EDGE + 140;
+    const limit = WORLD_EDGE + 200; // far enough to centre the harbour sights past the flood wall
     v.cx = Math.max(-limit, Math.min(limit, v.cx));
     v.cz = Math.max(-limit, Math.min(limit, v.cz));
   }, []);
@@ -93,6 +131,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     const terrain = new TerrainLayer(world);
     const player = { x: snapshotRef.current.x, z: snapshotRef.current.z, yaw: snapshotRef.current.yaw };
     let metro = snapshotRef.current.metroTime, lastMetro = metro, lastSnapshot = snapshotRef.current;
+    let liveEvents: readonly MapEvent[] = mapEvents(lastSnapshot.signalTime ?? lastSnapshot.sceneTime); // City events (shared clock): re-read once per snapshot
     let last = performance.now(), frame = 0;
     const resize = () => {
       const rect = area.getBoundingClientRect();
@@ -113,7 +152,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
       const k = 1 - Math.exp(-dt * 11);
       player.x += (snap.x - player.x) * k; player.z += (snap.z - player.z) * k;
       player.yaw += wrapAngle(snap.yaw - player.yaw) * k;
-      if (snap !== lastSnapshot) { lastMetro = metro; lastSnapshot = snap; }
+      if (snap !== lastSnapshot) { noteGroundVisit(snap.interior?.id); lastMetro = metro; lastSnapshot = snap; liveEvents = mapEvents(snap.signalTime ?? snap.sceneTime); }
       // Trains keep moving between snapshots while the metro clock is running.
       metro = snap.metroTime > lastMetro ? Math.min(snap.metroTime + 0.35, metro + dt) : snap.metroTime;
       if (metro < snap.metroTime - 1) metro = snap.metroTime;
@@ -136,7 +175,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
       drawOverlay(ctx, mapView, {
         player, metroTime: metro, quests: snap.quests, venues, discovered: snap.discovered,
         waypoints: state.waypoints, activeId: state.activeId, selectedId: selectedRef.current, hoverId: hoverRef.current,
-        friends: friendsOf(snap), time: now / 1000,
+        friends: friendsOf(snap), time: now / 1000, events: liveEvents, world, groundHidden: groundHiddenRef.current,
       }, terrain);
       // Scale bar.
       const steps = [5, 10, 25, 50, 100, 250, 500, 1000];
@@ -169,6 +208,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
       if (event.code === "Equal" || event.code === "NumpadAdd") zoomBy(1.6);
       else if (event.code === "Minus" || event.code === "NumpadSubtract") zoomBy(1 / 1.6);
       else if (event.code === "KeyH") centreOnMe();
+      else if (event.code === "KeyL") { if (!event.repeat) toggleLegend(); }
       else if ((event.code === "Delete" || event.code === "Backspace") && selectedRef.current) { cityWaypoints.remove(selectedRef.current); setSelected(null); }
       // Chat (Enter) would open underneath the map: swallow it while the map is up.
       else if ((event.code === "Enter" || event.code === "NumpadEnter") && !(target instanceof HTMLElement && target.closest("[data-world-map]"))) { /* no-op */ }
@@ -177,7 +217,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [zoomBy, centreOnMe]);
+  }, [zoomBy, centreOnMe, toggleLegend]);
 
   // Pointer: drag to pan, pinch to zoom, click to drop / select, right-click to drop / remove.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -189,6 +229,21 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     return rect ? [event.clientX - rect.left, event.clientY - rect.top] : [0, 0];
   };
   const mapView = (): MapView => ({ ...view.current, dpr: 1 });
+  /** The ground-floor icon under a screen point (only while icons are drawn: zoomed in). */
+  const groundAt = (sx: number, sy: number, radius = 11): InteriorPlace | null => {
+    const v = view.current;
+    if (v.scale < GROUND_ICON_SCALE) return null;
+    const layer = { px: (x: number) => v.width / 2 + (x - v.cx) * v.scale, pz: (z: number) => v.height / 2 + (z - v.cz) * v.scale, size: Math.max(v.width, v.height), extent: Math.max(v.width, v.height) / 2 / v.scale, centerX: v.cx, centerZ: v.cz, full: true };
+    return groundFloorAt(layer, { world, hidden: groundHiddenRef.current }, sx, sy, radius);
+  };
+  /** A venue or the tracked quest target within `radius` px: these draw above ground icons and win the tap. */
+  const higherMarkerNear = (sx: number, sy: number, radius: number): boolean => {
+    const v = view.current;
+    const near = (x: number, z: number) => Math.hypot(v.width / 2 + (x - v.cx) * v.scale - sx, v.height / 2 + (z - v.cz) * v.scale - sy) < radius;
+    const tracked = snapshotRef.current.quests.tracked;
+    if (tracked && near(tracked.targetX, tracked.targetZ)) return true;
+    return venues.some(place => near(place.entrance.x, place.entrance.z));
+  };
 
   const drop = (sx: number, sy: number) => {
     const [x, z] = toWorld(mapView(), sx, sy);
@@ -199,7 +254,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 && event.pointerType === "mouse") return;
-    if ((event.target as HTMLElement).closest("button")) return;
+    if ((event.target as HTMLElement).closest("button, [data-map-legend]")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const [sx, sy] = local(event);
     pointers.current.set(event.pointerId, { x: sx, y: sy });
@@ -232,9 +287,15 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
       const [x, z] = toWorld(mapView(), sx, sy);
       const hit = waypointAt(mapView(), cityWaypoints.list(), sx, sy);
       hoverRef.current = hit?.id ?? null;
-      if (Math.abs(x) > WORLD_EDGE || Math.abs(z) > WORLD_EDGE) { setHover(null); return; }
+      const ground = hit || higherMarkerNear(sx, sy, 14) ? null : groundAt(sx, sy, 8);
+      if (Math.abs(x) > WORLD_EDGE || Math.abs(z) > WORLD_EDGE) {
+        // The harbour: quay, flood wall or open water, and the edge sight under the cursor.
+        if (Math.abs(x) > HARBOUR_REACH || Math.abs(z) > HARBOUR_REACH) { setHover(null); return; }
+        setHover({ x, z, district: "Harbour", street: HARBOUR_ZONE_NAME[harbourZone(x, z)], building: sightAt(x, z)?.name ?? null });
+        return;
+      }
       const building = world.buildings.find((item) => Math.abs(item.x - x) < item.width / 2 && Math.abs(item.z - z) < item.depth / 2);
-      setHover({ x, z, district: districtAt(x, z).name, street: streetNameAt(x, z), building: building ? `${building.sign} · ${Math.round(building.height)} m` : null });
+      setHover({ x, z, district: districtAt(x, z).name, street: streetNameAt(x, z), building: ground ? groundLabel(ground) : building ? `${building.sign} · ${Math.round(building.height)} m` : null });
       return;
     }
     pointers.current.set(event.pointerId, { x: sx, y: sy });
@@ -262,15 +323,25 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     if (longPress.current) { clearTimeout(longPress.current); longPress.current = null; } // Mobile
     if (pointers.current.size > 0) return;
     setDragging(false);
-    if (gesture.current.moved || event.type === "pointercancel") return;
+    if (gesture.current.moved || event.type === "pointercancel") { pickedGround.current = null; return; }
     const [sx, sy] = local(event);
     const hit = waypointAt(mapView(), cityWaypoints.list(), sx, sy);
+    // Waypoints, venues and quest markers win; a ground icon needs a tight tap (doors are only 25-50 px apart).
+    const reach = event.pointerType === "mouse" ? 6 : 9;
+    const ground = hit || higherMarkerNear(sx, sy, 14) ? null : groundAt(sx, sy, reach);
+    if (!ground) pickedGround.current = null;
     if (hit) { setSelected(hit.id); cityWaypoints.setActive(hit.id); }
+    else if (ground) {
+      // Tap an interior icon to read what it is; tap it again to track its door.
+      if (pickedGround.current === ground.id) { trackEntrance(ground); pickedGround.current = null; }
+      else { pickedGround.current = ground.id; setHover({ x: ground.entrance.x, z: ground.entrance.z, district: DISTRICTS[ground.district].name, street: streetNameAt(ground.entrance.x, ground.entrance.z), building: `${groundLabel(ground)} · tap again to track` }); }
+    }
     else drop(sx, sy);
   }
 
   function onContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
     event.preventDefault();
+    if ((event.target as HTMLElement).closest("[data-map-legend]")) return;
     const [sx, sy] = local(event);
     const hit = waypointAt(mapView(), cityWaypoints.list(), sx, sy);
     if (hit) { cityWaypoints.remove(hit.id); if (selected === hit.id) setSelected(null); }
@@ -294,6 +365,19 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     setFollow(false);
   }
 
+  function showEvent(event: MapEvent) {
+    const current = view.current;
+    current.follow = false; current.anchor = null;
+    current.cx = event.x; current.cz = event.z;
+    current.target = Math.max(current.target, 1.1);
+    setFollow(false);
+  }
+
+  const groundFilter = <div className={styles.groundFilter} data-map-legend role="group" aria-label="Ground floor kinds">
+    <button type="button" className={styles.groundChip} aria-pressed={groundHidden.size === 0} onClick={() => setAllGround(groundHidden.size > 0)} title="Show or hide every kind">{groundHidden.size === 0 ? "none" : "all"}</button>
+    {GROUND_FLOOR_KINDS.map((kind) => <button key={kind} type="button" className={styles.groundChip} style={{ "--wp": GROUND_INK[kind] } as CSSProperties} aria-pressed={!groundHidden.has(kind)} aria-label={`${GROUND_LABEL[kind]} icons`} title={GROUND_LABEL[kind]} onClick={() => toggleGroundKind(kind)}><b aria-hidden="true">{GROUND_GLYPH[kind]}</b><span>{GROUND_LABEL[kind]}</span></button>)}
+  </div>;
+
   const district = DISTRICTS[snapshot.district];
   const activeWaypoint = activeId ? waypoints.find((waypoint) => waypoint.id === activeId) ?? null : null;
 
@@ -301,11 +385,11 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
     <div className={styles.frame}>
       <header className={styles.header}>
         <div>
-          <span className={styles.kicker}>Nightfall municipal grid / atlas</span>
+          <span className={styles.kicker}>City map / you are in</span>
           <h2 className={styles.title} id="world-map-title">{district.name}<span>/</span>{streetNameAt(snapshot.x, snapshot.z)}</h2>
         </div>
         <div className={styles.status} aria-live="off">
-          {live ? <><span className={styles.liveDot} aria-hidden="true" /><span>Live · the city keeps moving</span><span>WASD walks</span></> : <><span className={styles.pausedDot} aria-hidden="true" /><span>City paused</span></>}
+          {live ? <><span className={styles.liveDot} aria-hidden="true" /><span>Live · not paused</span><span>WASD still walks</span></> : <><span className={styles.pausedDot} aria-hidden="true" /><span>City paused</span></>}
         </div>
         <button type="button" className={styles.close} onClick={onClose} aria-label="Close map">Close <kbd>M</kbd><span aria-hidden="true">×</span></button>
       </header>
@@ -321,7 +405,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
           onPointerLeave={() => { hoverRef.current = null; setHover(null); }}
           onContextMenu={onContextMenu}
         >
-          <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label="City map: districts, streets, the elevated rail loop, stations, landmarks, venue entrances, quest markers, waypoints and your position. Click to drop a waypoint." />
+          <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label="City map: districts, streets, both rail lines, stations, landmarks, the harbour and its sights, venue entrances, quest markers, live events, waypoints and your position. Click to drop a waypoint." />
           <span className={`${styles.corner} ${styles.cornerTL}`} /><span className={`${styles.corner} ${styles.cornerTR}`} />
           <span className={`${styles.corner} ${styles.cornerBL}`} /><span className={`${styles.corner} ${styles.cornerBR}`} />
           <div className={styles.north} aria-hidden="true">N</div>
@@ -331,7 +415,12 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
             <div className={styles.zoomRule} />
             <button type="button" onClick={centreOnMe} aria-pressed={follow} aria-label="Centre on me and follow" title="Centre on me (H)">◎</button>
             <button type="button" onClick={showCity} aria-label="Show the whole city" title="Whole city">⤢</button>
+            <button type="button" onClick={toggleLegend} aria-pressed={legend} aria-label="Map legend" title="Legend (L)">≡</button>
           </div>
+          {legend ? <ul className={styles.mapLegend} aria-label="Map legend" data-map-legend>
+            {LEGEND.map((item) => <li key={item.label}><b style={{ color: item.color }} aria-hidden="true">{item.glyph}</b>{item.label}</li>)}
+            <li className={styles.groundSpan}>{groundFilter}</li>
+          </ul> : null}
           <div className={styles.readout} aria-live="off">
             {hover ? <>
               <span><strong>{coordinate(hover.x, "E", "W")}</strong> <strong>{coordinate(-hover.z, "N", "S")}</strong></span>
@@ -346,17 +435,32 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
 
         <aside className={styles.panel} aria-label="Places, waypoints and legend">
           <div className={styles.panelScroll}>
+            {events.length ? <>
+              <h3 className={styles.sectionTitle}>Happening now <small>live</small></h3>
+              <ul className={styles.list} aria-label="Live city events">
+                {events.map((event) => <li key={event.id}>
+                  <button type="button" className={styles.row} data-event={event.kind} style={{ "--wp": EVENT_INK } as CSSProperties} aria-label={`Show ${event.label} on the map`} onClick={() => showEvent(event)}>
+                    <span className={styles.rowGlyph} aria-hidden="true">{EVENT_GLYPH}</span>
+                    <span className={styles.rowLabel}>{event.label}<small>{event.title}</small></span>
+                    <span className={styles.rowMeta}>{formatMetres(Math.hypot(event.x - snapshot.x, event.z - snapshot.z))}</span>
+                  </button>
+                </li>)}
+              </ul>
+            </> : null}
             <h3 className={styles.sectionTitle}>Places to go <small>{venues.length} interiors</small></h3>
             <p className={styles.venueHint}>Track a doorway, then press E there to enter.</p>
             <ul className={styles.list} aria-label="Walkable venues">
               {venues.map(place => <li key={place.id}>
-                <button type="button" className={`${styles.row} ${styles.venueRow}`} data-venue={place.id} style={{ "--wp": "#4de8e0" } as CSSProperties} aria-label={`Track entrance to ${place.name}`} aria-pressed={waypointAtEntrance(activeWaypoint, place)} onClick={() => trackEntrance(place)}>
-                  <span className={styles.rowGlyph} aria-hidden="true">⌂</span>
+                <button type="button" className={`${styles.row} ${styles.venueRow}`} data-venue={place.id} style={{ "--wp": venueInk(place.kind) } as CSSProperties} aria-label={`Track entrance to ${place.name}`} aria-pressed={waypointAtEntrance(activeWaypoint, place)} onClick={() => trackEntrance(place)}>
+                  <span className={styles.rowGlyph} aria-hidden="true">{venueGlyph(place.kind)}</span>
                   <span className={styles.rowLabel}>{place.name}<small>{DISTRICTS[place.district].name}</small></span>
                   <span className={styles.rowMeta}>{waypointAtEntrance(activeWaypoint, place) ? <em>Tracking</em> : null}{formatMetres(Math.hypot(place.entrance.x - snapshot.x, place.entrance.z - snapshot.z))}</span>
                 </button>
               </li>)}
             </ul>
+            <h3 className={styles.sectionTitle}>Ground floors <small>{groundVisitCount()} visited</small></h3>
+            <p className={styles.venueHint}>Every building has a way in. Zoom in to see what is behind each door; icons brighten once you have been inside.</p>
+            {groundFilter}
             <h3 className={styles.sectionTitle}>Waypoints <small>{waypoints.length ? `${waypoints.length} set` : "none"}</small></h3>
             {waypoints.length === 0 ? <p className={styles.empty}>Click anywhere on the map to drop a waypoint. It lights a beacon in the city and a heading on your compass.</p> : null}
             {waypoints.length ? <ul className={styles.list}>
@@ -391,21 +495,11 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
               {copied?.id === selectedWaypoint.id && !copied.ok ? <input className={styles.linkBox} readOnly value={copied.link} aria-label="Waypoint link" onFocus={(event) => event.target.select()} autoFocus /> : null}
               {editable ? <p className={styles.shareNote}>{cityWaypoints.networked ? "Shared waypoints appear on your friends' maps and compasses." : "Playing solo: sharing takes effect when you join friends. A link works anywhere."}</p> : null}
             </div> : null}
-            {activeWaypoint && !selectedWaypoint ? <p className={styles.shareNote} style={{ marginBottom: 18 }}>Tracking <strong>{activeWaypoint.label}</strong> — follow the beacon, the compass and the minimap chevron.</p> : null}
+            {activeWaypoint && !selectedWaypoint ? <p className={styles.shareNote} style={{ marginBottom: 18 }}>Tracking <strong>{activeWaypoint.label}</strong>. Follow the beacon in the street, the compass at the top of the screen or the minimap arrow.</p> : null}
 
             <h3 className={styles.sectionTitle}>Legend</h3>
             <ul className={styles.legend}>
-              <li><b style={{ color: "#e6fff5" }}>▲</b>You</li>
-              <li><b style={{ color: "#ffb347" }}>◆</b>Waypoint</li>
-              <li><b style={{ color: "#6fd6c4" }}>═</b>Elevated rail</li>
-              <li><b style={{ color: "#e9fff6" }}>━</b>Train</li>
-              <li><b style={{ color: "#42dfe3" }}>▣</b>Station</li>
-              <li><b style={{ color: "#ff4794" }}>◇</b>Landmark</li>
-              <li><b style={{ color: "#4de8e0" }}>⌂</b>Venue entrance</li>
-              <li><b style={{ color: "#e6ad62" }}>◆</b>Quest</li>
-              <li><b style={{ color: "#9d8cff" }}>○</b>Friend</li>
-              <li><b style={{ color: "#ff8f4d" }}>#</b>Tower</li>
-              <li><b style={{ color: "#2d6166" }}>+</b>Crossing</li>
+              {LEGEND.map((item) => <li key={item.label}><b style={{ color: item.color }}>{item.glyph}</b>{item.label}</li>)}
             </ul>
             <h3 className={styles.sectionTitle}>Controls</h3>
             <dl className={styles.keys}>
@@ -413,6 +507,7 @@ export function WorldMap({ world, snapshot, live, onClose }: WorldMapProps) {
               <dt>Drag · wheel</dt><dd>Pan · zoom to cursor</dd>
               <dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom</dd>
               <dt><kbd>H</kbd></dt><dd>Centre on me</dd>
+              <dt><kbd>L</kbd></dt><dd>Show / hide the map legend</dd>
               <dt><kbd>Del</kbd></dt><dd>Remove selected waypoint</dd>
               <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Keep walking</dd>
               <dt><kbd>M</kbd> <kbd>Esc</kbd></dt><dd>Close map</dd>

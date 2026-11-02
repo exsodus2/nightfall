@@ -25,7 +25,7 @@ const mark = (id: string, name: string, faction: FactionId, base: Omit<EnemyArch
 const MARKS: readonly Mark[] = [
   {
     quest: "bounty-petrov", title: "Wanted: Two-Stroke Petrov", slot: 0, level: 4, credits: 350, xp: 450, rep: [{ faction: "razorbacks", by: -5 }],
-    where: "the Spillway, at the junction east of the Razorback corner",
+    where: "the western Spillway, at the junction one block past the Silk Market line, west of the Afterlight Arcade",
     poster: "WANTED: 'TWO-STROKE' PETROV. RAZORBACKS. RAN A SCOOTER THROUGH A NOODLE CART. TWICE. 350 CR.",
     claim: "Petrov's scooter keys. Good. The noodle cart sends its regards.",
     arch: mark("bounty-petrov", "Two-Stroke Petrov", "razorbacks", {
@@ -41,14 +41,14 @@ const MARKS: readonly Mark[] = [
   },
   {
     quest: "bounty-okonkwo", title: "Wanted: Handler Okonkwo-9", slot: 1, level: 6, credits: 500, xp: 700, rep: [{ faction: "corpsec", by: 3 }],
-    where: "Neon Ward, west of the avenue on the -128 street",
+    where: "Neon Ward, at the junction three blocks west of the Meridian Spire",
     poster: "WANTED: OKONKWO-9. EX-CORPSEC. SELLS DRONE FEEDS TO ANYONE. YES, CORPSEC POSTED THIS ONE. 500 CR.",
-    claim: "CorpSec paid for their own mess. They always do, eventually. Here's your cut.",
+    claim: "CorpSec paid me to clean up their own ex-employee. They'll bill it to a client. Here's your cut.",
     arch: mark("bounty-okonkwo", "Handler Okonkwo-9", "corpsec", {
       health: 220, armor: 0.3, speed: { walk: 1.7, run: 4.8 }, weapon: "brace-burst", reaction: 0.5, aggression: 0.35,
       perception: { sight: 70, fovDegrees: 170, hearing: 55 },
       look: look([80, 60, 100], [26, 20, 34], [214, 188, 164], [200, 140, 255], "visor", "antenna", "scan"),
-      barks: { alert: ["I SAW YOU COMING FOUR BLOCKS AGO."], hurt: ["DRONE THREE, WHERE ARE YOU?"], death: ["...feed... ending..."] },
+      barks: { alert: ["SAW YOU FOUR BLOCKS AGO."], hurt: ["DRONE THREE, WHERE ARE YOU?"], death: ["...feed... ending..."] },
     }, ["corpsec", "handler"], 240),
     encounter: {
       id: "bounty-okonkwo-crew", label: "Okonkwo-9's detail", area: area(-192, -128, 16), hostile: true,
@@ -57,14 +57,14 @@ const MARKS: readonly Mark[] = [
   },
   {
     quest: "bounty-mirror", title: "Wanted: Mirror", slot: 2, level: 8, credits: 650, xp: 950, rep: [{ faction: "ghosts", by: -5 }],
-    where: "the Ghost Circuit, at the junction south-west of the fixer",
+    where: "the Ghost Circuit, at the junction a block and a half north of Nix the fixer, west of the Signal Cathedral",
     poster: "WANTED: 'MIRROR'. GHOSTS. KNIFE WORK. NOBODY HAS SEEN THE FACE. EVERYBODY HAS SEEN THEIR OWN. 650 CR.",
-    claim: "Mirror's blade. Nobody ever got close enough to see it before. I'll sleep better. Slightly.",
+    claim: "Mirror's blade. First time anyone's brought it back attached to a story instead of a body. Paid.",
     arch: mark("bounty-mirror", "Mirror", "ghosts", {
       health: 210, armor: 0.1, speed: { walk: 2.2, run: 7.0 }, weapon: "null-pointer", reaction: 0.25, aggression: 1,
       perception: { sight: 44, fovDegrees: 160, hearing: 70 },
       look: look([200, 205, 215], [30, 30, 36], [170, 170, 176], [220, 240, 255], "hood", null, "sway"),
-      barks: { alert: ["OH. IT'S YOU. IT'S ALWAYS YOU."], hurt: ["CRACKED."], death: ["...seven... years..."] },
+      barks: { alert: ["OH. IT'S YOU. AGAIN."], hurt: ["CRACKED."], death: ["...seven... years..."] },
     }, ["ghost", "assassin"], 280),
     encounter: {
       id: "bounty-mirror-crew", label: "Mirror and a lookout", area: area(320, -256, 16), hostile: true,
@@ -73,7 +73,7 @@ const MARKS: readonly Mark[] = [
   },
   {
     quest: "bounty-cinder", title: "Wanted: Sister Cinder", slot: 3, level: 9, credits: 800, xp: 1100, rep: [{ faction: "chrome-saints", by: -8 }],
-    where: "the Foundry, north-east of the Ember Core",
+    where: "the Foundry, at the junction south-east of the Ember Core",
     poster: "WANTED: SISTER CINDER. CHROME SAINTS. 'PURIFIES' THE UNAUGMENTED FROM ROOFTOPS. 800 CR. BRING A HAT.",
     claim: "Cinder's optics. The Saints will call it martyrdom. I'll call it Tuesday. Paid.",
     arch: mark("bounty-cinder", "Sister Cinder", "chrome-saints", {
@@ -98,18 +98,18 @@ const contract = (m: Mark): QuestDefinition2 => ({
   repeatable: { cooldown: COOLDOWN }, start: "hunt",
   stages: [
     {
-      id: "hunt", journal: `${m.arch.name} was last seen in ${m.where}.`,
+      id: "hunt", journal: `Sable Quist's board in the Silk Market pays ${m.credits} cr for ${m.arch.name}, last seen in ${m.where}. The marker is on your map.`,
       onEnter: [{ spawn: m.encounter.id }, { waypoint: { x: m.encounter.area.x, z: m.encounter.area.z, label: m.arch.name } }],
       objectives: [
-        { id: "mark", kind: "kill", text: `Take down ${m.arch.name}`, count: 1, tag: "mark", encounter: m.encounter.id },
+        { id: "mark", kind: "kill", text: `Take down ${m.arch.name} in ${m.where}`, count: 1, tag: "mark", encounter: m.encounter.id },
         // Counts every kill in the encounter, the mark included: a clean sweep pays a bonus.
-        { id: "crew", kind: "kill", text: "Leave none of the crew standing", count: m.encounter.members.length, encounter: m.encounter.id, optional: true },
+        { id: "crew", kind: "kill", text: "Take down the rest of the crew too (+100 cr)", count: m.encounter.members.length, encounter: m.encounter.id, optional: true },
       ],
       next: "claim",
     },
     {
-      id: "claim", journal: `${m.arch.name} is down. Sable pays on proof.`,
-      objectives: [{ id: "claim", kind: "choose", text: "Claim the bounty from Sable", dialogue: "bounty.sable", options: [`claim-${m.slot}`, `claim-${m.slot}-full`] }],
+      id: "claim", journal: `${m.arch.name} is down. Take the proof to Sable Quist at the bounty board in the Silk Market.`,
+      objectives: [{ id: "claim", kind: "choose", text: "Claim the bounty from Sable Quist, Silk Market", dialogue: "bounty.sable", options: [`claim-${m.slot}`, `claim-${m.slot}-full`] }],
     },
   ],
   outcomes: {
@@ -149,7 +149,7 @@ const board: DialogueDefinition = {
       "You pick a name. You find the name. The name stops being a problem. I pay.",
       "Names come back, by the way. This city grows new ones like mould. Check again later.",
     ], [go("back", "Show me the board.", "board"), LEAVE]),
-    node("taken", ["It's on your tracker. Try to bring back something I can prove."], [bye("On my way.")]),
+    node("taken", ["It's on your tracker. Bring me something I can prove: keys, a blade, an eye. Not a finger, I'm eating."], [bye("On my way.")]),
     node("paid", ["Paid. The board says thank you. The board doesn't talk, so I'm saying it for it.", "New names go up in a while."], [go("back", "Show me the board.", "board"), LEAVE]),
   ],
 };

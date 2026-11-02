@@ -1,4 +1,5 @@
 import { BLOCK_SIZE, HALF_BLOCKS, districtAt } from "./world.ts";
+import { alleyNameAt } from "./alleys.ts";
 
 /** Street names for the map. Streets run along every block boundary (multiples of BLOCK_SIZE);
  * north–south streets are indexed west → east, east–west streets north → south (north is −z). */
@@ -28,12 +29,14 @@ export function ewStreet(z: number): { name: string; z: number } {
   return { name: EW_STREETS[index + HALF_BLOCKS], z: index * BLOCK_SIZE };
 }
 
-/** The nearest street, or a corner ("A & B") when close to both. */
+/** The nearest street, or a corner ("A & B") when close to both; inside a themed alley arm
+ * (alleys.ts) its name and the street it opens onto ("Kitchen Alley off Kestrel Street"). */
 export function streetNameAt(x: number, z: number): string {
   const ns = nsStreet(x), ew = ewStreet(z);
   const dx = Math.abs(x - ns.x), dz = Math.abs(z - ew.z);
   if (dx < 14 && dz < 14) return `${ns.name} & ${ew.name}`;
-  return dx <= dz ? ns.name : ew.name;
+  const street = dx <= dz ? ns.name : ew.name, alley = alleyNameAt(x, z);
+  return alley ? `${alley} off ${street}` : street;
 }
 
 /** A human label for a spot: "Street, District". */

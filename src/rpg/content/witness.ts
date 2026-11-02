@@ -20,7 +20,7 @@ const ines: EnemyArchetype = {
   weapon: "backtick-shiv", reaction: 2, aggression: 0, perception: { sight: 20, fovDegrees: 120, hearing: 20 },
   look: look([150, 120, 90], [60, 44, 34], [196, 160, 132], [255, 220, 180], "bare", "case", "breathe"),
   loot: "no-loot", xp: 0, tags: ["civilian", "client"],
-  barks: { alert: ["OH GOD. OH GOD.", "HARROW SAID THIS WOULD BE BORING!"], hurt: ["I'M HIT! I'M ON YOUR SIDE!"], death: ["...the ledger... tell them..."] },
+  barks: { alert: ["OH GOD. OH GOD.", "THIS WAS MEANT TO BE BORING!"], hurt: ["I'M HIT! I'M ON YOUR SIDE!"], death: ["...the ledger... tell..."] },
 };
 
 const encounters: EncounterDefinition[] = [
@@ -41,48 +41,48 @@ const paymaster = (): QuestDefinition2["stages"][number]["objectives"][number] =
 
 const quest: QuestDefinition2 = {
   id: Q, title: "Night Witness", category: "side", giver: "harrow",
-  summary: "Keep Harrow's witness alive at the handoff until the transport arrives. Somebody has paid a lot of money for the opposite.",
+  summary: "Keep Harrow's witness alive at the handoff until Harrow's cab arrives. Somebody has paid a lot of money for the opposite.",
   rewardHint: "450 cr, more if you find out who paid", recommendedLevel: 5, start: "meet",
   onFail: [{ setFlag: "witness.failed" }, { rep: "corpsec", by: 5 }, { message: "Ines Pardo is dead. Somewhere in the Spire, a spreadsheet is safe.", tone: "danger" }],
   stages: [
     {
-      id: "meet", journal: "Ines Pardo is waiting at the crossing west of the avenue, north end of Neon Ward. Get there before anyone else does.",
+      id: "meet", journal: "Imani Harrow's witness, Ines Pardo, is waiting at the crossing two blocks west of the main avenue in south Neon Ward. Get there before her killers do.",
       onEnter: [{ spawn: "witness-client" }],
-      objectives: [{ id: "meet", kind: "reach", text: "Meet Ines Pardo at the handoff", area: HANDOFF }],
+      objectives: [{ id: "meet", kind: "reach", text: "Meet Ines Pardo at the crossing two blocks west of the avenue, south Neon Ward", area: HANDOFF }],
       next: "hold",
     },
     {
-      id: "hold", journal: "Knives out of the rain, from the north. Don't let them reach her - and don't hit her yourself.",
+      id: "hold", journal: "Three Ghost knives coming in from the north. Keep them off her, and watch your spread: Ines is standing in the middle of it.",
       onEnter: [{ spawn: "witness-wave-1" }, { spawn: "witness-spotter" }, { message: "Movement to the north. They're here for Ines.", tone: "danger" }],
       failIf: CLIENT_DEAD, timeLimit: 100,
-      objectives: [{ id: "wave", kind: "clear", text: "Stop the hired knives", encounter: "witness-wave-1" }, paymaster()],
+      objectives: [{ id: "wave", kind: "clear", text: "Stop the Ghost knives coming at Ines from the north", encounter: "witness-wave-1" }, paymaster()],
       next: "wave-2",
     },
     {
       id: "wave-2", journal: "The knives failed, so their employer sent the real thing: a CorpSec cleanup team from the east.",
       onEnter: [{ spawn: "witness-wave-2" }, { message: "Boots from the east. CorpSec has stopped pretending.", tone: "danger" }],
       failIf: CLIENT_DEAD, timeLimit: 110,
-      objectives: [{ id: "wave", kind: "clear", text: "Break the CorpSec cleanup team", encounter: "witness-wave-2" }, paymaster()],
+      objectives: [{ id: "wave", kind: "clear", text: "Break the CorpSec cleanup team coming from the east", encounter: "witness-wave-2" }, paymaster()],
       next: "extract",
     },
     {
-      id: "extract", journal: "Harrow's transport is two minutes out. Stay with Ines.",
+      id: "extract", journal: "Harrow's cab is on its way. Stay at the crossing with Ines until it pulls up.",
       failIf: CLIENT_DEAD,
-      objectives: [{ id: "hold", kind: "survive", text: "Stay with Ines until the transport arrives", seconds: 15, area: HANDOFF }, paymaster()],
+      objectives: [{ id: "hold", kind: "survive", text: "Stay at the crossing with Ines until the cab arrives", seconds: 15, area: HANDOFF }, paymaster()],
       onComplete: [{ despawn: "witness-client" }, { message: "A battered cab pulls up. Ines gets in without looking back. The cab is gone before the door closes.", tone: "quest" }],
       next: "report",
     },
     {
-      id: "report", journal: "Ines is on her way to the court. Tell Harrow.",
-      objectives: [{ id: "report", kind: "choose", text: "Report to Imani Harrow", dialogue: "witness.harrow", options: ["report", "report-proof"] }],
+      id: "report", journal: "Ines is in the cab, headed for the courthouse. Harrow will want to hear it from you.",
+      objectives: [{ id: "report", kind: "choose", text: "Report to Imani Harrow, west side of the avenue, Neon Ward", dialogue: "witness.harrow", options: ["report", "report-proof"] }],
       next: [{ if: { flag: "witness.report", is: "report-proof" }, stage: "end-proof" }, { stage: "end-safe" }],
     },
-    ending("end-safe", "Harrow paid.", "safe"),
-    ending("end-proof", "Harrow paid, and then some.", "proof"),
+    ending("end-safe", "Ines reached the courthouse. Harrow paid.", "safe"),
+    ending("end-proof", "Ines reached the courthouse, and Harrow has the paymaster's phone. Harrow paid, and then some.", "proof"),
   ],
   outcomes: {
     safe: {
-      title: "Delivered", journal: "Ines testified. Meridian denied everything. Harrow says that's what winning looks like in this city.",
+      title: "Delivered", journal: "Ines testified for six hours. Meridian denied everything and settled two days later. Harrow framed the newspaper.",
       effects: [{ credits: 450 }, { xp: 750 }, { rep: "corpsec", by: -5 }],
     },
     proof: {
@@ -103,19 +103,19 @@ const dialogues: DialogueDefinition[] = [{
     node("offer", [
       "I have a witness. Ines Pardo, Meridian accounts. She says CorpSec skimmed the flood evacuation budget. She has the numbers.",
       "Somebody has hired Ghost knives to make sure she never says the numbers out loud.",
-      "I need her alive at the handoff until my transport arrives. Three minutes, maybe four. It will not be boring.",
+      "I need her alive at the handoff until my cab arrives. You're not on Meridian's payroll, which makes you the only bodyguard in the ward I trust. 450 cr. It will not be boring.",
     ], [
       { id: "accept", label: "I'll keep her breathing.", effects: [{ startQuest: Q }], next: "go" },
       bye("Find another bodyguard.", "decline"),
     ]),
-    node("go", ["Crossing west of the avenue, north end of the ward. Don't shoot the accountant. Accountants are rare."], [LEAVE]),
+    node("go", ["Crossing two blocks west of the avenue, south end of the ward. Don't shoot the accountant. Accountants are rare."], [LEAVE]),
     node("report", ["You're alive. Is she?"], [
       { id: "report-proof", label: "She's on her way. And I took this off the man who paid for it. (Hand over the phone)", kind: "complete", condition: { flag: "witness.paymaster" }, hideIfUnavailable: true, next: "proof" },
       { id: "report", label: "She's on her way to court.", kind: "complete", condition: { not: { flag: "witness.paymaster" } }, hideIfUnavailable: true, next: "safe" },
     ]),
-    node("safe", ["Good. Good. Here - cash, like I promised."], [LEAVE]),
+    node("safe", ["Good. Good. Here, cash, like I promised. Count it somewhere dry."], [LEAVE]),
     node("proof", ["[Harrow scrolls. Stops. Scrolls again.] That's a Meridian transfer code. With a name on it.", "I owe you. I'm going to pay you, and then I'm going to keep owing you."], [LEAVE]),
-    node("failed", ["I heard.", "Don't. It's the city. It's always the city."], [LEAVE]),
+    node("failed", ["I heard.", "Don't apologise. I picked the handoff. I'll be the one telling her sister."], [LEAVE]),
   ],
 }];
 

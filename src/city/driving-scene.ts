@@ -1,9 +1,9 @@
-import type { PropCanvas } from "./prop-canvas";
+import type { PropCanvas } from "./prop-canvas.ts";
 import type { Textmodifier } from "textmode.js";
-import { carColor, cuboid as box, drawCar, ink, propRange, restorePropRange, type ActivityView } from "./activity";
-import { DRIVER_EYE_HEIGHT, type DriveCar, type ParkedCar } from "./driving";
-import { steeringWheelAngle } from "./drive-view";
-import { drawRearCabin } from "./vehicle-cabin";
+import { carColor, cuboid as box, drawCar, ink, propRange, restorePropRange, type ActivityView } from "./activity.ts";
+import { DRIVER_EYE_HEIGHT, type DriveCar, type ParkedCar } from "./driving.ts";
+import { steeringWheelAngle } from "./drive-view.ts";
+import { drawRearCabin } from "./vehicle-cabin.ts";
 
 /** Parked cars along the kerbs, plus the player's car: the whole body once the camera is outside
  * it (chase view), or the cockpit around the driver's eye. */
@@ -48,6 +48,9 @@ function drawCockpit(t: PropCanvas, car: DriveCar): void {
   ink(t, body, "=", 0.5); t.box(2.62, 0.12, 1.88);
   ink(t, body, "-", 0.95);
   for (const side of [-1, 1]) { t.translate(side * 1.25, -0.07, 0); t.box(0.1, 0.03, 1.86); t.translate(-side * 1.25, 0.07, 0); }
+  // A dimmer centre crease, so the bonnet reads as a shaped panel rather than a flat slab.
+  ink(t, body, "-", 0.62); t.translate(0, -0.07, 0.05); t.box(0.05, 0.03, 1.7); t.translate(0, 0.07, -0.05);
+  ink(t, body, "-", 0.95);
   t.translate(0, -0.06, -0.93); t.box(2.5, 0.04, 0.05);
   t.pop();
   // Dashboard across the car, a lighter crash pad along its rear edge, the instrument binnacle
@@ -62,6 +65,13 @@ function drawCockpit(t: PropCanvas, car: DriveCar): void {
   box(t, EYE[0], 1.385, -0.645, 0.3, 0.03, 0.02);
   ink(t, [212, 92, 190], "=", 0.5);
   box(t, -0.06, 1.28, -0.615, 0.18, 0.1, 0.02);
+  // Shift lamps along the binnacle hood: eight segments fill with the revs, green, amber, then red
+  // (the same revs as the overlay's RPM bar). They change with speed only: no flashing.
+  const lit = Math.round(driveGear(car.speed).revs * 8);
+  for (let i = 0; i < 8; i++) {
+    ink(t, i >= 6 ? [255, 92, 80] : i >= 4 ? [255, 176, 72] : [110, 220, 170], "=", i < lit ? 1.05 : 0.16);
+    box(t, EYE[0] - 0.165 + i * 0.047, 1.468, -0.7, 0.034, 0.018, 0.02);
+  }
   // Doors below the window line, with the sill rail on top; the side windows are open glass.
   ink(t, [28, 36, 50], "#");
   for (const side of [-1, 1]) box(t, side * 1.26, 0.98, 0.0, 0.08, 0.84, 2.1);
@@ -128,10 +138,36 @@ function drawSteeringWheel(t: PropCanvas, steer: number): void {
   }
 }
 
-/** Speed and gear, printed on the transparent overlay layer (ortho, origin at the centre). */
+/** Upshift points of the five forward gears, in km/h (top speed 90, 137 on boost: driving.ts). */
+const GEAR_SHIFTS = [0, 20, 40, 62, 90, 140] as const;
+/** The selected gear and the engine's place in its rev range (0 idle .. 1 redline) for a speed. */
+export function driveGear(speed: number): { gear: string; revs: number } {
+  const kmh = Math.abs(speed) * 3.6;
+  if (speed < -0.3) return { gear: "R", revs: Math.min(1, 0.18 + kmh / 30) };
+  if (kmh < 1) return { gear: "N", revs: 0.1 };
+  let gear = 1;
+  while (gear < GEAR_SHIFTS.length - 1 && kmh >= GEAR_SHIFTS[gear]) gear++;
+  const low = GEAR_SHIFTS[gear - 1], high = GEAR_SHIFTS[gear];
+  return { gear: String(gear), revs: Math.min(1, 0.22 + 0.78 * (kmh - low) / (high - low)) };
+}
+/** A fixed-width ASCII bar: filled cells, the last two (redline) drawn heavier. */
+export function revBar(revs: number, cells = 14): string {
+  const lit = Math.round(Math.max(0, Math.min(1, revs)) * cells);
+  let bar = "";
+  for (let i = 0; i < cells; i++) bar += i < lit ? (i >= cells - 2 ? "#" : "=") : i >= cells - 2 ? ":" : ".";
+  return bar;
+}
+
+/** Speed, gear and a rev bar, printed on the transparent overlay layer (ortho, origin at the
+ * centre). Fixed width, so the readout never shifts sideways as the numbers change. */
 export function drawDriveDashboard(t: Textmodifier, rows: number, car: DriveCar, boosting: boolean): void {
   const kmh = Math.round(Math.abs(car.speed) * 3.6).toString().padStart(3, "0");
-  const gear = car.speed < -0.3 ? "R" : Math.abs(car.speed) < 0.3 ? "N" : "D";
-  t.charColor(169, 231, 210); t.cellColor(0, 0, 0, 0); t.printAlign("center", "middle");
-  t.print(`${kmh} KM/H   ${gear}${boosting ? "   BOOST" : ""}`, 0, rows / 2 - 2);
+  const { gear, revs } = driveGear(car.speed);
+  t.cellColor(0, 0, 0, 0); t.printAlign("center", "middle");
+  t.charColor(169, 231, 210);
+  t.print(`${kmh} KM/H  [${gear}]  ${boosting ? "BOOST" : "     "}`, 0, rows / 2 - 2);
+  // The bar warms toward the redline.
+  if (revs > 0.86) t.charColor(255, 150, 92); else t.charColor(110, 178, 168);
+  t.print(`RPM ${revBar(revs)}`, 0, rows / 2 - 3);
 }
+

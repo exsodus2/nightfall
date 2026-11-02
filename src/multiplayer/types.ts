@@ -1,9 +1,9 @@
 // The narrow surface the engine sees. engine.ts only talks to a MultiplayerLink (implemented by
 // MultiplayerSession in session.ts), so solo play never loads Colyseus.
-import type { QuestBookState } from "../city/quests";
-import type { RGB } from "../city/world";
-import type { Mode } from "./protocol";
-import type { TrainCarrier } from "./rail";
+import type { QuestBookState } from "../city/quests.ts";
+import type { RGB } from "../city/world.ts";
+import type { Mode } from "./protocol.ts";
+import type { TrainCarrier } from "./rail.ts";
 
 /** Published by the engine every frame (the link throttles). `y` is the feet / vehicle floor height. */
 export interface LocalPose { x: number; y: number; z: number; yaw: number; pitch: number; heading: number; speed: number; mode: Mode; car: number; place?: string; carrier?: TrainCarrier | null }

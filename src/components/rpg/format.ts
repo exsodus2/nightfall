@@ -39,7 +39,7 @@ export function kindLabel(def: ItemDefinition): string {
     case "ammo": return "Ammunition";
     case "mod": return "Weapon mod";
     case "quest": return "Quest item";
-    case "junk": return "Trade good";
+    case "junk": return def.tags?.includes("keepsake") ? "Keepsake" : "Trade good";
     default: return def.kind;
   }
 }
@@ -131,7 +131,7 @@ export const FACTIONS: Readonly<Record<string, { name: string; blurb: string }>>
   "chrome-saints": { name: "Chrome Saints", blurb: "A chromed-up cult that trades flesh for halos and believes the grid is listening." },
   corpsec: { name: "CorpSec", blurb: "Private security for the towers. They keep the peace they are paid to keep." },
   ghosts: { name: "Ghosts", blurb: "Netrunners nobody has seen twice. They sell secrets and buy silence." },
-  civilian: { name: "Civilians", blurb: "Vendors, commuters and night-shift workers. The city remembers who helped." },
+  civilian: { name: "Civilians", blurb: "Vendors, commuters and night-shift workers. Most of the small jobs come from them." },
 };
 /** The factions the sheet always lists, in order, even at 0; any other rated faction follows. */
 export const FACTION_ORDER: readonly string[] = ["razorbacks", "chrome-saints", "corpsec", "ghosts", "civilian"];

@@ -13,29 +13,29 @@ const SKIN = { pale: [214, 188, 164], tan: [182, 140, 108], brown: [128, 92, 70]
 
 // ---- Barks (ASCII, short: they float over heads) ---------------------------------------------
 const RAZOR = {
-  alert: ["OI! WRONG STREET.", "TUSKS OUT!", "FRESH WALLET!", "GET HIM!"],
-  hurt: ["THAT'S IT?", "ARGH!", "YOU'RE PAYING FOR THAT."],
+  alert: ["OI! WRONG STREET.", "TUSKS OUT!", "TOLL'S DUE, TOURIST!", "THIS IS OUR GUTTER!"],
+  hurt: ["THAT'S IT?", "MY GOOD JACKET!", "YOU'RE PAYING FOR THAT."],
   death: ["...tell my mum...", "...ugh", "...not the face..."],
 } as const;
 const SAINTS = {
-  alert: ["UNCLEAN.", "THE FLESH IS WEAK.", "BE PURIFIED.", "KNEEL."],
-  hurt: ["PAIN IS DATA.", "I FEEL NOTHING.", "CHROME ENDURES."],
-  death: ["...take me... up...", "...ascend...", "...static..."],
+  alert: ["UNPLATED. UNCLEAN.", "KNEEL AND BE PLATED.", "FLESH IS A RENTAL.", "THE GRID SEES YOU."],
+  hurt: ["PAIN IS JUST DATA.", "A DENT. NOTHING MORE.", "CHROME ENDURES."],
+  death: ["...upload me...", "...my halo...", "...static..."],
 } as const;
 const CORP = {
-  alert: ["CONTACT.", "HOSTILE SIGHTED.", "YOU ARE TRESPASSING.", "STAND DOWN."],
-  hurt: ["TAKING FIRE.", "MEDIC.", "OFFICER HIT."],
-  death: ["...officer down", "...tell legal...", "...pension..."],
+  alert: ["CODE 10-31. CONTACT.", "MERIDIAN ZONE. HALT.", "SHOW YOUR BADGE.", "STAND DOWN, CITIZEN."],
+  hurt: ["TAKING FIRE.", "MEDIC TO MY GRID.", "OFFICER HIT."],
+  death: ["...officer down...", "...tell legal...", "...my pension..."],
 } as const;
 const GHOSTS = {
-  alert: ["PING.", "FOUND YOU.", "HELLO WORLD.", "YOU'RE ON CAMERA."],
-  hurt: ["LAG.", "PACKET LOSS.", "OW. RUDE."],
+  alert: ["ping.", "found you.", "hello world.", "you're on camera."],
+  hurt: ["lag spike.", "packet loss.", "ow. rude."],
   death: ["...disconnected", "...404...", "...logging off"],
 } as const;
 const CHOIR = {
-  alert: ["HUSH.", "SHHHH.", "BE STILL.", "LISTEN."],
-  hurt: ["...", "HUSH NOW.", "QUIET."],
-  death: ["...finally... quiet...", "...", "...thank you..."],
+  alert: ["HUSH.", "SHHHH.", "WE HEAR YOUR HEART.", "SING WITH US."],
+  hurt: ["...", "HUSH NOW.", "LOWER. LOWER."],
+  death: ["...my voice... back...", "...", "...I can hear myself..."],
 } as const;
 
 // ---- Archetypes ------------------------------------------------------------------------------
@@ -46,7 +46,7 @@ const razorbacks: EnemyArchetype[] = [
     weapon: "backtick-shiv", reaction: 0.9, aggression: 0.55, perception: { sight: 26, fovDegrees: 100, hearing: 22 },
     look: look([150, 70, 52], [48, 30, 26], SKIN.tan, [255, 130, 90], "cap", null, "sway"),
     loot: "rb-pup", xp: 15, tags: ["razorback", "gang", "pup"],
-    barks: { alert: ["WE'RE NOT SCARED OF YOU!", "MY BROTHER'S A BRUTE!"], hurt: ["OW! OW!", "NOT FAIR!"], death: ["...mum..."] },
+    barks: { alert: ["WE'RE NOT SCARED OF YOU!", "MY BROTHER'S A BRUTE!"], hurt: ["OW! OW! OW!", "I'M TELLING!"], death: ["...mum..."] },
   },
   {
     id: "rb-thug", name: "Razorback thug", faction: "razorbacks", health: 55, armor: 0.05, speed: { walk: 1.6, run: 5.2 },
@@ -65,14 +65,14 @@ const razorbacks: EnemyArchetype[] = [
     weapon: "hash-hammer", reaction: 0.8, aggression: 0.95, perception: { sight: 28, fovDegrees: 100, hearing: 30 }, scale: 1.25,
     look: look([150, 40, 34], [30, 14, 12], SKIN.deep, [255, 70, 40], "hood", null, "breathe"),
     loot: "rb-heavy", xp: 65, tags: ["razorback", "gang", "heavy"],
-    barks: { alert: ["SMASH.", "COME HERE, LITTLE ONE."], hurt: ["TICKLES."], death: ["...heavy... so heavy..."] },
+    barks: { alert: ["SMASH.", "HOLD STILL, LITTLE ONE."], hurt: ["TICKLES."], death: ["...need... a sit down..."] },
   },
   {
     id: "rb-lieutenant", name: "Razorback lieutenant", faction: "razorbacks", health: 120, armor: 0.12, speed: { walk: 1.7, run: 5.0 },
     weapon: "colon-scatter", reaction: 0.5, aggression: 0.6, perception: { sight: 44, fovDegrees: 130, hearing: 44 },
     look: look([170, 60, 30], [50, 20, 10], SKIN.tan, [255, 170, 40], "cap", "case", "sway"),
     loot: "rb-heavy", xp: 90, tags: ["razorback", "gang", "officer"],
-    barks: { alert: ["BOYS! COMPANY!", "THIS CORNER'S TAXED."], hurt: ["YOU'LL BLEED FOR THAT."], death: ["...the Duchess... will hear..."] },
+    barks: { alert: ["BOYS! COMPANY!", "THIS CORNER'S TAXED."], hurt: ["YOU'LL BLEED FOR THAT."], death: ["...the Duchess will hear..."] },
   },
 ];
 
@@ -94,7 +94,7 @@ const saints: EnemyArchetype[] = [
     weapon: "backslash", reaction: 0.35, aggression: 0.9, perception: { sight: 50, fovDegrees: 150, hearing: 50 }, scale: 1.15,
     look: look([228, 230, 236], [120, 110, 80], SKIN.grey, [255, 240, 190], "bare", "lantern", "sway"),
     loot: "saint-elite", xp: 170, tags: ["saint", "cult", "elite"],
-    barks: { alert: ["I WAS FLESH ONCE. I REMEMBER THE SHAME.", "COME. BE CORRECTED."], hurt: ["A SCRATCH ON GOD."], death: ["...the chrome... lied..."] },
+    barks: { alert: ["I WAS FLESH ONCE.", "COME. BE CORRECTED."], hurt: ["A SCRATCH ON GOD."], death: ["...the chrome... lied..."] },
   },
 ];
 
@@ -110,14 +110,14 @@ const corpsec: EnemyArchetype[] = [
     weapon: "segfault", reaction: 0.6, aggression: 0.85, perception: { sight: 44, fovDegrees: 110, hearing: 40 }, scale: 1.1,
     look: look([44, 52, 70], [18, 20, 28], SKIN.brown, [90, 170, 255], "visor", "case", "breathe"),
     loot: "corpsec-kit", xp: 75, tags: ["corpsec", "security", "heavy"],
-    barks: { alert: ["SHIELD UP.", "MOVE ALONG. NOW."], hurt: ["HOLDING."], death: ["...shield... down..."] },
+    barks: { alert: ["SHIELD UP. ADVANCING.", "MOVE ALONG. NOW."], hurt: ["HOLDING THE LINE."], death: ["...shield... down..."] },
   },
   {
     id: "corp-handler", name: "CorpSec drone-handler", faction: "corpsec", health: 75, armor: 0.2, speed: { walk: 1.7, run: 4.6 },
     weapon: "quote-magnum", reaction: 0.7, aggression: 0.3, perception: { sight: 64, fovDegrees: 160, hearing: 50 },
     look: look([70, 80, 104], [24, 28, 40], SKIN.pale, [140, 230, 255], "visor", "antenna", "scan"),
     loot: "corpsec-kit", xp: 65, tags: ["corpsec", "security", "handler"],
-    barks: { alert: ["DRONES HAVE YOU.", "EYES ON TARGET."], hurt: ["FEED'S DOWN!"], death: ["...lost... signal..."] },
+    barks: { alert: ["DRONE TWO, TAG HIM.", "EYES ON TARGET."], hurt: ["MY FEED'S DOWN!"], death: ["...lost... uplink..."] },
   },
 ];
 
@@ -133,7 +133,7 @@ const ghosts: EnemyArchetype[] = [
     weapon: "ampersand", reaction: 0.3, aggression: 1, perception: { sight: 40, fovDegrees: 140, hearing: 60 },
     look: look([24, 26, 30], [10, 10, 14], SKIN.brown, [120, 255, 170], "hood", null, "sway"),
     loot: "ghosts", xp: 80, tags: ["ghost", "assassin"],
-    barks: { alert: ["BEHIND YOU. NO, THE OTHER BEHIND."], hurt: ["TCH."], death: ["...respawn... in... 5..."] },
+    barks: { alert: ["behind you.", "no. other behind."], hurt: ["tch."], death: ["...respawn in 5..."] },
   },
 ];
 
@@ -158,54 +158,56 @@ const choir: EnemyArchetype[] = [
 const loot: LootTable[] = [
   {
     id: "rb-pup", rolls: 1, empty: 0.45, credits: [2, 10],
-    entries: [{ item: "synth-ration", weight: 6 }, { item: "copper-scrap", weight: 8 }, { item: "burnt-chip", weight: 6 }, { item: "stim", weight: 3 }, { item: "backtick-shiv", weight: 1 }],
+    entries: [{ item: "synth-ration", weight: 6 }, { item: "copper-scrap", weight: 8 }, { item: "burnt-chip", weight: 6 }, { item: "stim", weight: 3 }, { item: "backtick-shiv", weight: 1 }, { item: "river-glass", weight: 4 }, { item: "afterlight-token", weight: 4, min: 1, max: 3 }, { item: "hyphen", weight: 1 }],
   },
   {
     id: "rb-grunt", rolls: 1, empty: 0.88, also: ["street-thug"],
-    entries: [{ item: "pipe-operator", weight: 3 }, { item: "caret-45", weight: 2 }, { item: "mesh-hoodie", weight: 2 }, { item: "visor-cap", weight: 1 }],
+    entries: [{ item: "pipe-operator", weight: 3 }, { item: "caret-45", weight: 2 }, { item: "mesh-hoodie", weight: 2 }, { item: "visor-cap", weight: 1 }, { item: "shebang", weight: 2 }, { item: "sandbox-poncho", weight: 1 }],
   },
   {
     id: "rb-heavy", rolls: 1, empty: 0.6, also: ["gang-lieutenant"],
-    entries: [{ item: "hash-hammer", weight: 1 }, { item: "colon-scatter", weight: 2 }, { item: "kevlar-weave", weight: 2 }, { item: "ammo-shell", weight: 4, min: 2, max: 6 }],
+    entries: [{ item: "hash-hammer", weight: 1 }, { item: "colon-scatter", weight: 2 }, { item: "kevlar-weave", weight: 2 }, { item: "ammo-shell", weight: 4, min: 2, max: 6 }, { item: "query", weight: 1 }, { item: "patch-notes", weight: 1 }],
   },
   {
     id: "saints", rolls: 2, empty: 0.35, credits: [15, 60],
     entries: [
       { item: "stim", weight: 8 }, { item: "medkit", weight: 4 }, { item: "circuit-board", weight: 8 }, { item: "neon-tube", weight: 6 },
       { item: "focus-chip", weight: 2 }, { item: "ammo-rifle", weight: 6, min: 3, max: 8 }, { item: "segfault", weight: 2 },
-      { item: "semicolon", weight: 0.6 }, { item: "pool:rare:gear", weight: 2 }, { item: "pool:epic:gear", weight: 0.3 },
+      { item: "semicolon", weight: 0.6 }, { item: "antenna-core", weight: 4 }, { item: "chrome-rosary", weight: 0.8 }, { item: "pool:rare:gear", weight: 2 }, { item: "pool:epic:gear", weight: 0.3 },
     ],
   },
   {
     id: "saint-elite", rolls: 2, empty: 0.1, credits: [60, 160],
     entries: [
-      { item: "medkit", weight: 6 }, { item: "shield-cell", weight: 4 }, { item: "backslash", weight: 1 }, { item: "chrome-carapace", weight: 0.6 },
+      { item: "medkit", weight: 6 }, { item: "shield-cell", weight: 4 }, { item: "backslash", weight: 1 }, { item: "chrome-carapace", weight: 0.6 }, { item: "kernel-plate", weight: 0.8 }, { item: "chrome-rosary", weight: 1.5 },
       { item: "pool:rare:gear", weight: 5 }, { item: "pool:epic:gear", weight: 1.2 }, { item: "pool:legendary:gear", weight: 0.1 },
     ],
   },
   {
     id: "corpsec-kit", rolls: 1, empty: 0.85, also: ["corpsec"],
-    entries: [{ item: "brace-burst", weight: 2 }, { item: "riot-helm", weight: 3 }, { item: "firewall-vest", weight: 1 }, { item: "quote-magnum", weight: 1 }],
+    entries: [{ item: "brace-burst", weight: 2 }, { item: "riot-helm", weight: 3 }, { item: "firewall-vest", weight: 1 }, { item: "quote-magnum", weight: 1 }, { item: "interrupt", weight: 1.5 }, { item: "tab-stop", weight: 1 }, { item: "welders-mask", weight: 1 }],
   },
   {
     id: "ghosts", rolls: 2, empty: 0.3, credits: [20, 90],
     entries: [
       { item: "focus-chip", weight: 5 }, { item: "haste-inhaler", weight: 5 }, { item: "data-shard", weight: 10 }, { item: "encrypted-drive", weight: 3 },
       { item: "burnt-chip", weight: 8 }, { item: "asterisk-smg", weight: 1.5 }, { item: "tilde-whip", weight: 1 }, { item: "ampersand", weight: 0.3 },
-      { item: "visor-cap", weight: 2 }, { item: "pool:rare:gear", weight: 2.5 }, { item: "pool:epic:gear", weight: 0.5 },
+      { item: "visor-cap", weight: 2 }, { item: "antenna-core", weight: 6 }, { item: "defrag-patch", weight: 4 }, { item: "null-hood", weight: 1 },
+      { item: "static-jar", weight: 0.6 }, { item: "fork-bomb", weight: 0.3 }, { item: "root-kit", weight: 0.25 }, { item: "pool:rare:gear", weight: 2.5 }, { item: "pool:epic:gear", weight: 0.5 },
     ],
   },
   {
     id: "choir", rolls: 2, empty: 0.3, credits: [20, 70],
     entries: [
       { item: "data-shard", weight: 6 }, { item: "circuit-board", weight: 6 }, { item: "stim", weight: 8 }, { item: "medkit", weight: 4 },
-      { item: "shield-cell", weight: 3 }, { item: "forward-slash", weight: 1.5 }, { item: "pool:rare:gear", weight: 3 }, { item: "pool:epic:gear", weight: 0.6 },
+      { item: "shield-cell", weight: 3 }, { item: "forward-slash", weight: 1.5 }, { item: "rainfern-seeds", weight: 5 }, { item: "open-paren", weight: 1.5 }, { item: "choir-tuning-fork", weight: 0.8 },
+      { item: "pool:rare:gear", weight: 3 }, { item: "pool:epic:gear", weight: 0.6 },
     ],
   },
   /** Named bounty targets: a guaranteed good roll on top of lieutenant loot. */
   {
     id: "bounty-mark", rolls: 2, empty: 0, credits: [80, 200], also: ["gang-lieutenant"],
-    entries: [{ item: "pool:rare:gear", weight: 6 }, { item: "pool:epic:gear", weight: 1.5 }, { item: "medkit", weight: 5 }, { item: "encrypted-drive", weight: 3 }],
+    entries: [{ item: "pool:rare:gear", weight: 6 }, { item: "pool:epic:gear", weight: 1.5 }, { item: "medkit", weight: 5 }, { item: "encrypted-drive", weight: 3 }, { item: "paid-warrant", weight: 2 }],
   },
   /** People you should not be killing drop nothing (it's not that kind of game). */
   { id: "no-loot", rolls: 0, entries: [] },
@@ -286,5 +288,5 @@ export const FACTIONS_PACK: ContentPack = {
 
 /** Display names for faction ids (reputation screens, reward hints). */
 export const FACTION_NAMES: Readonly<Record<string, string>> = {
-  razorbacks: "Razorbacks", "chrome-saints": "Chrome Saints", corpsec: "CorpSec", ghosts: "Ghosts", choir: "The Choir", civilian: "The City",
+  razorbacks: "Razorbacks", "chrome-saints": "Chrome Saints", corpsec: "CorpSec", ghosts: "Ghosts", choir: "The Choir", civilian: "Civilians", dockers: "Dock crew", scrappers: "Scrapyard",
 };

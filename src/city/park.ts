@@ -538,6 +538,10 @@ bool parkGround(vec3 p, vec3 view, float cellWorld, inout int code, inout bool t
   if (kind == 0) {
     float tone = noise2(q * 0.045) * 0.6 + noise2(q * 0.21 + 3.0) * 0.4;
     albedo = mix(vec3(0.052, 0.1, 0.07), vec3(0.085, 0.142, 0.09), tone);
+    // Mowing stripes, 2.5 m wide on the diagonal: a soft tone step, prefiltered to its average
+    // before a stripe spans a cell (and faded out beyond that), so the lawns read as kept grass.
+    float mow = prefilteredBand((q.x * 0.8 + q.y * 0.6) / 5.0, 0.0, 0.5, cellWorld / 5.0);
+    albedo *= 1.0 + (mow - 0.5) * 0.18 * (1.0 - smoothstep(0.8, 2.0, cellWorld));
     // Lawn edges soften into the gravel.
     albedo = mix(albedo, vec3(0.12, 0.115, 0.095), (1.0 - smoothstep(PARK_PATH_HALF, PARK_PATH_HALF + 0.8, path)) * 0.35);
     float n = noise2(q * 0.9 + 7.0);
@@ -546,9 +550,16 @@ bool parkGround(vec3 p, vec3 view, float cellWorld, inout int code, inout bool t
     else code = n > 0.62 ? A_DOT : A_SPACE;
     thin = true;
   } else if (kind == 1) {
-    albedo = vec3(0.165, 0.15, 0.122) * (0.9 + 0.2 * grain);
+    albedo = vec3(0.18, 0.162, 0.126) * (0.9 + 0.2 * grain); // Ground agent: a touch paler, so paths read against the lawns
     code = cellWorld < 0.6 ? (grain > 0.56 ? A_COLON : A_DOT) : cellWorld < 1.3 ? A_DOT : A_SPACE;
     if (path > PARK_PATH_HALF - 0.35 + wobble * 0.4 && cellWorld < 0.9) code = A_COMMA;
+    // Fallen leaves on the gravel, close up only: each a few cells across, gone before it could
+    // shrink to a sparkling speck.
+    vec2 leafCell = floor(q / 0.6);
+    float leafSeed = hash(leafCell + 57.0);
+    if (cellWorld < 0.09 && leafSeed > 0.86 && length(fract(q / 0.6) * 0.6 - 0.15 - 0.3 * vec2(hash(leafCell + 2.0), hash(leafCell + 4.0))) < 0.11) {
+      code = leafSeed > 0.95 ? A_TILDE : A_COMMA; albedo = leafSeed > 0.93 ? vec3(0.3, 0.16, 0.06) : vec3(0.24, 0.2, 0.07);
+    }
     thin = true; wet = u_rain * 0.5;
   } else if (kind == 2) {
     albedo = vec3(0.14, 0.135, 0.124) * (0.9 + 0.2 * grain);
@@ -624,6 +635,11 @@ bool parkGround(vec3 p, vec3 view, float cellWorld, inout int code, inout bool t
     float ring = (1.0 - smoothstep(0.008, 0.05, abs(length(delta) - age * 0.7))) * (1.0 - age) * u_rain;
     paper += ring * vec3(0.012, 0.027, 0.032);
     if (flags == 0.0 && ring > 0.5 && cellWorld < 0.35) { code = A_O; ink = paper * 1.8 + vec3(0.02, 0.04, 0.05); }
+    // Water lapping at the pond's bank: a soft lighter rim that breathes over ~10 s.
+    float shore = smoothstep(0.9, 1.0, pond) * step(pond, 1.0);
+    paper += shore * (0.6 + 0.4 * sin(u_time * 0.6 + q.x * 0.5 + q.y * 0.3)) * vec3(0.01, 0.02, 0.022);
+    if (flags == 0.0 && shore > 0.6 && cellWorld < 0.8) { code = A_TILDE; thin = true; ink = paper * 1.7 + vec3(0.01, 0.02, 0.024); }
+
   }
   return true;
 }

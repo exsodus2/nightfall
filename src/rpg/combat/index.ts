@@ -10,5 +10,7 @@ export { COMBAT_TEST_ARCHETYPES, COMBAT_TEST_ENCOUNTERS, COMBAT_TEST_ITEMS } fro
 export { HEAVY_HOLD, PARRY_WINDOW, BLOCK_REDUCTION, DODGE_TIME, DODGE_IFRAMES, DODGE_DISTANCE, DODGE_COST, STAMINA_DELAY } from "./player.ts";
 /** Encounter / AI tuning: sim radius, leash distance, attack token counts, player body size, fists. */
 export { SIM_RADIUS, LEASH, MELEE_TOKENS, RANGED_TOKENS, PLAYER_BODY, FISTS } from "./constants.ts";
+/** Enemy forms (rusher / bruiser / drone / shield): tags, view helper and their timing tables. */
+export { ENEMY_FORMS, enemyForm, formTag, viewForm, LUNGE, RUSH, HIT_STOP, DRONE_BASE, DRONE_TOP, SHIELD_ARC, SHIELD_CHIP, type EnemyForm, type FormedEnemyView } from "./forms.ts";
 /** Fixed simulation step (seconds) and the deterministic default RNG. */
 export { TICK, seededRandom } from "./util.ts";

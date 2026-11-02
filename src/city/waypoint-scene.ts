@@ -1,6 +1,6 @@
-import type { PropCanvas } from "./prop-canvas";
-import { propAlpha, propRange, restorePropRange } from "./activity";
-import { cityWaypoints, hexToRgb, type Waypoint } from "./waypoints";
+import type { PropCanvas } from "./prop-canvas.ts";
+import { propAlpha, propRange, restorePropRange } from "./activity.ts";
+import { cityWaypoints, hexToRgb, type Waypoint } from "./waypoints.ts";
 
 /** What the beacons need from the frame: eye position and scene clock. (The engine's `view` fits.) */
 export interface WaypointView { x: number; z: number; height: number; time: number }
@@ -53,14 +53,26 @@ export function drawWaypoints(t: PropCanvas, view: WaypointView, waypoints: read
     // Real-world size, shrunk with the proxy; widths never drop under about one character cell.
     const height = (active ? 320 : 170) * k;
     const cell = Math.max(0.35, proxy * 0.011);
-    const core = Math.max((active ? 0.5 : 0.35) * k, cell * (active ? 1.1 : 0.8));
+    // The core is at least a cell and a half wide, so it reads as a solid line rather than dashes.
+    const core = Math.max((active ? 0.5 : 0.35) * k, cell * (active ? 1.6 : 1.25));
     const pulse = 0.92 + Math.sin(view.time * 3 + waypoint.createdAt % 7) * 0.08;
     // Standing inside the beacon: only the ground rings, so the column does not fill the view.
     if (distance < 4) { ink(t, color, "-", 0.95); ring(t, waypoint.x, 0.06, waypoint.z, active ? 3.4 : 2.4, 0.07); continue; }
     // Core light column; from further away a sheath makes it read against the skyline.
     ink(t, color, "|", 1.05 * pulse);
     box(t, x, height / 2, z, core, height, core);
-    if (distance > 90) { ink(t, color, ":", 0.8); box(t, x, height * 0.3, z, core * 2.2, height * 0.6, core * 2.2); }
+    if (distance > 40) { ink(t, color, ":", 0.62); box(t, x, height * 0.3, z, core * 2.4, height * 0.6, core * 2.4); }
+    // A marker pin facing the eye: a hollow diamond about four cells across, low enough on the
+    // column to stay in view from the street, with a lit centre for the active route. It names the
+    // light as a waypoint (signs and windows are rectangles) and keeps its size on screen.
+    if (distance > 12) {
+      const size = Math.max(1.6 * k, cell * (active ? 7.5 : 6)), bar = Math.max(0.12 * k, cell * 1.1), mark = 6 + proxy * 0.07;
+      t.push(); t.translate(x, -mark, z); t.rotateY(Math.atan2(x - view.x, z - view.z) * 180 / Math.PI); t.rotateZ(45);
+      ink(t, color, "#", 1.12 * pulse);
+      for (const s of [-1, 1]) { t.push(); t.translate(s * size / 2, 0, 0); t.box(bar, size + bar, bar); t.pop(); t.push(); t.translate(0, s * size / 2, 0); t.box(size + bar, bar, bar); t.pop(); }
+      if (active) { ink(t, color, "@", 1.15); t.box(size * 0.38, size * 0.38, bar); }
+      t.pop();
+    }
     // Rings rising up the column.
     const rings = active ? 4 : 2;
     for (let i = 0; i < rings; i++) {

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { register } from "node:module";
 import test from "node:test";
 import type { Building } from "../src/city/world.ts";
 
 register(`data:text/javascript,${encodeURIComponent('import { extname } from "node:path"; export function resolve(specifier, context, nextResolve) { return nextResolve(specifier.startsWith(".") && extname(specifier) === "" ? `${specifier}.ts` : specifier, context); }')}`, import.meta.url);
-const [{ cityMaterial, CITY_MATERIAL, REFLECTION_MATERIAL, REFERENCE_MATERIAL, SURFACES }, { BUILDING_MATERIAL, FACADE_MATERIAL }, { buildingParts, skinAlpha }, { CityWorld }] = await Promise.all([
+const [{ cityMaterial, keepLoops, CITY_MATERIAL, GROUND_MATERIAL, HOLOGRAM_MATERIAL, REFERENCE_MATERIAL, SURFACES },{ BUILDING_MATERIAL, FACADE_MATERIAL }, { buildingParts, skinAlpha }, { CityWorld }] = await Promise.all([
   import("../src/city/materials.ts"),
   import("../src/city/building-batch.ts"),
   import("../src/city/architecture.ts"),
@@ -63,14 +63,28 @@ test("every generated building part stays in the specialized 0/2/6 surface famil
 
 test("batch exports select the specialized families without changing the default city material", () => {
   // Each pass compiles only the surfaces it draws (materials.ts SURFACES); the reference renderer keeps them all.
-  assert.equal(CITY_MATERIAL, cityMaterial({ reflections: true, surfaces: SURFACES.scene }));
-  assert.equal(REFLECTION_MATERIAL, cityMaterial({ ground: false, surfaces: SURFACES.mirror }));
+  assert.equal(CITY_MATERIAL, cityMaterial({ ground: false, surfaces: SURFACES.scene }));
+  assert.equal(GROUND_MATERIAL, cityMaterial({ reflections: true, surfaces: SURFACES.ground }));
   assert.equal(BUILDING_MATERIAL, cityMaterial({ batch: true, ground: false, surfaces: SURFACES.props }));
   assert.equal(FACADE_MATERIAL, cityMaterial({ batch: true, opaque: true, architecture: true }));
   assert.equal(REFERENCE_MATERIAL, cityMaterial({ reflections: true }));
   // Folded-out branches: the main pass never shades facades, the prop batch only lit props.
   assert.ok(!CITY_MATERIAL.includes("if (SURFACE < 0.5)") && REFERENCE_MATERIAL.includes("if (SURFACE < 0.5)"));
   assert.ok(BUILDING_MATERIAL.includes("} else if (true) {") && !BUILDING_MATERIAL.includes("SURFACE > 6.5"));
+});
+
+test("the ground, the scene and the holograms compile into separate programs", () => {
+  // Link and first-draw time grow faster than the source (scripts/shader-startup-check.mjs), so the
+  // big families are separate programs; the scene program serves the main and the mirrored pass.
+  assert.equal(HOLOGRAM_MATERIAL, cityMaterial({ ground: false, surfaces: SURFACES.hologram }));
+  assert.ok(!CITY_MATERIAL.includes("#define HOLOGRAMS") && !CITY_MATERIAL.includes("SURFACE > 6.5"));
+  assert.ok(!CITY_MATERIAL.includes("#define GROUND") && !CITY_MATERIAL.includes("#define REFLECTIONS"));
+  assert.ok(HOLOGRAM_MATERIAL.includes("#define HOLOGRAMS") && HOLOGRAM_MATERIAL.includes("if (SURFACE > 6.5)"));
+  assert.ok(!HOLOGRAM_MATERIAL.includes("#define GROUND") && !HOLOGRAM_MATERIAL.includes("#define REFLECTIONS"));
+  // Only the ground samples the mirrored pass, so no program drawing into the reflection reads it.
+  assert.ok(GROUND_MATERIAL.includes("#define GROUND") && GROUND_MATERIAL.includes("#define REFLECTIONS") && !GROUND_MATERIAL.includes("#define HOLOGRAMS"));
+  // Every surface the reference renderer draws outdoors (all but the batched facades 0 and 6) has one program.
+  assert.deepEqual([...SURFACES.ground, ...SURFACES.scene, ...SURFACES.hologram].sort(), [1, 2, 3, 4, 5, 7, 8]);
 });
 
 test("only ground-capable materials retain park data and the ground dispatch branch", () => {
@@ -166,10 +180,31 @@ test("blinds keep a fixed full or lite pattern and use the continuous pane footp
 test("glass retains the same texture-call, loop and three-attachment shader budgets", () => {
   for (const lite of [false, true]) for (const options of [{ reflections: true }, { ground: false }, { batch: true, ground: false }, { batch: true, opaque: true, architecture: true }]) {
     const source = cityMaterial({ ...options, lite }), ground = "reflections" in options;
-    assert.equal((source.match(/\b(?:texture|texelFetch)\s*\(/g) ?? []).length, ground ? 11 : 8);
+    assert.equal((source.match(/\b(?:texture|texelFetch)\s*\(/g) ?? []).length, ground ? 15 : 12); // the harbour water (5 calls) and the wet-street streak (2 calls in a 5-tap loop, skipped when dry) on the ground; the LED tickers and new screen channels read the message feed textures in every program (perf-bench holds ~80 fps at 1440x960)
     // One loop more than the original budget: atmosphere() hoists the nearest cars' data out of its step loop.
-    assert.equal((source.match(/\bfor\s*\(/g) ?? []).length, ground ? 14 : 10);
+    assert.equal((source.match(/\bfor\s*\(/g) ?? []).length, ground ? 17 : 13); // ground 17: the park path boxes run as real loops (KEEP_LOOP) since the compile-time work; others 13: the ticker feed and screen channels
     assert.equal((source.match(/layout\(location=\d\) out vec4/g) ?? []).length, 3);
+  }
+});
+
+test("loops without screen derivatives keep runtime bounds, so fxc cannot unroll them", () => {
+  // materials.ts compile-time rule 1: unrolled, these loops were most of each program's first-draw
+  // compile on ANGLE/D3D11 (the park's paths alone about half of the ground program's).
+  for (const lite of [false, true]) {
+    const source = cityMaterial({ reflections: true, lite });
+    for (const loop of ["i < KEEP_LOOP(10); i++) {\n    vec4 box", "i < KEEP_LOOP(12); i++) {\n    vec4 car", "i < KEEP_LOOP(8); i++) {\n    vec3 delta", "i < KEEP_LOOP(10); i++) {\n    vec2 q", "i < KEEP_LOOP(ATMOSPHERE_STEPS); i++)", "i < KEEP_LOOP(PARK_PATH_COUNT); i++)", "i < KEEP_LOOP(PARK_PLAZA_COUNT); i++)", "i < KEEP_LOOP(PARK_LANTERN_COUNT); i++)"]) {
+      assert.ok(source.includes(loop), loop);
+    }
+    assert.equal(source.split("c < KEEP_LOOP(ATMOSPHERE_CARS); c++)").length, 3);
+    assert.ok(source.includes("uniform int u_keepLoop;\n#define KEEP_LOOP(n) ((n) + u_keepLoop)"));
+  }
+  // Spliced GLSL: literal and named bounds are kept, bounds read from data are already loops.
+  assert.equal(keepLoops("for (int i = 0; i < N; i++) for (int k = 1; k < 4; k++) for (int k = 0; k < r.y; k++)"), "for (int i = 0; i < KEEP_LOOP(N); i++) for (int k = 1; k < KEEP_LOOP(4); k++) for (int k = 0; k < r.y; k++)");
+  // The bound is only unchanged because nothing ever sets u_keepLoop (GL zero-initializes uniforms).
+  const root = new URL("../src/", import.meta.url);
+  for (const file of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+    if (!/\.tsx?$/.test(file) || file.replaceAll("\\", "/") === "city/materials.ts") continue;
+    assert.ok(!readFileSync(new URL(file.replaceAll("\\", "/"), root), "utf8").includes("u_keepLoop"), `${file} must not set u_keepLoop`);
   }
 });
 

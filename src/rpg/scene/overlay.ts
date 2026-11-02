@@ -11,9 +11,9 @@
 import type { Textmodifier } from "textmode.js";
 import { project, type ViewCamera } from "../../city/vfx.ts";
 import type { CombatEffect, EnemyView, ItemDefinition, PlayerCombatView, RpgSnapshot } from "../types.ts";
-import { NUMBER_LIFE, asciiBar, numberGain, numberGlyph, numberRise, wrapAngle } from "./anim.ts";
+import { NUMBER_LIFE, asciiBar, heartbeat, lockAlpha, numberGain, numberGlyph, numberRise, wrapAngle } from "./anim.ts";
 import { RARITY_COLOR, clamp01, factionStyle, hash3, type Rgb } from "./palette.ts";
-import { combatHudLayout, combatLabelRow, fitHudText, hudNumber, type CombatHudLayout, type HudRegion } from "./hud-layout.ts";
+import { combatHudLayout, combatLabelRow, fitHudText, hudNumber, threatCueSlot, type CombatHudLayout, type HudRegion } from "./hud-layout.ts";
 
 /** The subset of textmode the overlay uses (a Textmodifier satisfies it; tests use a text grid). */
 export interface OverlayCanvas {
@@ -61,7 +61,9 @@ let canvas: OverlayCanvas;
 function ink(color: Rgb, alpha = 255, gain = 1): void {
   canvas.charColor(Math.min(255, color[0] * gain), Math.min(255, color[1] * gain), Math.min(255, color[2] * gain), Math.max(0, Math.min(255, alpha)));
 }
-function paper(alpha: number): void { canvas.cellColor(PANEL[0], PANEL[1], PANEL[2], alpha); }
+/** Backing plate. textmode applies a cell's alpha twice (the ASCII pass, then the compositor), so the
+ *  requested alpha is lifted to the value whose square is the intended coverage (150 -> 196). */
+function paper(alpha: number): void { canvas.cellColor(PANEL[0], PANEL[1], PANEL[2], Math.min(255, Math.round(Math.sqrt(Math.max(0, alpha) / 255) * 255))); }
 function clearPaper(): void { canvas.cellColor(0, 0, 0, 0); }
 function cell(glyph: string, gx: number, gy: number): void {
   canvas.char(glyph); canvas.push(); canvas.translate(gx, gy); canvas.rect(1, 1); canvas.pop();
@@ -82,6 +84,7 @@ export function drawCombatOverlay(t: Textmodifier | OverlayCanvas, cols: number,
   drawPlayerBars(frame, safeLayout.vitals);
   drawWeaponPanel(frame, safeLayout.weapon);
   if (frame.boss) drawBossBar(frame.boss, safeLayout.boss, frame.time);
+  drawThreatCue(frame, time, safeLayout);
   if (frame.prompt) {
     canvas.printAlign("center", "middle");
     ink(PROMPT); paper(170);
@@ -169,7 +172,8 @@ function drawEnemyLabels(cols: number, rows: number, frame: CombatOverlayFrame, 
     let showName = showHealth, showBark = !!e.bark && distance < 25;
     const bar = showHealth ? asciiBar(e.health, e.maxHealth, far ? 6 : 10) : "";
     const healthText = e.vulnerable && showHealth ? `*${bar}*` : bar;
-    const barkText = showBark ? `"${e.bark}"` : "";
+    // One cell of plate either side so the quote marks never touch the scenery behind them.
+    const barkText = showBark ? ` "${e.bark}" ` : "";
     const height = (showHealth ? 2 : 0) + Number(showBark);
     const top = showHealth ? head.gy - height + 1 : head.gy - 1;
     let placed = combatLabelRow(head.gx, top, Math.max(healthText.length, showName ? e.name.length : 0, barkText.length), height, rows, layout, !!frame.boss);
@@ -184,15 +188,15 @@ function drawEnemyLabels(cols: number, rows: number, frame: CombatOverlayFrame, 
     }
     if (placed === null) continue;
     if (showHealth) {
-      ink(e.hostile ? RED : [196, 196, 186], (far ? 190 : 245) * dim); paper(110 * dim);
+      ink(e.hostile ? RED : [196, 196, 186], (far ? 190 : 245) * dim); paper(150 * dim);
       text(healthText, head.gx, placed + Number(showName) + Number(showBark));
       if (showName) {
-        ink(factionStyle(e.faction).hud, 235 * dim); paper(0);
+        ink(factionStyle(e.faction).hud, 240 * dim); paper(130 * dim);
         text(e.name, head.gx, placed + Number(showBark));
       }
     }
     if (showBark) {
-      ink(WHITE, 220 * dim); paper(120 * dim);
+      ink(WHITE, 235 * dim); paper(210 * dim);
       text(barkText, head.gx, placed);
     }
   }
@@ -210,7 +214,7 @@ export function enemyScreenBox(cam: ViewCamera, cols: number, rows: number, e: E
 function drawLock(cam: ViewCamera, cols: number, rows: number, e: EnemyView, time: number): void {
   const b = enemyScreenBox(cam, cols, rows, e);
   if (!b || b.x1 < -cols / 2 || b.x0 > cols / 2) return;
-  ink(LOCK, 200 + 55 * Math.sin(time * Math.PI * 2)); clearPaper();
+  ink(LOCK, lockAlpha(time)); clearPaper(); // a steady bracket, 0.25 Hz breathe
   const mid = Math.round((b.y0 + b.y1) / 2);
   cell("[", b.x0, mid); cell("]", b.x1, mid);
   cell("+", b.x0, b.y0); cell("-", b.x0 + 1, b.y0); cell("+", b.x1, b.y0); cell("-", b.x1 - 1, b.y0);
@@ -357,12 +361,38 @@ function drawHurtArcs(cols: number, rows: number, frame: CombatOverlayFrame): vo
 const CORRUPT = "#%&$@!?/\\<>*;:";
 /** Low-health vignette strength 0..1 (starts under 35% health). */
 export const vignetteStrength = (health: number, max: number): number => clamp01(1 - health / Math.max(1, max) / 0.35);
+
+// Soft hit vignette: taking damage dusts the screen edges with dim brick-red dots. It eases in over
+// half a second, holds while hits keep coming (steady under automatic fire - no per-hit pulse),
+// then fades over 0.9 s. Never a flash, never full-screen, never above ~1 Hz.
+const HIT_TINT: Rgb = [186, 74, 60];
+const SOFT = ".:;',`";
+const HIT_RISE = 0.5, HIT_HOLD = 0.6, HIT_FADE = 0.9;
+let hitLevel = 0, hitClock = Number.NaN;
+/** Where the hit vignette is heading for a given time since the last hit (exported for tests). */
+export function hitVignetteTarget(hurtAge: number): number {
+  if (!(hurtAge >= 0)) return 0;
+  return hurtAge < HIT_HOLD ? 1 : clamp01(1 - (hurtAge - HIT_HOLD) / HIT_FADE);
+}
+/** Advances the hit vignette: rises at most 1 / HIT_RISE per second, falls with the target. */
+export function hitVignetteLevel(hurtAge: number, time: number): number {
+  const dt = Number.isFinite(hitClock) && time >= hitClock ? Math.min(0.1, time - hitClock) : 0;
+  hitClock = time;
+  const target = hitVignetteTarget(hurtAge);
+  hitLevel = target > hitLevel ? Math.min(target, hitLevel + dt / HIT_RISE) : target;
+  return hitLevel;
+}
+
 function drawVignette(cols: number, rows: number, p: PlayerCombatView, time: number): void {
-  const s = vignetteStrength(p.health, p.maxHealth);
-  if (s <= 0) return;
+  const low = vignetteStrength(p.health, p.maxHealth), hit = 0.55 * hitVignetteLevel(p.hurtAge, time);
+  const s = Math.max(low, hit);
+  if (s <= 0.02) return;
+  // A fresh hit with health to spare: soft dots, no heartbeat. Low health: the red corruption.
+  const soft = hit > low, glyphs = soft ? SOFT : CORRUPT;
   // Elliptical: the corners corrupt first and most, the middle of each edge only lightly, the
-  // centre of the view never. A slow heartbeat swell (~1.1 Hz, smooth) - never a flash.
-  const beat = 0.72 + 0.28 * Math.pow(0.5 + 0.5 * Math.sin(time * Math.PI * 2 * 1.1), 3);
+  // centre of the view never. A slow heartbeat swell (0.35 Hz raised cosine, deepening as health
+  // falls rather than speeding up) - never a flash.
+  const beat = soft ? 1 : heartbeat(time, low);
   const hw = cols / 2, hh = rows / 2, r0 = 1.18 - 0.36 * s;
   const L = hudLayout(cols, rows);
   const x0 = L.left - 1, x1 = L.right + 1;
@@ -375,16 +405,58 @@ function drawVignette(cols: number, rows: number, p: PlayerCombatView, time: num
       const density = r <= r0 ? 0 : Math.min(1, (r - r0) / (1.45 - r0)) * (0.3 + 0.45 * s);
       // Each cell re-rolls about once a second, out of step with its neighbours: a slow crawl.
       const h = hash3(x, y, Math.floor(time * 1.2 + hash3(x, y, 7) * 3));
-      out += h < density ? CORRUPT[Math.floor(hash3(x, y, 11 + Math.floor(time * 0.6)) * CORRUPT.length)] : " ";
+      // Its glyph changes every ~1.7 s on its own phase, so changes are scattered, never all at once.
+      out += h < density ? glyphs[Math.floor(hash3(x, y, 11 + Math.floor(time * 0.6 + hash3(x, y, 13))) * glyphs.length)] : " ";
     }
     return out;
   };
   for (let y = L.top - 1; y <= L.bottom + 1; y++) {
     const ny = y / hh;
     const edge = Math.abs(ny) >= r0 ? 0 : Math.floor(hw * Math.sqrt(r0 * r0 - ny * ny));
-    ink(RED, (150 + 90 * s) * beat, 0.8 + 0.2 * Math.abs(ny));
+    if (soft) ink(HIT_TINT, 90 + 120 * s, 0.85 + 0.15 * Math.abs(ny));
+    else ink(RED, (150 + 90 * s) * beat, 0.8 + 0.2 * Math.abs(ny));
     if (edge <= 0) { text(segmentOf(y, x0, x1), x0, y); continue; }
     if (-edge > x0) text(segmentOf(y, x0, -edge), x0, y);
     if (edge < x1) text(segmentOf(y, edge, x1), edge, y);
   }
+}
+
+// ---- Threat cue ---------------------------------------------------------------------------------------
+// When a hostile group first turns on you, its name eases in at the top of the screen for ~2.6 s
+// ("! RAZORBACKS - SPOTTED YOU !"), in the faction's HUD colour on a backing plate, then fades. It
+// does not re-trigger while you stay in that fight, nor for 6 s after it ends: one cue per fight,
+// no blinking. A boss bar replaces it (the bar is the threat then).
+const ENGAGED = new Set<EnemyView["state"]>(["alert", "chase", "attack", "reposition"]);
+const THREAT_NAMES: Readonly<Record<string, string>> = {
+  razorbacks: "RAZORBACKS", corpsec: "CORPSEC", "chrome-saints": "CHROME SAINTS", ghosts: "GHOSTS", choir: "THE CHOIR",
+  dockers: "DOCK CREW", scrappers: "SCRAPYARD",
+};
+export const THREAT_LIFE = 2.6;
+const threat = { engaged: false, since: Number.NEGATIVE_INFINITY, quietSince: Number.NEGATIVE_INFINITY, faction: "" };
+/** The cue's text for a faction (exported for tests). */
+export const threatText = (faction: string): string => `! ${THREAT_NAMES[faction] ?? faction.toUpperCase().replace(/-/g, " ")} - SPOTTED YOU !`;
+/** Cue opacity 0..1 at `age` seconds: 0.3 s ease in, hold, 0.6 s ease out (exported for tests). */
+export const threatAlpha = (age: number): number => (age >= 0 && age <= THREAT_LIFE ? Math.min(1, age / 0.3, (THREAT_LIFE - age) / 0.6) : 0);
+/** Tracks the fight state; returns the cue to show this frame, or null. */
+export function threatCue(enemies: readonly EnemyView[], time: number): { faction: string; age: number } | null {
+  if (time < threat.since || time < threat.quietSince) { threat.engaged = false; threat.since = threat.quietSince = Number.NEGATIVE_INFINITY; }
+  const spotter = enemies.find(e => e.hostile && e.deathAge < 0 && ENGAGED.has(e.state));
+  if (spotter) {
+    if (!threat.engaged && time - threat.quietSince > 6) { threat.since = time; threat.faction = spotter.faction; }
+    threat.engaged = true;
+  } else if (threat.engaged) { threat.engaged = false; threat.quietSince = time; }
+  const age = time - threat.since;
+  return age >= 0 && age <= THREAT_LIFE ? { faction: threat.faction, age } : null;
+}
+function drawThreatCue(frame: CombatOverlayFrame, time: number, layout: CombatHudLayout): void {
+  const cue = threatCue(frame.enemies, time);
+  const slot = cue && !frame.player.dead ? threatCueSlot(layout, !!frame.boss) : null;
+  if (!cue || !slot) return;
+  const alpha = threatAlpha(cue.age);
+  if (alpha < 0.04) return;
+  canvas.printAlign("center", "top");
+  paper(150 * alpha);
+  ink(factionStyle(cue.faction).hud, 255 * alpha);
+  text(fitHudText(threatText(cue.faction), slot.width), slot.x, slot.y);
+  clearPaper();
 }

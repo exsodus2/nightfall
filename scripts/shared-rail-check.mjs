@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createNightfallServer } from "../server/app.ts";
 import { MultiplayerSession } from "../src/multiplayer/session.ts";
 import { METRO_TIME_OFFSET, railPose } from "../src/multiplayer/rail.ts";
-import { PLATFORM_HEIGHT, STATIONS, TRAIN_EYE_HEIGHT, boardingTrain, doorAt, localToWorld, trainAt, worldToLocal } from "../src/city/metro.ts";
+import { PLATFORM_HEIGHT, STATIONS, TRAIN_EYE_HEIGHT, boardingTrain, doorAt, floorHeight, localToWorld, trainAt, worldToLocal } from "../src/city/metro.ts";
 
 const directory = resolve("artifacts", "shared-rail");
 await mkdir(directory, { recursive: true });
@@ -162,7 +162,10 @@ try {
   const rebuilt = await state();
   assert.equal(rebuilt.mode, "metro");
   assert.ok(Math.abs(rebuilt.u - parkedCarrier.u) < 0.06 && Math.abs(rebuilt.v - parkedCarrier.v) < 0.06, "WebGL rebuild restores the same carriage-local location");
-  assert.ok(Math.abs(rebuilt.height - PLATFORM_HEIGHT - TRAIN_EYE_HEIGHT) < 0.035);
+  // The deck rises and dips between stations (metro.ts profile), so the rebuilt eye is checked
+  // against the carriage floor at this moment, with a metre of slack for the readback latency.
+  const floorNow = floorHeight(trainAt(guest.worldTime(now()) + METRO_TIME_OFFSET, parkedCarrier.train), parkedCarrier.v) + TRAIN_EYE_HEIGHT;
+  assert.ok(Math.abs(rebuilt.height - floorNow) < 1, "WebGL rebuild restores the eye on the carriage floor");
   await delay(350); sameLocal(friend().carrier, parkedCarrier, "rebuilt carrier");
   await click("Continue journey");
   const beforeWalk = { ...friend().carrier };

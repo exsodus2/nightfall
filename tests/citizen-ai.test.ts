@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CITIZEN_PERSONAL_SPACE, MAX_PERCEIVED_PLAYERS, CitizenAwareness, citizenBark, citizenPavement, perceivedPlayers, type AwarenessTarget, type PerceivedPlayer } from "../src/city/citizen-ai.ts";
+import { CITIZEN_PERSONAL_SPACE, LINGER_SECONDS, MAX_PERCEIVED_PLAYERS, CitizenAwareness, LingerWatch, citizenBark, citizenPavement, glanceAt, perceivedPlayers, type AwarenessTarget, type PerceivedPlayer } from "../src/city/citizen-ai.ts";
 import { CityPopulation, type Citizen } from "../src/city/people.ts";
 import { CityWorld, DISTRICTS } from "../src/city/world.ts";
 
@@ -44,7 +44,7 @@ test("a greeting is brief and a lingering player cannot retrigger speech", () =>
   assert.equal(person.attentionYaw, Math.atan2(player.x - person.x, person.z - player.z));
   for (let time = 2; time <= 65; time++) {
     assert.equal(awareness.update(person, target, 0.1, time, [player], false), "continue");
-    if (time >= 4) assert.equal(person.bark, undefined);
+    if (time >= 7) assert.equal(person.bark, undefined); // held for reading time (barkHold), at most 7 s
     assert.equal(person.reaction, undefined);
   }
   awareness.update(person, target, 0.1, 75, [], false);
@@ -180,6 +180,40 @@ test("a detour blocked by a second arrival retraces its safe path", () => {
   }
   assert.ok(returning && turned);
   assert.ok(Math.hypot(person.x - 71.2, person.z - 90) < 0.001);
+});
+
+test("a player who lingers draws slow, staggered glances; a moving one does not", () => {
+  const watch = new LingerWatch(), person = { ...citizen(3), yaw: 0 }, other = { ...citizen(4), yaw: 0 };
+  const player = { id: "local", x: 74, z: 89 };
+  let previous = 0, looked = 0, together = 0;
+  for (let time = 0; time < 40; time += 1 / 30) {
+    const still = watch.observe([player], time);
+    if (time < LINGER_SECONDS - 0.01) assert.equal(still.length, 0, "not lingering yet");
+    const glance = glanceAt(person, still, time), second = glanceAt(other, still, time);
+    assert.ok(Math.abs(glance) <= 1.15 + 1e-9, "a glance, not a stare over the shoulder");
+    assert.ok(Math.abs(glance - previous) < 0.06, "the head turns smoothly");
+    if (glance) looked++;
+    if (glance && second) together++;
+    previous = glance;
+  }
+  assert.ok(looked > 30, "the lingering player is glanced at");
+  assert.ok(together < looked, "a group does not turn in unison");
+  // Walking about (moving more than the drift each step) never counts as lingering.
+  const walker = new LingerWatch();
+  for (let time = 0; time < 30; time += 0.5) assert.equal(walker.observe([{ id: "local", x: 74 + time, z: 89 }], time).length, 0);
+});
+
+test("a sprinter barging through gets the odd remark, and nobody stops for it", () => {
+  let remarks = 0;
+  for (let id = 1; id <= 12; id++) {
+    const awareness = new CitizenAwareness(openWorld), person = citizen(id);
+    // Running past at 8 m/s, a couple of metres to the side (not in the way).
+    const response = awareness.update(person, target, 0.1, 0, [{ id: "local", x: 73.4, z: 90.5, speed: 8 }], false);
+    assert.equal(response, "continue");
+    assert.equal(person.reaction, undefined);
+    if (person.bark) { remarks++; assert.ok(person.bark.length < 30); }
+  }
+  assert.ok(remarks >= 1 && remarks <= 10, `${remarks} remarks from 12 residents`);
 });
 
 test("real district pavement detours never cut into buildings, traffic or park solids", () => {

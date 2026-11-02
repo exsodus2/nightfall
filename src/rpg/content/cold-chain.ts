@@ -20,21 +20,21 @@ const encounters: EncounterDefinition[] = [{
 const quest: QuestDefinition2 = {
   id: Q, title: "Cold Chain", category: "side", giver: "juniper",
   summary: "Carry a freshly grown lung from Juniper's clinic in the Rain Gardens to Tomas at the Ember Core before the cryo-case warms up.",
-  rewardHint: "300 cr if it arrives cold", recommendedLevel: 4, start: "run",
+  rewardHint: "300 cr and 2 medkits if it arrives cold", recommendedLevel: 4, start: "run",
   stages: [
     {
-      id: "run", journal: "The lung is cold for about two and a half minutes. Tomas is at the Ember Core in the Foundry, due north. The Razorbacks have heard there's something valuable in a box.",
+      id: "run", journal: "Dr. Juniper Vale grew Tomas a new lung, and it stays cold for two and a half minutes. Tomas is at the Ember Core in the Foundry, due north of her Rain Gardens clinic. Razorbacks on the way have heard there's something valuable in the box.",
       onEnter: [{ give: "cryo-case" }, { spawn: "cc-ambush" }, { waypoint: { x: -498, z: -266, label: "Tomas (Ember Core)" } }],
       timeLimit: 150, onTimeout: "warm",
-      objectives: [{ id: "deliver", kind: "deliver", text: "Get the cryo-case to Tomas before it warms up", item: "cryo-case", count: 1, npc: "tomas" }],
+      objectives: [{ id: "deliver", kind: "deliver", text: "Get the cryo-case to Tomas at the Ember Core, Foundry, before it warms up", item: "cryo-case", count: 1, npc: "tomas" }],
       next: "end-fresh",
     },
     {
-      id: "warm", journal: "The indicator went from blue to amber. It's still a lung. Just a worse one. Tomas will still take it - and Gauge, next to the Core, knows someone who pays for organs no questions asked.",
+      id: "warm", journal: "The indicator went from blue to amber. The lung still works, just worse. Tomas will take it. Gauge, at his gun table a block east of the Core, knows a buyer who pays for organs and asks nothing.",
       mode: "any",
       objectives: [
-        { id: "late", kind: "deliver", text: "Give Tomas the warm lung anyway", item: "cryo-case", count: 1, npc: "tomas" },
-        { id: "sell", kind: "choose", text: "Or sell it to Gauge", dialogue: "cc.gauge", options: ["sell"] },
+        { id: "late", kind: "deliver", text: "Give Tomas the warm lung anyway, at the Ember Core", item: "cryo-case", count: 1, npc: "tomas" },
+        { id: "sell", kind: "choose", text: "Or sell it to Gauge, the arms dealer a block east of the Ember Core", dialogue: "cc.gauge", options: ["sell"] },
       ],
       next: [{ if: { flag: "cold-chain.sell", is: "sell" }, stage: "end-sold" }, { stage: "end-late" }],
     },
@@ -66,7 +66,7 @@ const dialogues: DialogueDefinition[] = [
       node("offer", [
         "Tomas at the Ember Core has been breathing furnace air for forty years. I grew him a new lung. It's in the vat, it's beautiful, and it's dying.",
         "Once it's in the cryo-case you have about two and a half minutes. The Foundry is due north. Razorbacks in between.",
-        "Run. Don't shake it. Don't open it. And do NOT sell it.",
+        "You don't run for any gang, so nobody between here and there has a grudge with you yet. Three hundred and two medkits if it arrives cold. Don't shake it. Don't open it. And do NOT sell it.",
       ], [
         { id: "accept", label: "Hand me the case.", effects: [{ startQuest: Q }], next: "go" },
         bye("I'm not a courier.", "decline"),
@@ -82,7 +82,7 @@ const dialogues: DialogueDefinition[] = [
         { id: "sell", label: "Sell the lung (+600 cr).", kind: "complete", condition: { item: "cryo-case" }, effects: [{ take: "cryo-case" }], next: "sold" },
         bye("It's Tomas's."),
       ]),
-      node("sold", ["Pleasure. Tomas'll live. Probably. People mostly do, until they don't."], [LEAVE]),
+      node("sold", ["Pleasure. Tomas'll live. Probably. He's been breathing furnace soot for forty years; he's a professional."], [LEAVE]),
     ],
   },
 ];

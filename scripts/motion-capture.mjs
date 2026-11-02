@@ -33,8 +33,20 @@ const PATHS = {
   micropitch: t => [-12, 2.7, 12, 0.2, -0.035 + 0.0024 * (frames - 1) * t],
   micro: t => [-12, 2.7, 12, 0.2 + 0.0024 * (frames - 1) * t, -0.035],
 };
+// Rides: the camera is a passenger aboard a real train (a studio view), and only the clock steps, so
+// the eye follows the deck's rises, dips and curves exactly as in play. `rail` rides the City Loop
+// (train 0), `rim` the Rim Line (train 4); pick the stretch with --clock (e.g. --clock=66 for the
+// climb after the Rim Line's north-east corner).
+const RIDES = { rail: "carriage", rim: "rim-carriage" };
+// A fixed camera (`--path=fixed --cam=x,height,z,yaw,pitch`): only the clock steps, for watching an
+// animation (a train arriving, a door opening, a crane cycle) frame by frame. Pair it with --clock.
+if (pathName === "fixed") {
+  const cam = (args.get("cam") ?? "-12,2.7,12,0.2,-0.035").split(",").map(Number);
+  PATHS.fixed = () => cam;
+}
+const ride = RIDES[pathName];
 const path = PATHS[pathName];
-if (!path) throw new Error(`Unknown path "${pathName}". Use: ${Object.keys(PATHS).join(", ")}`);
+if (!path && !ride) throw new Error(`Unknown path "${pathName}". Use: ${[...Object.keys(PATHS), ...Object.keys(RIDES)].join(", ")}`);
 
 const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/google-chrome", "/usr/bin/chromium"].filter(Boolean);
 let executable;
@@ -56,14 +68,14 @@ try {
   const evaluate = async expression => { const result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text); return result.result.value; };
   await call("Runtime.enable"); await call("Page.enable");
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: Number(args.get("dpr") ?? 1), mobile: false });
-  await call("Page.navigate", { url: `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?studio=1&view=market&clean=1&clock=${args.get("clock") ?? 45}${args.has("query") ? `&${args.get("query")}` : ""}` });
+  await call("Page.navigate", { url: `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?studio=1&view=${ride ?? "market"}&clean=1&clock=${args.get("clock") ?? 45}${args.has("query") ? `&${args.get("query")}` : ""}` });
   for (let i = 0; i < 150; i++) { const phase = await evaluate("document.querySelector('main')?.dataset.phase").catch(() => null); if (phase === "error") throw Error(await evaluate("document.body.innerText")); if (phase === "intro") break; await delay(200); }
   await delay(Number(args.get("warm") ?? 2500));
   const step = Number(args.get("step") ?? 1 / fps);
   for (let frame = 0; frame < frames; frame++) {
-    const [x, height, z, yaw, pitch] = path(frames > 1 ? frame / (frames - 1) : 0);
+    const camera = ride ? "" : (([x, height, z, yaw, pitch]) => `n.inspect({ kind: "camera", x: ${x}, height: ${height}, z: ${z}, yaw: ${yaw}, pitch: ${pitch} });`)(path(frames > 1 ? frame / (frames - 1) : 0));
     // Advance the (frozen) world clock with the camera so animation is sampled at the same rate.
-    await evaluate(`(async () => { const n = window.__nightfall; n.inspect({ kind: "camera", x: ${x}, height: ${height}, z: ${z}, yaw: ${yaw}, pitch: ${pitch} }); if (${frame} > 0) n.inspect({ kind: "step", seconds: ${step} }); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); })()`);
+    await evaluate(`(async () => { const n = window.__nightfall; ${camera} if (${frame} > 0) n.inspect({ kind: "step", seconds: ${step} }); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); })()`);
     const image = await call("Page.captureScreenshot", clip ? { format: "png", clip: { x: clip[0], y: clip[1], width: clip[2], height: clip[3], scale: 1 } } : { format: "png" });
     pngs.push(Buffer.from(image.data, "base64"));
   }

@@ -107,7 +107,7 @@ for (const evidence of ["hum", "footage"] as const) {
     const rewarded = JSON.stringify(session.character.state);
     session.choose("reunite");
     assert.equal(session.quests.interact(terminalId), null);
-    session.save({ x: 504, z: 262, yaw: 0 });
+    session.save({ x: 502, z: 266, yaw: 0 });
     const restored = new RpgSession({ world, packs: CONTENT_PACKS, storage });
     assert.equal(restored.quests.flags.get(`weather.${evidence}`), true);
     assert.equal(canUseTerminal(restored), false);

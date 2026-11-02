@@ -44,12 +44,13 @@ export function viewDirection(yaw: number, pitch: number): Vec3 {
   return { x: Math.sin(yaw) * c, y: -Math.sin(pitch), z: -Math.cos(yaw) * c };
 }
 
-/** Distance along a ray (unit dir) to a vertical cylinder standing on the ground, or null. */
-export function rayCylinder(o: Vec3, d: Vec3, cx: number, cz: number, radius: number, height: number, maxDistance: number): number | null {
+/** Distance along a ray (unit dir) to a vertical cylinder from `base` (default: the ground) up to
+ * `height`, or null. A hovering drone passes its hull's underside as `base`. */
+export function rayCylinder(o: Vec3, d: Vec3, cx: number, cz: number, radius: number, height: number, maxDistance: number, base = 0): number | null {
   const ox = o.x - cx, oz = o.z - cz;
   const a = d.x * d.x + d.z * d.z;
   const inside = ox * ox + oz * oz <= radius * radius;
-  if (inside) return o.y >= 0 && o.y <= height ? 0 : null;
+  if (inside) return o.y >= base && o.y <= height ? 0 : null;
   if (a < 1e-12) return null;
   const b = ox * d.x + oz * d.z, c = ox * ox + oz * oz - radius * radius;
   const disc = b * b - a * c;
@@ -57,7 +58,13 @@ export function rayCylinder(o: Vec3, d: Vec3, cx: number, cz: number, radius: nu
   const t = (-b - Math.sqrt(disc)) / a;
   if (t < 0 || t > maxDistance) return null;
   const y = o.y + d.y * t;
-  return y >= 0 && y <= height ? t : null;
+  if (y >= base && y <= height) return t;
+  // Entering through the underside (a shot from below a hovering hull).
+  if (base > 0 && Math.abs(d.y) > 1e-9) {
+    const tb = (base - o.y) / d.y;
+    if (tb >= 0 && tb <= maxDistance && (o.x + d.x * tb - cx) ** 2 + (o.z + d.z * tb - cz) ** 2 <= radius * radius) return tb;
+  }
+  return null;
 }
 
 /** Rotates unit vector `d` toward unit vector `target` by at most `maxAngle` radians. */

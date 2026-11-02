@@ -205,7 +205,7 @@ try {
     await key("keyDown", "KeyT", "t", 84);
     await key("keyUp", "KeyT", "t", 84);
     await delay(500);
-    assert.equal(await evaluate("document.querySelector('[role=dialog] h2')?.textContent"), "Enjoy the ride.");
+    assert.equal(await evaluate("document.querySelector('[role=dialog] h2')?.textContent"), "Transit"); // panel heading (copy de-slopped 2026-10-12)
     const positionExpression = "(() => { const d=document.querySelector('.coordinates').dataset; return [d.x,d.z,d.y,d.yaw].join(','); })()";
     const pausedPosition = await evaluate(positionExpression);
     await delay(500);

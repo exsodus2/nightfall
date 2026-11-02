@@ -21,27 +21,27 @@ const encounters: EncounterDefinition[] = [{
 const quest: QuestDefinition2 = {
   id: Q, title: "Tusk Tax", category: "side", giver: "kestrel",
   summary: "Gristle's Razorbacks take thirty percent of the Afterlight Arcade. Talk him out of it. Or don't talk.",
-  rewardHint: "300-500 cr, a monofilament whip if he folds", recommendedLevel: 4, start: "talk",
+  rewardHint: "300-500 cr, the Tilde Whip if he folds", recommendedLevel: 4, start: "talk",
   stages: [
     {
-      id: "talk", journal: "Gristle holds the corner west of the Arcade with four of his crew. He likes to talk. Mostly about money.",
-      onEnter: [{ spawn: "tt-crew" }, { waypoint: { x: 391.2, z: 184.8, label: "Gristle" } }],
-      objectives: [{ id: "talk", kind: "condition", text: "Negotiate with Gristle", condition: { flag: "tt.verdict" }, target: { x: 391.2, z: 184.8 } }],
+      id: "talk", journal: "Gristle holds the corner north-west of the Afterlight Arcade, Spillway, with four of his crew. He likes to talk, mostly about money. You get three rounds.",
+      onEnter: [{ spawn: "tt-crew" }, { waypoint: { x: 392, z: 181, label: "Gristle" } }],
+      objectives: [{ id: "talk", kind: "condition", text: "Negotiate with Gristle on the corner north-west of the Afterlight Arcade, Spillway", condition: { flag: "tt.verdict" }, target: { x: 392, z: 181 } }],
       next: [{ if: flagIs("tt.verdict", "fight"), stage: "brawl" }, { stage: "report" }],
     },
     {
-      id: "brawl", journal: "Talks failed. Gristle ducked behind his crew. Put them down.",
-      objectives: [{ id: "clear", kind: "clear", text: "Put down Gristle's crew", encounter: "tt-crew" }],
+      id: "brawl", journal: "Talks failed. Gristle ducked behind his crew on the corner north-west of the Afterlight Arcade, and they're coming at you.",
+      objectives: [{ id: "clear", kind: "clear", text: "Put down Gristle's crew on the corner north-west of the Arcade", encounter: "tt-crew" }],
       next: "report",
     },
     {
-      id: "report", journal: "Tell Mama Kestrel how it went.",
-      objectives: [{ id: "report", kind: "choose", text: "Report to Mama Kestrel", dialogue: "tt.kestrel", options: ["report"] }],
+      id: "report", journal: "It's settled, one way or another. Tell Mama Kestrel at the Afterlight Arcade.",
+      objectives: [{ id: "report", kind: "choose", text: "Report to Mama Kestrel at the Afterlight Arcade", dialogue: "tt.kestrel", options: ["report"] }],
       next: [{ if: flagIs("tt.verdict", "folded"), stage: "end-folded" }, { if: flagIs("tt.verdict", "deal"), stage: "end-deal" }, { stage: "end-forced" }],
     },
-    ending("end-folded", "Gristle folded.", "folded"),
-    ending("end-deal", "A deal was struck.", "deal"),
-    ending("end-forced", "The crew was broken.", "forced"),
+    ending("end-folded", "Gristle dropped the tax on the Arcade.", "folded"),
+    ending("end-deal", "Gristle settled for five percent.", "deal"),
+    ending("end-forced", "You broke Gristle's crew. The tax is off.", "forced"),
   ],
   outcomes: {
     folded: {
@@ -53,7 +53,7 @@ const quest: QuestDefinition2 = {
       effects: [{ credits: 300 }, { xp: 600 }, { rep: "razorbacks", by: 2 }],
     },
     forced: {
-      title: "Paid in Bruises", journal: "Gristle's crew is in the clinic and the tax is off. The Razorbacks will remember the Arcade. And you.",
+      title: "Paid in Bruises", journal: "Gristle's crew is in Juniper's clinic and the tax is off. Expect Razorback trouble around the Arcade for a while, and around you.",
       effects: [{ credits: 350 }, { xp: 700 }, { rep: "razorbacks", by: -15 }],
     },
   },
@@ -73,14 +73,14 @@ const dialogues: DialogueDefinition[] = [
       node("offer", [
         "Gristle. Razorback lieutenant. He takes thirty percent of my arcade every week and calls it a tax.",
         "Thirty percent! The city only takes twenty and at least the city pretends to fix the lights.",
-        "Talk to him. You look like you can talk. If you can't talk, you look like you can do the other thing.",
+        "Talk to him. You look like you can talk, and if you can't, you look like you can do the other thing. Whatever's in my TAXES jar is yours when it's done.",
       ], [
         { id: "accept", label: "I'll have a word.", effects: [{ startQuest: Q }], next: "waiting" },
         bye("Not my business, Mama.", "decline"),
       ]),
-      node("waiting", ["Gristle's on the corner west of here with his crew. Be polite first. It confuses them."], [LEAVE]),
+      node("waiting", ["Gristle's on the corner north-west of here with his crew. Be polite first. It confuses them."], [LEAVE]),
       node("report", ["Well? Do I still owe that pig thirty percent?"], [{ id: "report", label: "Tell her how it went.", kind: "complete", next: "paid" }]),
-      node("paid", ["[She counts out credits from a jar marked TAXES.] This jar is yours now, baby. It was always going somewhere."], [LEAVE]),
+      node("paid", ["[She counts out credits from a jar marked TAXES.] This jar is yours now, baby. Spend some of it on my cabinets."], [LEAVE]),
     ],
   },
   {

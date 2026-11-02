@@ -6,5 +6,7 @@ export const SCENE_VIEWS = [
   { id: "rooftops", title: "Skyline · distant detail", x: 85, z: 150, height: 165, yaw: -0.38, pitch: 0.27 },
   { id: "platform", title: "Station · boarding activity", x: 0, z: -320, height: 31.6, yaw: Math.PI / 2, pitch: 0, platform: 1 },
   { id: "carriage", title: "Monorail · occupied interior", x: 0, z: 0, height: 31.25, yaw: 0, pitch: -0.02, train: 0 },
+  { id: "rim-platform", title: "Rim Line · Signal Pier platform", x: 640, z: -768, height: 43.6, yaw: Math.PI / 2, pitch: 0, platform: 7 },
+  { id: "rim-carriage", title: "Rim Line · riding the city edge", x: 0, z: 0, height: 43.25, yaw: 0, pitch: -0.02, train: 4 },
 ] as const;
-export type InspectionCommand = { kind: "view"; id: string } | { kind: "clock"; seconds: number } | { kind: "step"; seconds: number } | { kind: "freeze"; value: boolean } | { kind: "camera"; x: number; z: number; height: number; yaw: number; pitch: number };
+export type InspectionCommand = { kind: "view"; id: string } | { kind: "room"; id: string; at?: "lift" } | { kind: "clock"; seconds: number } | { kind: "step"; seconds: number } | { kind: "freeze"; value: boolean } | { kind: "camera"; x: number; z: number; height: number; yaw: number; pitch: number };

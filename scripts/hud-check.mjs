@@ -10,7 +10,7 @@ const candidates = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/App
 let executable;
 for (const candidate of candidates) { try { await access(candidate); executable = candidate; break; } catch {} }
 if (!executable) throw Error("Set CHROME_PATH to an installed Chromium browser.");
-const port = 9347;
+const port = Number(process.argv.find(value => value.startsWith("--port="))?.slice(7) ?? 9347);
 const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${resolve(directory, "browser-profile")}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-extensions", "--enable-webgl", ...(process.argv.includes("--software") ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []), "--window-size=1440,960", "about:blank"], { windowsHide: true, stdio: "ignore" });
 let socket;
 const errors = [], report = [], failures = [];

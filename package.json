@@ -27,6 +27,7 @@
     "test:glasshouse": "node scripts/glasshouse-check.mjs",
     "test:undertone": "node scripts/undertone-check.mjs",
     "test:rail": "node --experimental-strip-types scripts/shared-rail-check.mjs",
+    "test:drive-chat": "node --experimental-strip-types scripts/drive-chat-check.mjs",
     "audit:visual": "node scripts/visual-audit.mjs",
     "audit:shaders": "node scripts/shader-startup-check.mjs --specialized",
     "audit:motion": "node scripts/motion-capture.mjs"

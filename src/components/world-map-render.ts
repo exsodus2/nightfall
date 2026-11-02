@@ -1,11 +1,21 @@
-import { BLOCK_SIZE, DISTRICTS, HALF_BLOCKS, LANDMARKS, WORLD_EDGE, type Building, type CityWorld, type Landmark } from "@/city/world";
-import { STATIONS, localToWorld, trainAt, worldToLocal } from "@/city/metro";
+import { BLOCK_SIZE, DISTRICTS, HALF_BLOCKS, LANDMARKS, SIGHTS, WORLD_EDGE, type Building, type CityWorld } from "@/city/world";
+import {
+  MAP_LANDMARK, MAP_LANDMARK_SPAN, MAP_OUTSIDE, MAP_PLATFORM, MAP_PLATFORM_SPAN, MAP_QUAY, MAP_SIGHT, MAP_SIGHT_SPAN, MAP_STREET, MAP_WALL_CORNER, MAP_WALL_H, MAP_WALL_V, MAP_WATER,
+  RAIL_DOWN, RAIL_H, RAIL_V, RIM_CODE, codeIndex, isRailCode, isRimCode, railCode,
+} from "./rail-map-codes";
+import { HARBOUR_REACH, HARBOUR_ROAD, HARBOUR_KERB } from "@/city/harbour";
+import { QUAY_FILL, QUAY_INK, SWELL_INK, WALL_INK, WALL_OUTER, WATER_FILL, WATER_INK, harbourCode, sightCode, sightFill, waterGlyph, wallGlyph } from "./harbour-map-layer";
+import { drawEventLayer, type MapEvent } from "./event-map-layer";
+import { LabelSpace, monoWidth } from "./world-map-labels";
+import { LINES, STATIONS, TRAIN_COUNT, localToWorld, trainAt, worldToLocal } from "@/city/metro";
 import { EW_STREETS, NS_STREETS } from "@/city/streets";
 import { formatMetres, type Waypoint } from "@/city/waypoints";
 import type { QuestSnapshot } from "@/city/quests";
 import { drawQuestLayer } from "./quest-map-layer";
 import type { InteriorPlace } from "@/city/interiors";
 import { drawVenueLayer } from "./venue-map-layer";
+import { GROUND_ICON_SCALE, drawGroundFloorLayer } from "./ground-floor-map-layer";
+import type { GroundFloorKind } from "@/city/interiors";
 
 /**
  * The world map, drawn as a terminal: the terrain is a grid of ASCII cells anchored to world
@@ -28,10 +38,12 @@ export const toWorld = (view: MapView, sx: number, sy: number): [number, number]
 export const minScale = (width: number, height: number): number => Math.max(0.05, Math.min(width, height) / (WORLD_EDGE * 2 + 180));
 
 // ── Cell classification ────────────────────────────────────────────────────────────────────────
-const OUTSIDE = -1, STREET = -2, RAIL_H = -3, RAIL_V = -4, RAIL_DOWN = -5, RAIL_UP = -6, PLATFORM = -7, LANDMARK = -20;
-const FOOTPRINT: Record<Landmark["kind"], number> = { spire: 13, gate: 0, reactor: 11, array: 10, garden: 9, market: 14 };
+// Every cell class lives in rail-map-codes.ts (tests/map-layers.test.ts keeps them apart).
+const OUTSIDE = MAP_OUTSIDE, STREET = MAP_STREET;
+/** Half footprint (m) per landmark kind; a kind added later gets a plaza-sized default. */
+const FOOTPRINT: Partial<Record<string, number>> = { spire: 13, gate: 0, reactor: 11, array: 10, garden: 9, market: 14 };
+const DEFAULT_FOOTPRINT = 10;
 const STYLE_FILL = [".", ":", "=", "/", "\"", "x", "'", "~"];
-const CORNERS = [{ x: 448, z: -256 }, { x: 448, z: 256 }, { x: -448, z: 256 }, { x: -448, z: -256 }];
 
 function rgb(color: readonly number[], gain: number): string {
   return `rgb(${Math.round(color[0] * gain)},${Math.round(color[1] * gain)},${Math.round(color[2] * gain)})`;
@@ -40,30 +52,19 @@ const LEVELS = [0.26, 0.4, 0.58, 0.8, 1];
 const DISTRICT_INK = DISTRICTS.map((district) => LEVELS.map((gain) => rgb(district.color, gain)));
 const STATION_INK = STATIONS.map((station) => rgb(station.color, 0.85));
 const LANDMARK_INK = LANDMARKS.map((landmark) => [rgb(landmark.color, 0.7), rgb(landmark.color, 1)]);
-const RAIL_INK = "#6fd6c4";
+/** Edge sights are a dimmer class than landmarks: they are scenery, not discoveries. */
+const SIGHT_INK = SIGHTS.map((sight) => [rgb(sight.color, 0.32), rgb(sight.color, 0.55)]);
+export const SIGHT_MARK = SIGHTS.map((sight) => rgb(sight.color, 0.62));
+const RAIL_INK = LINES[0].hex;
+const RIM_INK = LINES[1].hex;
 const ROAD_INK = "#2a5a60";
 const ROAD_CROSS_INK = "#3a7479";
-
-function railCode(x: number, z: number, halfW: number, halfH: number, halfArc: number): number {
-  if (Math.abs(x) <= 448 && (Math.abs(z + 320) < halfH || Math.abs(z - 320) < halfH)) return RAIL_H;
-  if (Math.abs(z) <= 256 && (Math.abs(x - 512) < halfW || Math.abs(x + 512) < halfW)) return RAIL_V;
-  for (const corner of CORNERS) {
-    const dx = x - corner.x, dz = z - corner.z;
-    if (Math.sign(dx) !== Math.sign(corner.x) || Math.sign(dz) !== Math.sign(corner.z)) continue;
-    if (Math.abs(Math.hypot(dx, dz) - 64) >= halfArc) continue;
-    const tx = -dz, tz = dx; // tangent (screen x right, z down)
-    if (Math.abs(tz) < Math.abs(tx) * 0.4) return RAIL_H;
-    if (Math.abs(tx) < Math.abs(tz) * 0.4) return RAIL_V;
-    return tx * tz > 0 ? RAIL_DOWN : RAIL_UP;
-  }
-  return 0;
-}
 
 function landmarkIndex(x: number, z: number): number {
   for (let i = 0; i < LANDMARKS.length; i++) {
     const landmark = LANDMARKS[i];
-    if (landmark.kind === "gate") { if (Math.abs(x) < 13.5 && Math.abs(z - landmark.z) < 2.2) return i; continue; }
-    const half = FOOTPRINT[landmark.kind];
+    if (landmark.kind === "gate") { if (Math.abs(x - landmark.x) < 13.5 && Math.abs(z - landmark.z) < 2.2) return i; continue; }
+    const half = FOOTPRINT[landmark.kind] ?? DEFAULT_FOOTPRINT;
     if (Math.abs(x - landmark.x) < half && Math.abs(z - landmark.z) < half) return i;
   }
   return -1;
@@ -125,12 +126,15 @@ export class TerrainLayer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly world: CityWorld;
   private readonly blocks: (readonly Building[])[] = [];
+  private readonly byId: (Building | undefined)[] = [];
   private atlas: GlyphAtlas | null = null;
   private key = "";
   private codes = new Int32Array(0);
 
   constructor(world: CityWorld) {
     this.world = world;
+    // Cells store building ids; ids are not array indices once plots are cleared (landmarks, harbour).
+    for (const building of world.buildings) this.byId[building.id] = building;
     const span = HALF_BLOCKS * 2;
     for (let bz = -HALF_BLOCKS; bz < HALF_BLOCKS; bz++) for (let bx = -HALF_BLOCKS; bx < HALF_BLOCKS; bx++) {
       this.blocks[(bz + HALF_BLOCKS) * span + bx + HALF_BLOCKS] = world.blocks.get(`${bx},${bz}`)?.buildings ?? [];
@@ -173,8 +177,11 @@ export class TerrainLayer {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = "rgba(2, 7, 10, 0.6)";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "rgba(4, 11, 15, 0.9)";
-    ctx.fillRect(sx(-WORLD_EDGE), sy(-WORLD_EDGE), WORLD_EDGE * 2 * pxPerMetre, WORLD_EDGE * 2 * pxPerMetre);
+    // The harbour: open water out to its reach, the quay up to the flood wall, then the city.
+    const square = (half: number, fill: string) => { ctx.fillStyle = fill; ctx.fillRect(sx(-half), sy(-half), half * 2 * pxPerMetre, half * 2 * pxPerMetre); };
+    square(HARBOUR_REACH, WATER_FILL);
+    square(WALL_OUTER, QUAY_FILL);
+    square(HARBOUR_ROAD + HARBOUR_KERB, "rgba(4, 11, 15, 0.94)");
     // Faint district washes under the characters.
     for (const district of DISTRICTS) {
       const x0 = district.x < -100 ? -WORLD_EDGE : district.x > 100 ? 256 : -256, x1 = district.x < -100 ? -256 : district.x > 100 ? WORLD_EDGE : 256;
@@ -183,8 +190,8 @@ export class TerrainLayer {
       ctx.fillRect(sx(x0), sy(z0), (x1 - x0) * pxPerMetre, (z1 - z0) * pxPerMetre);
     }
 
-    const i0 = Math.floor(Math.max(left, -WORLD_EDGE) / cellW) - 1, i1 = Math.ceil(Math.min(left + W / pxPerMetre, WORLD_EDGE) / cellW) + 1;
-    const j0 = Math.floor(Math.max(top, -WORLD_EDGE) / cellH) - 1, j1 = Math.ceil(Math.min(top + H / pxPerMetre, WORLD_EDGE) / cellH) + 1;
+    const i0 = Math.floor(Math.max(left, -HARBOUR_REACH) / cellW) - 1, i1 = Math.ceil(Math.min(left + W / pxPerMetre, HARBOUR_REACH) / cellW) + 1;
+    const j0 = Math.floor(Math.max(top, -HARBOUR_REACH) / cellH) - 1, j1 = Math.ceil(Math.min(top + H / pxPerMetre, HARBOUR_REACH) / cellH) + 1;
     const cols = Math.max(0, i1 - i0 + 1), rows = Math.max(0, j1 - j0 + 1);
     if (!cols || !rows) return this.canvas;
     if (this.codes.length < cols * rows) this.codes = new Int32Array(cols * rows);
@@ -196,15 +203,24 @@ export class TerrainLayer {
       for (let i = 0; i < cols; i++) {
         const x0 = (i0 + i) * cellW, xc = x0 + cellW / 2;
         let code: number;
-        if (Math.abs(xc) > WORLD_EDGE || Math.abs(zc) > WORLD_EDGE) code = OUTSIDE;
-        else {
+        const outside = Math.abs(xc) > WORLD_EDGE || Math.abs(zc) > WORLD_EDGE;
+        // The Rim Line runs on the world edge: its outer half still draws, over the harbour. Past
+        // it: an edge sight's footprint, the flood wall, the quay or open water (harbour-map-layer.ts).
+        if (outside) {
+          code = Math.abs(xc) > WORLD_EDGE + halfW || Math.abs(zc) > WORLD_EDGE + halfH ? 0 : railCode(xc, zc, halfW, halfH, halfArc);
+          if (!code) {
+            // The flood wall stays one unbroken line, drawn through the sights moored against it.
+            const harbour = harbourCode(xc, zc, cellW / 2, cellH / 2);
+            code = (harbour === MAP_WALL_H || harbour === MAP_WALL_V || harbour === MAP_WALL_CORNER ? harbour : sightCode(xc, zc, cellW / 2, cellH / 2) || harbour) || OUTSIDE;
+          }
+        } else {
           const landmark = landmarkIndex(xc, zc);
-          if (landmark >= 0) code = LANDMARK - landmark;
+          if (landmark >= 0) code = MAP_LANDMARK - landmark;
           else {
             code = railCode(xc, zc, halfW, halfH, halfArc);
             if (!code) {
               const platform = coarse ? -1 : onPlatform(xc, zc);
-              if (platform >= 0) code = PLATFORM - 100 - platform;
+              if (platform >= 0) code = MAP_PLATFORM - platform;
               // Zoomed out, a cell that contains a street centreline is street, so the grid never closes up.
               else if (coarse && (Math.floor(x0 / BLOCK_SIZE) !== Math.floor((x0 + cellW) / BLOCK_SIZE) || Math.floor(z0 / BLOCK_SIZE) !== Math.floor((z0 + cellH) / BLOCK_SIZE))) code = STREET;
               else code = this.buildingAt(xc, zc)?.id ?? STREET;
@@ -226,7 +242,8 @@ export class TerrainLayer {
         if (code === OUTSIDE) continue;
         let glyph = "", color = "";
         if (code >= 0) {
-          const building = this.world.buildings[code];
+          const building = this.byId[code];
+          if (!building) continue;
           const base = building.height < 60 ? 1 : building.height < 100 ? 2 : 3;
           const ink = DISTRICT_INK[building.district];
           const spanX = building.width / cellW, spanZ = building.depth / cellH;
@@ -241,16 +258,30 @@ export class TerrainLayer {
             else if (horizontal) { glyph = "-"; color = ink[Math.min(4, base + 1)]; }
             else { glyph = STYLE_FILL[building.style]; color = ink[base - 1]; }
           }
-        } else if (code === RAIL_H) { glyph = "═"; color = RAIL_INK; }
-        else if (code === RAIL_V) { glyph = "║"; color = RAIL_INK; }
-        else if (code === RAIL_DOWN) { glyph = "╲"; color = RAIL_INK; }
-        else if (code === RAIL_UP) { glyph = "╱"; color = RAIL_INK; }
-        else if (code <= PLATFORM - 100) { glyph = ":"; color = STATION_INK[PLATFORM - 100 - code]; }
-        else if (code <= LANDMARK && code > LANDMARK - 10) {
-          const index = LANDMARK - code;
+        } else if (isRailCode(code)) {
+          // City Loop and Rim Line, each in its line colour.
+          const rim = isRimCode(code), kind = rim ? code - RIM_CODE : code;
+          glyph = kind === RAIL_H ? "═" : kind === RAIL_V ? "║" : kind === RAIL_DOWN ? "╲" : "╱"; color = rim ? RIM_INK : RAIL_INK;
+        }
+        else if (code === MAP_WATER) {
+          glyph = waterGlyph(i0 + i, j0 + j); color = glyph === "~" ? SWELL_INK : WATER_INK;
+        } else if (code === MAP_WALL_H || code === MAP_WALL_V || code === MAP_WALL_CORNER) {
+          glyph = wallGlyph(code, ((i0 + i) + 0.5) * cellW, zc); color = WALL_INK;
+        } else if (code === MAP_QUAY) {
+          // Concrete pours: a sparse dot grid once the quay is several cells wide.
+          if (markings && (i0 + i) % 3 === 0 && (j0 + j) % 2 === 0) { glyph = "."; color = QUAY_INK; }
+        } else if (codeIndex(code, MAP_PLATFORM, MAP_PLATFORM_SPAN) >= 0) { glyph = ":"; color = STATION_INK[codeIndex(code, MAP_PLATFORM, MAP_PLATFORM_SPAN)]; }
+        else if (codeIndex(code, MAP_LANDMARK, MAP_LANDMARK_SPAN) >= 0) {
+          const index = codeIndex(code, MAP_LANDMARK, MAP_LANDMARK_SPAN);
           const edge = at(i - 1, j) !== code || at(i + 1, j) !== code || at(i, j - 1) !== code || at(i, j + 1) !== code;
           glyph = edge ? "#" : "@"; color = LANDMARK_INK[index][edge ? 1 : 0];
-        } else if (markings) {
+        } else if (codeIndex(code, MAP_SIGHT, MAP_SIGHT_SPAN) >= 0) {
+          // Edge sights: a dim outline and a kind fill (containers, sluice gates, cable).
+          const index = codeIndex(code, MAP_SIGHT, MAP_SIGHT_SPAN);
+          const vertical = at(i - 1, j) !== code || at(i + 1, j) !== code, horizontal = at(i, j - 1) !== code || at(i, j + 1) !== code;
+          glyph = vertical && horizontal ? "+" : vertical ? "|" : horizontal ? "-" : sightFill(SIGHTS[index]);
+          color = SIGHT_INK[index][vertical || horizontal ? 1 : 0];
+        } else if (code === STREET && markings) {
           const xc = ((i0 + i) + 0.5) * cellW;
           const nearNs = Math.abs(xc - Math.round(xc / BLOCK_SIZE) * BLOCK_SIZE) < cellW / 2;
           const nearEw = Math.abs(zc - Math.round(zc / BLOCK_SIZE) * BLOCK_SIZE) < cellH / 2;
@@ -284,6 +315,11 @@ export interface OverlayData {
   hoverId: string | null;
   friends: readonly MapFriend[];
   time: number;
+  /** Live city events (event-map-layer.ts mapEvents at the scene clock); optional for older callers. */
+  events?: readonly MapEvent[];
+  /** Ground-floor discovery icons: drawn when zoomed in, minus the hidden kinds. Omit `world` to skip. */
+  world?: CityWorld;
+  groundHidden?: ReadonlySet<GroundFloorKind>;
 }
 
 function halo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fill: string, width = 3): void {
@@ -447,36 +483,25 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, view: MapView, data: 
     ctx.restore();
   }
 
-  // Elevated rail: trains moving along the loop.
+  // Elevated rail: trains moving along both lines, glowing in their line colour.
   ctx.save();
-  for (let id = 0; id < 4; id++) {
+  for (let id = 0; id < TRAIN_COUNT; id++) {
     const train = trainAt(data.metroTime, id);
     const front = localToWorld(train, 0, -21.7), rear = localToWorld(train, 0, 21.7);
     const fx = px(front.x), fy = pz(front.z), rx = px(rear.x), ry = pz(rear.z);
     if (!inside(fx, fy, 30) && !inside(rx, ry, 30)) continue;
-    ctx.strokeStyle = "#e9fff6"; ctx.shadowColor = "#6fd6c4"; ctx.shadowBlur = 8; ctx.lineCap = "round";
+    ctx.strokeStyle = "#e9fff6"; ctx.shadowColor = LINES[train.line].hex; ctx.shadowBlur = 8; ctx.lineCap = "round";
     ctx.lineWidth = Math.max(3, Math.min(8, 3.4 * scale));
     ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(rx, ry); ctx.stroke();
   }
   ctx.restore();
 
-  // Stations.
-  ctx.save();
-  ctx.textAlign = "center";
-  for (const station of STATIONS) {
-    const x = px(station.x), y = pz(station.z);
-    if (!inside(x, y, 60)) continue;
-    ctx.fillStyle = "#061014"; ctx.strokeStyle = station.hex; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.rect(x - 5, y - 5, 10, 10); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = station.hex; ctx.fillRect(x - 2, y - 2, 4, 4);
-    if (scale > 0.55) {
-      ctx.font = `10px ${MONO}`;
-      halo(ctx, `${station.name} Stn`, x, y + (station.z < 0 ? -15 : 16), station.hex);
-    }
-  }
-  ctx.restore();
+  // Point labels share one space: each steps to a free row when the first choice is taken, in
+  // priority order (landmarks, live events, stations, venues; edge sights give way entirely).
+  const labels = new LabelSpace();
+  const layerView = { px, pz, size: Math.max(width, height), extent: Math.max(width, height) / 2 / scale, centerX: view.cx, centerZ: view.cz, full: true };
 
-  // Landmarks.
+  // Landmarks (every LANDMARKS entry, however many there are).
   ctx.save();
   ctx.textAlign = "center";
   for (const landmark of LANDMARKS) {
@@ -489,15 +514,65 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, view: MapView, data: 
     ctx.strokeRect(-6, -6, 12, 12);
     if (found) { ctx.fillStyle = color; ctx.fillRect(-3, -3, 6, 6); }
     ctx.restore();
-    ctx.font = `${scale > 1.4 ? 12 : 11}px ${MONO}`;
-    halo(ctx, `${landmark.name}${found ? "  ✓" : ""}`, x, y + 19, found ? "#eef2dc" : color);
+    const size = scale > 1.4 ? 12 : 11, text = `${landmark.name}${found ? "  ✓" : ""}`;
+    ctx.font = `${size}px ${MONO}`;
+    const ly = labels.place(x, y, monoWidth(text, size), size + 2, [19, -19, 32], true) ?? y + 19;
+    halo(ctx, text, x, ly, found ? "#eef2dc" : color);
   }
   ctx.restore();
 
-  drawVenueLayer(ctx, { px, pz, size: Math.max(width, height), extent: Math.max(width, height) / 2 / scale, centerX: view.cx, centerZ: view.cz, full: true }, data.venues, scale > 0.85, data.waypoints);
+  // Edge sights (world.ts SIGHTS): harbour-scale scenery, a dimmer class than landmarks: a plain
+  // square (landmarks are diamonds), and a name that gives way to any other label.
+  ctx.save();
+  ctx.textAlign = "center";
+  for (let index = 0; index < SIGHTS.length; index++) {
+    const sight = SIGHTS[index];
+    const x = px(sight.x), y = pz(sight.z);
+    if (!inside(x, y, 80)) continue;
+    const color = SIGHT_MARK[index];
+    ctx.strokeStyle = color; ctx.lineWidth = 1.2; ctx.fillStyle = "#061014";
+    ctx.beginPath(); ctx.rect(x - 4.5, y - 4.5, 9, 9); ctx.fill(); ctx.stroke();
+    if (scale > 0.5) {
+      ctx.font = `10px ${MONO}`;
+      const ly = labels.place(x, y, monoWidth(sight.name, 10), 12, [16, -16]);
+      if (ly !== null) halo(ctx, sight.name, x, ly, color);
+    }
+  }
+  ctx.restore();
+
+  // Live city events: a calm breathing marker and, zoomed in, the happening's short name.
+  if (data.events?.length) drawEventLayer(ctx, layerView, data.events, { time: data.time, labels: scale > 0.9, space: labels });
+
+  // Stations.
+  ctx.save();
+  ctx.textAlign = "center";
+  for (const station of STATIONS) {
+    const x = px(station.x), y = pz(station.z);
+    if (!inside(x, y, 60)) continue;
+    ctx.fillStyle = "#061014"; ctx.strokeStyle = station.hex; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(x - 5, y - 5, 10, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = station.hex; ctx.fillRect(x - 2, y - 2, 4, 4);
+    if (scale > 0.55) {
+      ctx.font = `10px ${MONO}`;
+      // Loop labels sit outside the loop; Rim Line labels inside the city edge, toward the platform side.
+      const text = `${station.name} Stn`, width = monoWidth(text, 10);
+      if (station.line === 0) {
+        const away = station.z < 0 ? -1 : 1;
+        halo(ctx, text, x, labels.place(x, y, width, 12, [16 * away, 28 * away, -16 * away], true) ?? y + 16 * away, station.hex);
+      } else {
+        const lx = x + Math.cos(station.yaw) * 44, base = Math.sin(station.yaw) * 18 + 3;
+        halo(ctx, text, lx, labels.place(lx, y, width, 12, [base, base + 13, base - 13], true) ?? y + base, station.hex);
+      }
+    }
+  }
+  ctx.restore();
+
+  // Ground-floor kind icons sit beneath venues, quests and waypoints.
+  if (data.world && scale >= GROUND_ICON_SCALE) drawGroundFloorLayer(ctx, layerView, { world: data.world, hidden: data.groundHidden ?? new Set() });
+  drawVenueLayer(ctx, layerView, data.venues, scale > 0.85, data.waypoints, labels);
 
   // Named NPCs, quest givers and the tracked quest target (shared with the minimap).
-  drawQuestLayer(ctx, { px, pz, size: Math.max(width, height), extent: Math.max(width, height) / 2 / scale, centerX: view.cx, centerZ: view.cz, full: true }, data.quests);
+  drawQuestLayer(ctx, layerView, data.quests, labels);
 
   // Line from the player to the active waypoint.
   const active = data.activeId ? data.waypoints.find((waypoint) => waypoint.id === data.activeId) ?? null : null;

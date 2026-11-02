@@ -61,6 +61,15 @@ export function combatHudLayout(cols: number, rows: number, viewport?: HudViewpo
   return { vitals, weapon, boss };
 }
 
+/** Where the "threat" cue (an encounter just noticed you) goes: the boss bar's slot, which every
+ * viewport already keeps clear of the header, quest column, minimap and touch controls. Null while
+ * a boss bar is up (it is the threat cue then) or when the slot is too small to read. */
+export function threatCueSlot(layout: CombatHudLayout, bossVisible: boolean): { x: number; y: number; width: number } | null {
+  const slot = layout.boss;
+  if (bossVisible || slot.width < 12 || slot.height < 1) return null;
+  return { x: slot.left + Math.floor(slot.width / 2), y: slot.top + Math.min(1, slot.height - 1), width: slot.width };
+}
+
 export function fitHudText(value: string, width: number): string {
   const length = Math.max(0, Math.floor(finite(width, 0)));
   if (!length) return "";

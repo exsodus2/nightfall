@@ -12,7 +12,7 @@ import styles from "./touch-controls.module.css";
  *    steers (left/right) and drives (up = throttle, down = brake then reverse), so one thumb drives.
  *  - Right half: swipe to look, with a speed curve (fast flicks turn further). Optional gyro aim.
  *  - Thumb buttons bottom right (context: Jump / Fly / Rise / Descend / Handbrake / Camera / Interact),
- *    pause and a drawer with Transit, Map, Quests, Radio, Chat, Online and Settings top right.
+ *    pause and a drawer with Transit, Map, Quests, Radio, Chat, Online, Photo and Settings top right.
  * Every pointer is tracked by id, so moving, looking and pressing a button work at the same time.
  * Per-frame input never touches React state: it goes straight to the controller.
  */
@@ -30,6 +30,8 @@ export interface TouchControlsProps {
   onInventory?: () => void;
   onOnline: () => void;
   onSettings: () => void;
+  /** Photo mode: hides the interface for a clean shot (photo-mode.tsx). */
+  onPhoto?: () => void;
 }
 
 const STICK_RADIUS = 56;        // CSS px of travel for full speed
@@ -194,11 +196,12 @@ export function TouchControls(props: TouchControlsProps) {
       {menu(radioOpen ? "Hide radio" : "Radio", "♪", props.onRadio, { pressed: radioOpen })}
       {menu("Chat", "›", () => window.dispatchEvent(new Event("nightfall:chat-open")), { hidden: !online })}
       {menu("Online", "◉", props.onOnline)}
+      {props.onPhoto ? menu("Photo", "◫", props.onPhoto) : null}{/* Photo mode */}
       {menu("Settings", "☷", props.onSettings)}
     </nav> : null}
 
     <div className={styles.actions} data-mode={mode}>
-      {canInteract ? <button type="button" className={styles.interact} data-touch-action="interact" {...tap(() => controller.current?.interact())}><b>E</b><span>{interaction}</span></button>
+      {canInteract ? <button type="button" className={styles.interact} data-touch-action="interact" aria-label={interaction} {...tap(() => controller.current?.interact())}><b>E</b><span>{interaction}</span></button>
         : interaction ? <span className={styles.hint}>{interaction}</span> : null}
       {riding ? <button type="button" className={styles.pill} data-touch-action="exit" {...tap(() => controller.current?.setMode("walk"))}>Exit ride</button> : null}
       {mode === "walk" ? <>

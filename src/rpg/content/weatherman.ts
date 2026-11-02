@@ -18,33 +18,33 @@ const spot = (id: string, label: string, x: number, z: number, glyph: string, te
 });
 
 const interactables: InteractableDefinition[] = [
-  spot("van", "Dex's broadcast van", 506, 300, "=", "Bullet holes in the van's side door. The metal is punched outwards. Somebody shot their way OUT of the van, not in."),
-  spot("syrup", "Red puddle by the kerb", 470, 314, "~", "A red puddle where the body should be. You dab it. It's cold, sweet and smells of cherry. Slushie syrup, about four litres of it."),
-  spot("ledger", "Dex's ledger", 454, 300, "L", "Dex owed the Razorbacks 4,000 cr. The last entry, in fresh ink: 'PAID IN FULL (sort of)'."),
-  spot("casings", "Spent casings", 510, 308, ",", "11mm casings, CorpSec pattern - but the stamps are filed off. Cheap copies. Gauge in the Foundry sells these by the bucket."),
+  spot("van", "Dex's broadcast van", 504, 300, "=", "Bullet holes in the van's side door. The metal is punched outwards. Somebody shot their way OUT of the van, not in."),
+  spot("syrup", "Red puddle by the kerb", 469.5, 312, "~", "A red puddle where the body should be. You dab it. It's cold, sweet and smells of cherry. Slushie syrup, about four litres of it."),
+  spot("ledger", "Dex's ledger", 456, 300, "L", "Dex owed the Razorbacks 4,000 cr. The last entry, in fresh ink: 'PAID IN FULL (sort of)'."),
+  spot("casings", "Spent casings", 504.5, 308, ",", "11mm casings, CorpSec pattern - but the stamps are filed off. Cheap copies. Gauge in the Foundry sells these by the bucket."),
   { id: "weather-cctv", label: "Arcade security terminal", x: 466, z: 272, y: 1.4, glyph: ">", condition: { all: [active(Q), { not: CCTV_EVIDENCE }] }, dialogue: "weather.cctv" },
 ];
 
 const quest: QuestDefinition2 = {
   id: Q, title: "Cloudy, Chance of Murder", category: "side", giver: "kestrel",
-  summary: "Dex Solano, the pirate weatherman, is gone and his van is full of holes. Mama Kestrel wants to know who killed him.",
+  summary: "Dex Solano, the Spillway's pirate weatherman, is gone and his van behind the Afterlight Arcade is full of holes. Mama Kestrel wants a name.",
   rewardHint: "150-500 cr, depends who you blame", recommendedLevel: 3, start: "investigate",
   stages: [
     {
-      id: "investigate", journal: "Dex broadcast from a van behind the Afterlight Arcade. Search the scene. Look closely: the city lies.",
+      id: "investigate", journal: "Dex broadcast from a van parked behind the Afterlight Arcade in the Spillway. Search the van, the kerb and his ledger before you believe anybody's story.",
       onEnter: [{ waypoint: { x: 490, z: 300, label: "Dex's van" } }],
       objectives: [
-        { id: "van", kind: "interact", text: "Examine Dex's van", object: "weather-van" },
-        { id: "syrup", kind: "interact", text: "Examine the puddle by the kerb", object: "weather-syrup" },
-        { id: "ledger", kind: "interact", text: "Read Dex's ledger", object: "weather-ledger" },
-        { id: "casings", kind: "interact", text: "Check the spent casings", object: "weather-casings", optional: true },
+        { id: "van", kind: "interact", text: "Examine Dex's van behind the Afterlight Arcade", object: "weather-van" },
+        { id: "syrup", kind: "interact", text: "Examine the red puddle on the kerb behind the Afterlight Arcade", object: "weather-syrup" },
+        { id: "ledger", kind: "interact", text: "Read Dex's ledger by the Afterlight Arcade's back wall", object: "weather-ledger" },
+        { id: "casings", kind: "interact", text: "Check the spent casings near the van", object: "weather-casings", optional: true },
         { id: "cctv", kind: "condition", text: "Recover the arcade's security recording", condition: CCTV_EVIDENCE, target: { x: 466, z: 272 }, optional: true },
       ],
       next: "accuse",
     },
     {
-      id: "accuse", journal: "You've seen enough to have an opinion. Tell Kestrel who did it - and be sure. (You can keep looking first.)",
-      objectives: [{ id: "accuse", kind: "choose", text: "Tell Mama Kestrel who killed Dex", dialogue: "weather.kestrel", options: ["accuse-rb", "accuse-corp", "accuse-faked"] }],
+      id: "accuse", journal: "You have enough for a theory. Tell Mama Kestrel at the Afterlight Arcade who took Dex; she will act on whatever you say, so be sure. The optional clues are still there.",
+      objectives: [{ id: "accuse", kind: "choose", text: "Tell Mama Kestrel (Afterlight Arcade) who killed Dex", dialogue: "weather.kestrel", options: ["accuse-rb", "accuse-corp", "accuse-faked"] }],
       next: [
         { if: { flag: "weatherman.accuse", is: "accuse-faked" }, stage: "confront" },
         { if: { flag: "weatherman.accuse", is: "accuse-corp" }, stage: "end-corpsec" },
@@ -52,23 +52,23 @@ const quest: QuestDefinition2 = {
       ],
     },
     {
-      id: "confront", journal: "Nobody killed Dex. A man in a raincoat has been humming the weather jingle by the arcade all week. Have a word with Mr. Nimbus.",
-      objectives: [{ id: "deal", kind: "choose", text: "Confront Mr. Nimbus", dialogue: "weather.nimbus", options: ["reunite", "bribe", "sell"] }],
+      id: "confront", journal: "Nobody killed Dex. Mr. Nimbus, the man in the raincoat outside the Afterlight Arcade, has been humming the weather jingle all week. Confront him.",
+      objectives: [{ id: "deal", kind: "choose", text: "Confront Mr. Nimbus outside the Afterlight Arcade", dialogue: "weather.nimbus", options: ["reunite", "bribe", "sell"] }],
       next: [
         { if: { flag: "weatherman.deal", is: "sell" }, stage: "end-sold" },
         { if: { flag: "weatherman.deal", is: "bribe" }, stage: "end-bribed" },
         { stage: "end-reunion" },
       ],
     },
-    ending("end-razorbacks", "Kestrel believed you.", "blamed-razorbacks"),
-    ending("end-corpsec", "Kestrel believed you.", "blamed-corpsec"),
-    ending("end-reunion", "Dex went home.", "reunion"),
-    ending("end-bribed", "Dex paid.", "hush-money"),
-    ending("end-sold", "The Razorbacks collected.", "sold-out"),
+    ending("end-razorbacks", "You told Kestrel the Razorbacks killed Dex. She believed you.", "blamed-razorbacks"),
+    ending("end-corpsec", "You told Kestrel CorpSec killed Dex. She believed you.", "blamed-corpsec"),
+    ending("end-reunion", "Dex went home to Kestrel.", "reunion"),
+    ending("end-bribed", "Dex paid you to keep him dead.", "hush-money"),
+    ending("end-sold", "You sold Dex to the Razorbacks.", "sold-out"),
   ],
   outcomes: {
     "blamed-razorbacks": {
-      title: "Easy Answer", journal: "Kestrel's nephews went looking for Razorbacks. The Razorbacks went looking for you. Somewhere, a man in a raincoat relaxed.",
+      title: "Easy Answer", journal: "Kestrel's nephews went looking for Razorbacks. The Razorbacks went looking for you. Outside the arcade, a man in a raincoat stopped humming for a whole evening.",
       effects: [{ credits: 150 }, { xp: 350 }, { rep: "razorbacks", by: -10 }, { setFlag: "weather.blamed", value: "razorbacks" }],
     },
     "blamed-corpsec": {
@@ -80,11 +80,11 @@ const quest: QuestDefinition2 = {
       effects: [{ credits: 400 }, { xp: 650 }, { give: "quote-magnum" }, { rep: "civilian", by: 5 }, { setFlag: "weather.dex-back" }],
     },
     "hush-money": {
-      title: "Paid to Forget", journal: "Dex paid you five hundred to keep a dead man dead. Kestrel still lights a candle for him. You try not to think about it.",
+      title: "Paid to Forget", journal: "Dex paid you five hundred to keep a dead man dead. Kestrel still lights a candle for him on the change machine.",
       effects: [{ credits: 500 }, { xp: 500 }, { setFlag: "weather.bribed" }],
     },
     "sold-out": {
-      title: "Debts Are Forever", journal: "The Razorbacks collected their four thousand from a dead man. They paid you a finder's fee and a nod you'll be getting for weeks.",
+      title: "Debts Are Forever", journal: "The Razorbacks collected four thousand from a dead man. They paid you a finder's fee, and every Razorback in the Spillway nods at you now.",
       effects: [{ credits: 400 }, { xp: 500 }, { rep: "razorbacks", by: 15 }, { setFlag: "weather.dex-taken" }],
     },
   },
@@ -98,7 +98,7 @@ const dialogues: DialogueDefinition[] = [
       node("offer", [
         "My weatherman's gone, baby. Dex Solano. Broadcast from a van behind my arcade for eleven years. 'Rain. More rain. Back to you, nobody.'",
         "Van's full of holes and there's red on the kerb. The Razorbacks were on him for money. CorpSec said he jammed their channel.",
-        "Find out who killed him. Then I'll decide what to do with them.",
+        "You don't owe the Razorbacks or CorpSec, so you can look at both. Find out who killed him and bring me a name. I pay for names. I'll handle the rest.",
       ], [
         { id: "accept", label: "I'll find out.", effects: [{ startQuest: Q }], next: "accepted" },
         bye("Sorry, Mama.", "decline"),

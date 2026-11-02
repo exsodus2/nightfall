@@ -1,7 +1,7 @@
 // Small pure helpers behind the one-line multiplayer hooks in engine.ts.
-import type { DriveCar } from "../city/driving";
-import type { TravelMode } from "../city/locomotion";
-import type { LocalPose, RemoteAvatar } from "./types";
+import type { DriveCar } from "../city/driving.ts";
+import type { TravelMode } from "../city/locomotion.ts";
+import type { LocalPose, RemoteAvatar } from "./types.ts";
 import type { TrainCarrier } from "./rail.ts";
 export { METRO_TIME_OFFSET } from "./rail.ts";
 

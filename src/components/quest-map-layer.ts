@@ -1,5 +1,6 @@
 import { NPCS } from "../city/npcs.ts";
 import { QUESTS, type QuestSnapshot } from "../city/quests.ts";
+import type { LabelSpace } from "./world-map-labels.ts";
 
 const AMBER = "#e6ad62";
 const TEAL = "#baf5d7";
@@ -36,7 +37,7 @@ function diamond(ctx: CanvasRenderingContext2D, x: number, z: number, radius: nu
 }
 
 /** Named NPCs, quest givers with open business, and the tracked contract target for the atlas/minimap. */
-export function drawQuestLayer(ctx: CanvasRenderingContext2D, view: QuestLayerView, quests: QuestSnapshot): void {
+export function drawQuestLayer(ctx: CanvasRenderingContext2D, view: QuestLayerView, quests: QuestSnapshot, space?: LabelSpace): void {
   const { px, pz, size, extent, centerX, centerZ, full } = view;
   const inView = (x: number, z: number) => Math.abs(x - centerX) <= extent && Math.abs(z - centerZ) <= extent;
   const tracked = quests.tracked;
@@ -61,12 +62,19 @@ export function drawQuestLayer(ctx: CanvasRenderingContext2D, view: QuestLayerVi
     if (full && state) {
       const halfWidth = npc.name.length * 3.5 + 2;
       let labelY: number | null = null;
-      for (let row = 0; row < 5; row++) {
-        const bottom = z - 10 - row * 14;
-        const bounds = { left: x - halfWidth, right: x + halfWidth, top: bottom - 12, bottom };
-        if (labels.some(label => bounds.left < label.right && bounds.right > label.left && bounds.top < label.bottom && bounds.bottom > label.top)) continue;
-        if (markers.some(marker => Math.abs(px(marker.x) - x) < halfWidth + 6 && pz(marker.z) + 6 > bounds.top && pz(marker.z) - 6 < bounds.bottom)) continue;
-        labels.push(bounds); labelY = bottom; break;
+      // World map: first try rows that also clear the landmark, event, station and venue labels
+      // placed before us (`space`); a name that fits nowhere then takes its usual row anyway.
+      for (const avoid of space ? [true, false] : [false]) {
+        for (let row = 0; row < 5 && labelY === null; row++) {
+          const bottom = z - 10 - row * 14;
+          const bounds = { left: x - halfWidth, right: x + halfWidth, top: bottom - 12, bottom };
+          if (labels.some(label => bounds.left < label.right && bounds.right > label.left && bounds.top < label.bottom && bounds.bottom > label.top)) continue;
+          if (markers.some(marker => Math.abs(px(marker.x) - x) < halfWidth + 6 && pz(marker.z) + 6 > bounds.top && pz(marker.z) - 6 < bounds.bottom)) continue;
+          const box = { x0: bounds.left, y0: bounds.top, x1: bounds.right, y1: bounds.bottom };
+          if (avoid && space && !space.free(box)) continue;
+          labels.push(bounds); space?.reserve(box); labelY = bottom;
+        }
+        if (labelY !== null) break;
       }
       if (labelY === null) continue;
       ctx.font = "11px monospace";

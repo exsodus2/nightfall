@@ -7,7 +7,7 @@ import { formatCredits, formatTimeLeft } from "./quest-tracker";
 const SECTIONS: readonly { status: QuestLogEntry["status"]; title: string; mark: string }[] = [
   { status: "ready", title: "Ready to deliver", mark: "◆" },
   { status: "active", title: "In progress", mark: "▸" },
-  { status: "complete", title: "Closed", mark: "✓" },
+  { status: "complete", title: "Completed", mark: "✓" },
   { status: "failed", title: "Failed", mark: "×" },
 ];
 
@@ -63,13 +63,13 @@ export function QuestLog({ quests, onTrack, onClose, onResume }: QuestLogProps) 
   const earned = quests.log.filter((entry) => entry.status === "complete").reduce((sum, entry) => sum + entry.reward, 0);
   return <div className="panel-backdrop" onClick={onClose}>
     <section className="side-panel quest-log" role="dialog" aria-modal="true" aria-labelledby="quest-log-title" tabIndex={-1} ref={dialogRef} onClick={(event) => event.stopPropagation()}>
-      <div className="panel-heading"><div><span className="panel-kicker">Contract ledger</span><h2 id="quest-log-title">Work, after hours.</h2></div><button className="close-button" onClick={onClose} aria-label="Close quest log">×</button></div>
+      <div className="panel-heading"><div><span className="panel-kicker">Quest log // J</span><h2 id="quest-log-title">Contracts</h2></div><button className="close-button" onClick={onClose} aria-label="Close quest log">×</button></div>
       <dl className="quest-log-ledger">
         <div><dt>Balance</dt><dd>{formatCredits(quests.credits)}<small>CR</small></dd></div>
         <div><dt>Earned</dt><dd>{formatCredits(earned)}<small>CR</small></dd></div>
         <div><dt>Open</dt><dd>{quests.log.filter((entry) => entry.status === "active" || entry.status === "ready").length}</dd></div>
       </dl>
-      {quests.log.length === 0 ? <p className="quest-log-empty">No contracts yet. People around the city have work that needs doing. When a name appears near you, press <kbd>E</kbd> to talk.</p> : null}
+      {quests.log.length === 0 ? <p className="quest-log-empty">No contracts yet. People with a marker over their head have work: walk up and press <kbd>E</kbd>. Start with Mira Bell outside Blue Hour Tea, or Sable Quist at the contract board, both in the Silk Market.</p> : null}
       {SECTIONS.map(({ status, title, mark }) => {
         const entries = quests.log.filter((entry) => entry.status === status);
         if (!entries.length) return null;

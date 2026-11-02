@@ -17,8 +17,12 @@ const chrome = spawn(executable, ["--headless=new", `--remote-debugging-port=${p
 let socket;
 const report = [];
 const cameras = {
+  // Meridian Avenue trams (tram.ts): north up the avenue from z 78; at --clock=45 both trams dwell at
+  // the z 15..44 island platform with their doors open, the next stop and tram further on.
+  "avenue-long": { x: 7, z: 78, height: 2.7, yaw: -0.06, pitch: -0.04 },
   "glass-office": { x: -45, z: 124, height: 14, yaw: 0, pitch: 0 },
   "glass-grazing": { x: -35, z: 119, height: 14, yaw: -1.335, pitch: 0 },
+  "sign-grazing": { x: -34, z: 121.5, height: 2.7, yaw: -1.22, pitch: -0.3 },
   "glass-warm": { x: -45, z: 63, height: 14, yaw: 0, pitch: 0 },
   "park-pond": { x: -437, z: 249, height: 9, yaw: 0.72, pitch: 0.22 },
   "park-arena": { x: -527, z: 378, height: 10, yaw: 0.74, pitch: 0.24 },
@@ -30,6 +34,11 @@ const cameras = {
   "spill-air": { x: 576, z: 192, height: 45, yaw: 2.84, pitch: 0.2 },
   "street-up": { x: -128, z: 96, height: 2.7, yaw: 0.4, pitch: -0.45 },
   "roof-close": { x: -128, z: 64, height: 95, yaw: 0.8, pitch: 0.4 },
+  // ROOFTOP: the Neon Ward rooftop bar on building 1080 (-45, -19, roof 55 m; rooftop-life.ts),
+  // from above the corner of the z 0 street about 25 m out, past the bulkhead sign onto the deck,
+  // the lounge tables and the bar (its back shelf of bottles faces the bulkhead), aimed at the
+  // middle of the bar's half of the roof.
+  "roof-bar": { x: -33, z: -4, height: 67, yaw: -0.833, pitch: 0.48 },
   "top-down": { x: -64, z: 128, height: 230, yaw: 0.3, pitch: 1.2 },
   // Landmarks (landmarks-scene.ts), shopfronts and street life (signage.ts, street-life.ts).
   "ember-core": { x: -452, z: -258, height: 2.7, yaw: -0.75, pitch: -0.35 },
@@ -38,15 +47,42 @@ const cameras = {
   "spire-far": { x: 0, z: 140, height: 2.7, yaw: 0.106, pitch: -0.12 },
   "gate": { x: 4, z: 160, height: 2.7, yaw: 3.1416, pitch: -0.2 },
   "cathedral": { x: 452, z: -258, height: 2.7, yaw: 0.75, pitch: -0.45 },
+  // Sky agent: the Signal Cathedral's data haze and the Ghost Circuit deck from over the Spillway, ~440 m off.
+  "cathedral-sky": { x: 640, z: 120, height: 90, yaw: -0.37, pitch: -0.25 },
   "tree": { x: -462, z: 268, height: 2.7, yaw: -2.41, pitch: -0.3 },
   "arcade": { x: 452, z: 260, height: 2.7, yaw: 2.36, pitch: -0.3 },
+  // City events (city-events.ts): the CorpSec checkpoint on the Neon Ward avenue (e.g. --clock=1311).
+  "checkpoint": { x: 6, z: -262, height: 2.7, yaw: 0.245, pitch: -0.05 },
   "storefront": { x: -45, z: 131, height: 2.7, yaw: 3.1416, pitch: 0.05 },
   "stall": { x: -45, z: 187.5, height: 2.7, yaw: 0, pitch: 0.05 },
   "alley-cables": { x: -60, z: 160, height: 2.7, yaw: 1.5708, pitch: -0.2 },
+  // Monorail height profile and the Rim Line (metro.ts LINE_HUMPS, world.ts RAIL_RIM / RIM_YARDS).
+  "loop-hump": { x: 506, z: 262, height: 32, yaw: 0.02, pitch: 0.04 },
+  "rim-hump": { x: -700, z: -764, height: 44, yaw: 1.5708, pitch: 0.02 },
+  "rim-station": { x: 24, z: -735, height: 2.7, yaw: -0.35, pitch: -0.42 },
+  "rim-edge": { x: 300, z: -764, height: 14, yaw: 0.6, pitch: 0.02 },
+  "rim-yard": { x: 764, z: -760, height: 3, yaw: -2.28, pitch: -0.75 },
+  // Edge sights (world.ts SIGHTS, sights-scene.ts): the Nami Maru and her cranes, the Spillway
+  // Barrier and the Rainline cableway, from the Rim Roads and from the Rim Line's height.
+  "harbour-ship": { x: -140, z: 760, height: 2.7, yaw: 1.987, pitch: -0.2 },
+  "harbour-ship-rim": { x: -260, z: 768, height: 44, yaw: 1.775, pitch: 0.06 },
+  "spill-barrier": { x: 764, z: 200, height: 2.7, yaw: 2.146, pitch: -0.25 },
+  "spill-barrier-rim": { x: 768, z: 40, height: 44, yaw: 2.637, pitch: 0.04 },
+  "cableway": { x: -764, z: 560, height: 20, yaw: -0.16, pitch: -0.12 },
+  "cableway-rim": { x: -768, z: 0, height: 44, yaw: -0.137, pitch: 0 },
   // Holograms and hologram screens (materials.ts SURFACE 7 / 5).
+  // Harbour water seen from above the flood wall and from the Rim Line deck (harbour.ts).
+  "sea-down": { x: 300, z: -790, height: 24, yaw: 0, pitch: 0.55 },
+  "sea-out": { x: 0, z: -800, height: 46, yaw: 0, pitch: 0.22 },
   "hologram": { x: -71, z: -45, height: 40, yaw: 1.5708, pitch: 0.1 },
   "hologram-street": { x: -70, z: 5, height: 38, yaw: 0.25, pitch: 0.05 },
   "screen": { x: 66, z: 96, height: 27, yaw: -0.7, pitch: 0 },
+  // Secrets (secrets.ts): the Silk Market fridge alley, the cat shrine across the avenue, the Spillway
+  // fire escape and valves, and the still carriage in the Foundry Gate yard.
+  "secret-fridge": { x: 52, z: 96.6, height: 1.7, yaw: -1.2, pitch: 0.08 },
+  "secret-shrine": { x: -16, z: 96.6, height: 1.7, yaw: -1.88, pitch: 0.1 },
+  "secret-ladder": { x: 493, z: 223, height: 1.7, yaw: -2.24, pitch: -0.15 },
+  "secret-carriage": { x: -706, z: -704, height: 2.2, yaw: -0.5, pitch: 0.02 },
 };
 try {
   let tabs;
@@ -81,11 +117,12 @@ try {
   for (const view of views) {
     const params = new URLSearchParams({ studio: "1", view, clock: args.get("clock") ?? "45", clean: "1", perf: "1" });
     if (args.has("reference")) params.set("reference", args.get("reference"));
+    for (const [key, value] of new URLSearchParams(args.get("query") ?? "")) params.set(key, value); // --query=radius=16&warp=none
     const url = `${process.env.CITY_URL ?? "http://127.0.0.1:3000"}/?${params}`;
     const startedAt = performance.now();
     await call("Page.navigate", { url });
     console.log(`Loading ${view}...`);
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 400; i++) { // a cold first load compiles and prewarms the shaders (~30-50 s)
       const phase = await evaluate("document.querySelector('main')?.dataset.phase");
       if (phase === "error") throw Error(await evaluate("document.body.innerText"));
       if (phase === "intro") break;

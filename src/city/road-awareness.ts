@@ -5,7 +5,8 @@ import { PLAYER_RADIUS } from "./world.ts";
 
 interface RoadPoint { x: number; z: number }
 export interface RoadPlayer extends RoadPoint { y?: number; mode?: string; place?: string }
-export interface RoadResident extends RoadPoint { y: number; next: number; path: readonly { road?: boolean; crossing?: boolean }[] }
+/** `leader` >= 0 marks a patrol partner: it walks its leader's trail with an empty path of its own. */
+export interface RoadResident extends RoadPoint { y: number; next: number; path: readonly { road?: boolean; crossing?: boolean }[]; leader?: number }
 export interface RoadPerception { eye: RoadPoint; players?: readonly RoadPlayer[]; residents?: readonly RoadResident[] }
 
 export const ROAD_AWARENESS_RADIUS = 120;
@@ -34,6 +35,9 @@ export class RoadAwareness {
     if (!perception || !Number.isFinite(perception.eye.x) || !Number.isFinite(perception.eye.z)) return;
     for (const player of perception.players ?? []) this.add(player, PLAYER_RADIUS, 0, perception.eye);
     for (const resident of perception.residents ?? []) {
+      // A partner has no road targets of its own, so it counts wherever it stands on the carriageway
+      // (roadLevelPedestrian): the leader can be back on the kerb while the partner is still crossing.
+      if ((resident.leader ?? -1) >= 0) { this.add(resident, ROAD_RESIDENT_RADIUS, 1, perception.eye); continue; }
       if (!Number.isInteger(resident.next) || resident.next < 0) continue;
       const target = resident.path[resident.next];
       if (target?.road && target.crossing === false) this.add(resident, ROAD_RESIDENT_RADIUS, 1, perception.eye);

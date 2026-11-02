@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { roadDistance } from "../src/city/driving.ts";
-import { PLATFORM_HEIGHT, SEATS, STATIONS, boardingTrain, localToWorld, trainAt } from "../src/city/metro.ts";
+import { SEATS, STATIONS, boardingTrain, floorHeight, localToWorld, trainAt } from "../src/city/metro.ts";
 import { CityPopulation, type ResidentState } from "../src/city/people.ts";
 import { CityWorld } from "../src/city/world.ts";
 
@@ -36,11 +36,11 @@ test("all 24 commuter market endpoints and both directions stay on clear pavemen
   }
 });
 
-test("all 54 natural commuters complete repeated safe market, lift and train cycles over 900 seconds", context => {
+test("all 86 natural commuters (54 on the City Loop, 32 on the Rim Line) complete repeated safe market, lift and train cycles over 900 seconds", context => {
   const population = commuterPopulation(), states = new Map<number, Set<ResidentState>>(), visits = new Set<number>(), stations = new Set<number>();
   const liftStarts = new Map<number, { time: number; phase: number; u: number; v: number }>();
   let groundSamples = 0, roadSamples = 0, minimumClearance = Infinity, boardings = 0, finishedLifts = 0;
-  assert.equal(population.commuters.length, 54);
+  assert.equal(population.commuters.length, 86);
   for (const person of population.commuters) states.set(person.id, new Set([person.state]));
   for (let tick = 1; tick <= 9000; tick++) {
     const time = tick / 10, previous = population.commuters.map(person => ({ state: person.state, y: person.y }));
@@ -54,7 +54,7 @@ test("all 54 natural commuters complete repeated safe market, lift and train cyc
         assert.ok(person.seat >= 0 && person.seat < SEATS.length);
         assert.ok(!reserved.has(key), `seat ${key} has only one commuter`); reserved.add(key);
         assert.ok(Math.hypot(person.x - expected.x, person.z - expected.z) < 1e-9);
-        assert.equal(person.y, PLATFORM_HEIGHT);
+        assert.equal(person.y, floorHeight(trainAt(time, person.train), person.v));
       }
       if (previous[index].state === "platform" && person.state === "boarding") {
         assert.equal(boardingTrain(time, person.station)?.id, person.train); boardings++;
@@ -63,13 +63,13 @@ test("all 54 natural commuters complete repeated safe market, lift and train cyc
         if (previous[index].state !== "lift") liftStarts.set(person.id, { time, phase: person.phase, u: person.u, v: person.v });
         const start = liftStarts.get(person.id)!;
         assert.equal(person.phase, start.phase); assert.equal(person.u, start.u); assert.equal(person.v, start.v);
-        assert.ok(person.y >= 0 && person.y <= PLATFORM_HEIGHT);
+        assert.ok(person.y >= 0 && person.y <= STATIONS[person.station].height);
         assert.ok(start.phase === 0 ? person.y <= previous[index].y : person.y >= previous[index].y);
       } else if (previous[index].state === "lift") {
         const start = liftStarts.get(person.id)!;
         assert.ok(Math.abs(time - start.time - 4) < 0.101);
         assert.equal(person.state, start.phase === 0 ? "browsing" : "platform");
-        assert.equal(person.y, start.phase === 0 ? 0 : PLATFORM_HEIGHT);
+        assert.equal(person.y, start.phase === 0 ? 0 : STATIONS[person.station].height);
         liftStarts.delete(person.id); finishedLifts++;
       }
       if (person.state === "browsing") {
@@ -85,7 +85,7 @@ test("all 54 natural commuters complete repeated safe market, lift and train cyc
   context.diagnostic(JSON.stringify({ seconds: 900, groundSamples, roadSamples, minimumClearance, boardings, finishedLifts, visits: visits.size, stations: stations.size }));
   assert.equal(roadSamples, 0, "commuters never browse or return through the central avenue road");
   assert.ok(minimumClearance >= 6.85); assert.ok(groundSamples > 80000);
-  assert.equal(visits.size, 54); assert.equal(stations.size, 6);
+  assert.equal(visits.size, 86); assert.equal(stations.size, STATIONS.length);
   assert.ok(boardings > 200 && finishedLifts > 400);
   for (const person of population.commuters) {
     assert.ok(person.trips >= 4, `commuter ${person.id} keeps returning to the metro`);

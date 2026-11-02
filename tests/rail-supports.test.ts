@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { STATIONS, TRACK_LENGTH, localToWorld, trackPose } from "../src/city/metro.ts";
+import { LINES, STATIONS, lineDistance, localToWorld, trackPose } from "../src/city/metro.ts";
 import { CAR_HALF_LENGTH, CAR_HALF_WIDTH, ParkedCars, STATIC_OBSTACLES, roadDistance } from "../src/city/driving.ts";
 import { pavementPoint } from "../src/city/people.ts";
-import { BLOCK_SIZE, CityWorld, HALF_BLOCKS, LAMP_STREETS, LANDMARKS, PLAYER_RADIUS, RAIL_SOLIDS, RAIL_SUPPORTS, STATION_COLUMN_HALF, STATION_COLUMN_U, STATION_COLUMN_V, streetLamp, type RailLeg } from "../src/city/world.ts";
+import { BLOCK_SIZE, CityWorld, HALF_BLOCKS, LAMP_STREETS, LANDMARKS, PLAYER_RADIUS, RAIL_SOLIDS, RAIL_SUPPORTS, RIM_YARDS, STATION_COLUMN_HALF, STATION_COLUMN_U, STATION_COLUMN_V, streetLamp, type RailLeg } from "../src/city/world.ts";
 
 const world = new CityWorld();
 interface Rect { x0: number; x1: number; z0: number; z1: number }
@@ -24,31 +24,37 @@ const inCrossing = (x: number, z: number): boolean => {
 };
 
 test("rail supports are portals across the streets and plaza columns on the corners, never unsupported for long", () => {
-  const portals = RAIL_SUPPORTS.filter(s => s.span), columns = RAIL_SUPPORTS.filter(s => !s.span);
-  assert.equal(portals.length, 44);
-  assert.equal(columns.length, 8);
-  const along: number[] = [];
-  for (const support of RAIL_SUPPORTS) {
-    let best = Infinity, at = 0;
-    for (let d = 0; d < TRACK_LENGTH; d += 0.05) { const p = trackPose(d), gap = Math.hypot(p.x - support.x, p.z - support.z); if (gap < best) { best = gap; at = d; } }
-    assert.ok(best < 0.05, `support at ${support.x},${support.z} is ${best} m off the track`);
-    along.push(at);
-    if (support.span) {
-      assert.equal(support.legs.length, 2);
-      // Legs either side of the track, square to it, equally far out.
-      const [a, b] = support.legs, pose = trackPose(at);
-      const dx = b.x - a.x, dz = b.z - a.z;
-      assert.ok(Math.abs(dx * Math.sin(pose.yaw) - dz * Math.cos(pose.yaw)) < 1e-6, "the portal is square to the track");
-      assert.ok(Math.abs((a.x + b.x) / 2 - support.x) < 1e-9 && Math.abs((a.z + b.z) / 2 - support.z) < 1e-9, "the track runs through the middle of the portal");
+  for (const line of LINES) {
+    const supports = RAIL_SUPPORTS.filter(s => s.line === line.id), portals = supports.filter(s => s.span), columns = supports.filter(s => !s.span);
+    assert.equal(portals.length, line.id === 0 ? 44 : 88, `${line.name} portals`);
+    assert.equal(columns.length, 8, `${line.name} corner columns`);
+    const along: number[] = [];
+    for (const support of supports) {
+      const at = lineDistance(line.id, support.x, support.z), p = trackPose(at, line.id);
+      // The analytic nearest point agrees with a local search along the track.
+      let best = Infinity;
+      for (let d = at - 2; d <= at + 2; d += 0.01) { const q = trackPose(d, line.id); best = Math.min(best, Math.hypot(q.x - support.x, q.z - support.z)); }
+      const gap = Math.hypot(p.x - support.x, p.z - support.z);
+      assert.ok(gap < 0.05 && gap <= best + 1e-6, `support at ${support.x},${support.z} is ${gap} m off the ${line.name}`);
+      along.push(at);
+      if (support.span) {
+        assert.equal(support.legs.length, 2);
+        // Legs either side of the track, square to it, equally far out.
+        const [a, b] = support.legs;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        assert.ok(Math.abs(dx * Math.sin(p.yaw) - dz * Math.cos(p.yaw)) < 1e-6, "the portal is square to the track");
+        assert.ok(Math.abs((a.x + b.x) / 2 - support.x) < 1e-9 && Math.abs((a.z + b.z) / 2 - support.z) < 1e-9, "the track runs through the middle of the portal");
+      }
     }
+    along.sort((a, b) => a - b);
+    const spans = along.map((d, i) => (i + 1 < along.length ? along[i + 1] : along[0] + line.length) - d);
+    assert.ok(Math.max(...spans) < 68, `${line.name} longest span ${Math.max(...spans).toFixed(1)} m`);
   }
-  along.sort((a, b) => a - b);
-  const spans = along.map((d, i) => (i + 1 < along.length ? along[i + 1] : along[0] + TRACK_LENGTH) - d);
-  assert.ok(Math.max(...spans) < 68, `longest span ${Math.max(...spans).toFixed(1)} m`);
 });
 
 test("station street columns match the platform layout the renderer draws", () => {
-  const stationColumns = RAIL_SOLIDS.slice(RAIL_SUPPORTS.flatMap(s => s.legs).length);
+  const legs = RAIL_SUPPORTS.flatMap(s => s.legs).length, stationColumns = RAIL_SOLIDS.slice(legs, legs + STATIONS.length * STATION_COLUMN_V.length);
+  assert.equal(RAIL_SOLIDS.length, legs + stationColumns.length + RIM_YARDS.length);
   assert.equal(stationColumns.length, STATIONS.length * STATION_COLUMN_V.length);
   for (const station of STATIONS) for (const v of STATION_COLUMN_V) {
     const p = localToWorld(station, STATION_COLUMN_U, v);

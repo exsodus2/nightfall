@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CAR_HALF_LENGTH, ParkedCars, carFits, carObstacle, stepCar, type DriveCar } from "../src/city/driving.ts";
 import { RoadAwareness } from "../src/city/road-awareness.ts";
-import { CityTraffic, stopDistance, type Vehicle } from "../src/city/traffic.ts";
+import { CityTraffic, carKind, drivableKind, stopDistance, type Vehicle } from "../src/city/traffic.ts";
 import { WALKING_CAR_ROOF_CLEARANCE, WalkingCollision } from "../src/city/walking-collision.ts";
 import { WALK_ARRIVAL_QUERY_RADIUS, canStandAtArrival, findWalkArrival } from "../src/city/walk-arrival.ts";
 import { CityWorld, WORLD_EDGE } from "../src/city/world.ts";
@@ -120,7 +120,7 @@ test("local traffic yields to remote ground vehicles in both road axes and direc
     const traffic = new CityTraffic();
     const car = traffic.nearby(0, 0, 330).find(candidate => {
       const lane = heading(candidate);
-      return lane.axis === axis && lane.direction === direction && stopDistance(axis, direction, lane.along) > 25;
+      return !candidate.trailing && !candidate.signal && drivableKind(carKind(candidate.id)) && lane.axis === axis && lane.direction === direction && stopDistance(axis, direction, lane.along) > 25;
     });
     assert.ok(car);
     const body = remote("driver", { x: car.x + Math.sin(car.yaw) * 16, z: car.z - Math.cos(car.yaw) * 16, heading: car.yaw });

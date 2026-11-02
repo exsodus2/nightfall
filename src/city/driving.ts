@@ -9,8 +9,11 @@ import { easeViewBlend, stepViewBlend, type DriveView } from "./drive-view.ts";
  * city: forward = (sin yaw, -cos yaw), right = (cos yaw, sin yaw). */
 export interface CarPose { x: number; z: number; yaw: number }
 export interface ParkedCar extends CarPose { id: number; /** Left here by the player (traffic treats it as a blocker). */ moved: boolean }
-export interface DriveCar extends CarPose { id: number; speed: number; steer: number; yawRate: number; accel: number; scraping: boolean }
-export interface DriveInput { throttle: number; steer: number; handbrake: boolean; boost: boolean }
+/** `slip`: body yaw minus the direction of travel (radians; the rear stepping out under the
+ * handbrake). `kerb`: the centre was over the pavement last step (kerb bumps). */
+export interface DriveCar extends CarPose { id: number; speed: number; steer: number; yawRate: number; accel: number; scraping: boolean; slip?: number; kerb?: boolean }
+/** `rain`: weather.ts rain intensity 0..1 for this step (default: the last setRoadWetness value). */
+export interface DriveInput { throttle: number; steer: number; handbrake: boolean; boost: boolean; rain?: number }
 /** Oriented rectangle other than a building: cars, rail pillars, station columns. */
 export interface Obstacle { x: number; z: number; yaw: number; halfLength: number; halfWidth: number }
 export interface StepResult { impact: number; moved: number }
@@ -22,6 +25,21 @@ export const CAR_HALF_WIDTH = 1.35;
 export const DRIVER_EYE_HEIGHT = 1.65;
 const WHEELBASE = 2.7;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+/** Road surface: weather.ts rain intensity (0.2 drizzle .. 1 downpour), set each frame from the
+ * scene (activity.ts drawActivity) and read by stepCar unless the input carries its own. */
+let roadRain = 0;
+export function setRoadWetness(rain: number): void { roadRain = Number.isFinite(rain) ? clamp(rain, 0, 1) : 0; }
+/** 0 dry .. 1 standing water: drizzle barely counts, a downpour fully. */
+export function roadWetness(rain: number): number {
+  const u = clamp((rain - 0.3) / 0.65, 0, 1);
+  return u * u * (3 - 2 * u);
+}
+/** Lateral grip and braking left on a wet road: gentle (no spin-outs), at most -18 % and -25 %. */
+export const wetGrip = (wetness: number): number => 1 - 0.18 * clamp(wetness, 0, 1);
+export const wetBraking = (wetness: number): number => 1 - 0.25 * clamp(wetness, 0, 1);
+/** Largest slide angle the handbrake allows (radians, about 20 degrees). */
+export const MAX_SLIP = 0.35;
 export const angleDelta = (from: number, to: number): number => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
 /** Distance to the nearest carriageway centre line, as the road shader measures it (the
@@ -93,35 +111,43 @@ export function stepCar(world: CityWorld, car: DriveCar, input: DriveInput, dt: 
   const steps = Math.max(1, Math.ceil(dt * 120), Math.ceil(Math.abs(car.speed) * dt / 0.25));
   const h = dt / steps;
   const throttle = clamp(input.throttle, -1, 1), steerInput = clamp(input.steer, -1, 1);
+  // Wet roads: a little less lateral grip (mild understeer) and longer braking, never a spin.
+  const wetness = roadWetness(input.rain ?? roadRain), grip0 = wetGrip(wetness), brakes = wetBraking(wetness);
   // Other cars that already overlap (traffic that moved into us) never trap the car.
   const blocking = obstacles.filter(o => !rectanglesOverlap(carShape(car), o));
   const stuck = !carFits(world, car, blocking);
-  let impact = 0, moved = 0, touching = false;
+  let impact = 0, moved = 0, touching = false, slip = Number.isFinite(car.slip) ? car.slip ?? 0 : 0;
   for (let i = 0; i < steps; i++) {
     const v = car.speed, top = input.boost ? 38 : 25;
     let a: number, braking = false;
     if (throttle > 0 && v >= -0.3) a = (input.boost ? 13 : 8.5) * throttle * (1 - Math.min(1.4, (Math.max(0, v) / top) ** 2));
     else if (throttle < 0 && v <= 0.3) a = 5.5 * throttle * (1 - Math.min(1, (Math.min(0, v) / -8) ** 2));
-    else if (throttle !== 0) { a = -Math.sign(v) * 15 * Math.abs(throttle); braking = true; }
-    else { a = 0; braking = true; }
-    // Rolling resistance and aero drag; the handbrake locks the rear wheels.
-    a -= Math.sign(v) * (0.9 + 0.0035 * v * v + (input.handbrake ? 10 : 0));
+    else if (throttle !== 0) { a = -Math.sign(v) * 15 * brakes * Math.abs(throttle); braking = true; }
+    // Off the throttle: engine braking, growing with road speed.
+    else { a = -Math.sign(v) * Math.min(1.1, 0.055 * Math.abs(v)); braking = true; }
+    // Rolling resistance and aero drag; the handbrake locks the rear wheels; a sideways slide scrubs speed.
+    a -= Math.sign(v) * (0.9 + 0.0035 * v * v + (input.handbrake ? 10 * brakes : 0) + 6 * Math.abs(Math.sin(slip)));
     if (input.handbrake) braking = true;
     let next = v + a * h;
     if (braking && Math.sign(next) !== Math.sign(v) && v !== 0) next = 0;
     car.accel = (next - v) / Math.max(h, 1e-6);
     car.speed = next;
 
-    // Steering eases in and self-centres; lock narrows with speed and lateral grip caps the turn rate.
-    const rate = steerInput === 0 ? 4.5 : Math.sign(steerInput) !== Math.sign(car.steer) ? 6 : 3.2;
-    car.steer += clamp(steerInput - car.steer, -rate * h, rate * h);
+    // Steering eases in (more slowly at speed) and self-centres; lock narrows with speed and
+    // lateral grip caps the turn rate.
     const speed = Math.abs(car.speed);
+    const rate = steerInput === 0 ? 4.5 : (Math.sign(steerInput) !== Math.sign(car.steer) ? 6 : 3.2) / (1 + speed / 40);
+    car.steer += clamp(steerInput - car.steer, -rate * h, rate * h);
     const angle = car.steer * 0.6 / (1 + speed / 9) * (input.handbrake ? 1.3 : 1);
-    const grip = (input.handbrake ? 22 : 14) / Math.max(speed, 0.5);
+    const grip = (input.handbrake ? 22 : 14) * grip0 / Math.max(speed, 0.5);
     car.yawRate = clamp(car.speed * Math.tan(angle) / WHEELBASE, -grip, grip);
 
-    const yaw = car.yaw + car.yawRate * h;
-    const dx = Math.sin(yaw) * car.speed * h, dz = -Math.cos(yaw) * car.speed * h;
+    // The body turns at yawRate; the direction of travel follows it, lagging under the handbrake
+    // at speed (the rear steps out a little, eased in and out, capped at MAX_SLIP).
+    const follow = input.handbrake && speed > 5 ? 2.5 : 16;
+    slip = clamp((slip + car.yawRate * h) * Math.exp(-follow * h), -MAX_SLIP, MAX_SLIP);
+    const yaw = car.yaw + car.yawRate * h, course = yaw - slip;
+    const dx = Math.sin(course) * car.speed * h, dz = -Math.cos(course) * car.speed * h;
     const intended = Math.hypot(dx, dz);
     if (intended < 1e-9 && Math.abs(yaw - car.yaw) < 1e-12) continue;
     // Full move, then axis slides (all building walls are axis-aligned), then without the turn.
@@ -132,6 +158,7 @@ export function stepCar(world: CityWorld, car: DriveCar, input: DriveInput, dt: 
       // Head-on: a small bounce, never a position inside the obstacle.
       impact = Math.max(impact, Math.abs(car.speed));
       car.speed *= -0.18;
+      slip *= 0.5;
       touching = true;
       continue;
     }
@@ -147,9 +174,59 @@ export function stepCar(world: CityWorld, car: DriveCar, input: DriveInput, dt: 
     moved += travelled;
   }
   car.scraping = touching;
+  car.slip = slip;
+  // Kerb bumps: mounting or leaving the pavement nudges the speed down a little (no camera
+  // effect, comfort), once per crossing.
+  const kerb = roadDistance(car.x, car.z) > 6.4;
+  if (car.kerb !== undefined && kerb !== car.kerb && Math.abs(car.speed) > 1) car.speed -= Math.sign(car.speed) * Math.min(1.2, Math.abs(car.speed) * KERB_BUMP);
+  car.kerb = kerb;
   return { impact, moved };
 }
+/** Share of the speed a kerb crossing costs (at most 1.2 m/s). */
+export const KERB_BUMP = 0.06;
 
+/** Bus routes (traffic.ts): both directions of these streets carry buses, which pull in at a lit
+ * shelter every other block. Kept clear of the park, the avenue and the station concourses. */
+export const BUS_STREETS: readonly { axis: "x" | "z"; street: number }[] = [{ axis: "x", street: -3 }, { axis: "x", street: 2 }, { axis: "z", street: -5 }, { axis: "z", street: 5 }];
+/** A bus berth: `along` is the bus's front-segment centre when it has pulled in; `x, z` the shelter
+ * on the pavement beside its doors, `yaw` the bus heading. `side` is the kerb (sign across the street). */
+export interface BusStop { axis: "x" | "z"; street: number; direction: number; block: number; along: number; side: number; x: number; z: number; yaw: number }
+/** Berths repeat every other block, 6 m past mid-block, so the 11.6 m bus is clear of both corners. */
+export const busBerth = (block: number, direction: number): number => block * BLOCK_SIZE + 32 + direction * 6;
+export const BUS_STOPS: readonly BusStop[] = BUS_STREETS.flatMap(({ axis, street }) => [-1, 1].flatMap(direction => {
+  const side = axis === "x" ? -direction : direction, stops: BusStop[] = [];
+  for (let block = -10; block <= 10; block += 2) {
+    const along = busBerth(block, direction), mid = block * BLOCK_SIZE + 32;
+    const lateral = street * BLOCK_SIZE + side * 8.4;
+    const x = axis === "x" ? mid : lateral, z = axis === "x" ? lateral : mid;
+    if (STATIONS.some(s => Math.abs(x - s.x) < 52 && Math.abs(z - s.z) < 52)) continue;
+    // Not inside the avenue's stop line (traffic.ts AVENUE_STOP_LINE, 29.5 m): a bus pulling away
+    // from there was already past it and crossed the avenue (and its tram rails) on red.
+    if (axis === "x" && Math.abs(along) < 32) continue;
+    stops.push({ axis, street, direction, block, along, side, x, z, yaw: axis === "x" ? direction * Math.PI / 2 : direction < 0 ? 0 : Math.PI });
+  }
+  return stops;
+}));
+const busStopKey = (axis: "x" | "z", street: number, direction: number, block: number): number => ((axis === "x" ? 1 : 2) * 64 + street + 32) * 4096 + (direction + 1) * 1024 + block + 512;
+const BUS_STOP_KEYS = new Set(BUS_STOPS.map(s => busStopKey(s.axis, s.street, s.direction, s.block)));
+export const hasBusStop = (axis: "x" | "z", street: number, direction: number, block: number): boolean => BUS_STOP_KEYS.has(busStopKey(axis, street, direction, block));
+/** Abandoned wrecks on the city's outer streets (traffic.ts reports them as solid, undrivable
+ * vehicles). Half up on the kerb and a little askew, clear of the passing lane. */
+export const WRECK_SPOTS: readonly CarPose[] = ([["x", 11, 1, -6], ["x", -11, -1, 3], ["z", 11, 1, -2], ["z", -11, -1, 5], ["x", 10, -1, 7], ["z", -10, 1, -8], ["x", -10, 1, -4]] as const).map(([axis, street, side, block], i) => {
+  const along = block * BLOCK_SIZE + 32, lateral = street * BLOCK_SIZE + side * 6.3, skew = (i % 2 ? 1 : -1) * 0.09;
+  return axis === "z" ? { x: lateral, z: along, yaw: (side < 0 ? 0 : Math.PI) + skew } : { x: along, z: lateral, yaw: -side * Math.PI / 2 + skew };
+});
+
+/** A taxi rank on the avenue's east kerb beside the Spire plaza (world.ts LANDMARKS "spire",
+ * block z -192..-128): four cabs nose to tail, heading south; `x, z` is the rank sign at its head. */
+export const TAXI_RANK = { axis: "z", street: 0, side: 1, block: -3, x: 13.2, z: -143 } as const;
+/** Rank cabs: parked ids never use a multiple of 5 (tint 1-4), and carKind reads id % 5 === 0 as
+ * a cab unless id % 31 === 7 (police): these clear both. */
+export const taxiRankId = (slot: number): number => {
+  let id = 45000 + slot * 5;
+  while (id % 31 === 7) id += 20;
+  return id;
+};
 /** Parked cars along the kerbs of every block: deterministic, a handful per block.
  * They never sit in a crossing, an intersection, a station concourse or a building,
  * and the driver can always step out onto the pavement. */
@@ -163,19 +240,25 @@ export class ParkedCars {
         if (Math.abs(street) > HALF_BLOCKS - 1) continue;
         // Four spaces per kerb, 8.5 m apart: room to pull out between neighbours.
         for (const side of [-1, 1]) for (let slot = 0; slot < 4; slot++) {
-          if (randomFor(bx * 5 + slot, bz * 3 + side, axis === "z" ? 811 : 823) > 0.2) continue;
+          // The taxi rank in front of the Spire plaza: all four spaces, always cabs.
+          const rank = axis === TAXI_RANK.axis && street === TAXI_RANK.street && side === TAXI_RANK.side && bz === TAXI_RANK.block;
+          if (!rank && randomFor(bx * 5 + slot, bz * 3 + side, axis === "z" ? 811 : 823) > 0.2) continue;
           const along = (axis === "z" ? bz : bx) * BLOCK_SIZE + 18.5 + slot * 8.5;
           const lateral = street * BLOCK_SIZE + side * (axis === "z" && street === 0 ? 10.4 : 5.8);
           // Cross streets meet the double-width avenue with crossings out to |x| = 26.
           if (axis === "x" && Math.abs(along) < 31) continue;
           const pose = axis === "z" ? { x: lateral, z: along, yaw: side < 0 ? 0 : Math.PI } : { x: along, z: lateral, yaw: -side * Math.PI / 2 };
           if (STATIONS.some(s => Math.abs(pose.x - s.x) < 40 && Math.abs(pose.z - s.z) < 40)) continue;
+          // Bus berths and wrecks keep their stretch of kerb.
+          if (BUS_STOPS.some(s => s.axis === axis && s.street === street && s.side === side && Math.abs(along - (s.block * BLOCK_SIZE + 32)) < 18)) continue;
+          if (WRECK_SPOTS.some(w => Math.abs(w.x - pose.x) < 9 && Math.abs(w.z - pose.z) < 9)) continue;
           // Rootwood Park's streets are promenades (its boundary streets keep their kerbside cars).
           if (inPark(pose.x, pose.z)) continue;
           // Only where the pavement is wide enough for the driver to step out beside the car.
           if (!carFits(world, pose)) continue;
           const exit = exitSpot(world, pose);
           if (roadDistance(exit.x, exit.z) < 6.6) continue;
+          if (rank) { this.add({ ...pose, id: taxiRankId(slot), moved: false }); continue; }
           const tint = Math.floor(randomFor(serial, 5, 829) * 4) + 1;
           this.add({ ...pose, id: 20000 + serial++ * 5 + tint, moved: false });
         }

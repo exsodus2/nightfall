@@ -97,7 +97,7 @@ const WEAPONS: readonly ItemDefinition[] = [
   weapon({
     id: "segfault", name: "Segfault", rarity: "uncommon", glyph: "!", value: 240, weight: 1.8,
     description: "A shock baton that dumps its whole charge on contact. Targets tend to stop responding.",
-    weapon: { class: "baton", damage: 18, range: 2.2, cooldown: 0.55, staminaCost: 10, heavyMultiplier: 2.2, arc: 50, knockback: 0.9, stagger: 0.9, critChance: 0.1, critMultiplier: 1.7 },
+    weapon: { class: "baton", damage: 20, range: 2.2, cooldown: 0.55, staminaCost: 10, heavyMultiplier: 2.2, arc: 50, knockback: 0.9, stagger: 0.9, critChance: 0.1, critMultiplier: 1.7 },
     tags: ["tech"],
     art: art(String.raw`
    _/\_
@@ -296,6 +296,210 @@ const WEAPONS: readonly ItemDefinition[] = [
  /__/
 `),
   }),
+
+  // ---- Sprint additions: more of the city's punctuation ------------------------------------
+  weapon({
+    id: "hyphen", name: "Hyphen", rarity: "common", glyph: "-", value: 35, weight: 0.6,
+    description: "A Silk Market box cutter with snap-off segments. Break off a dull bit and it is sharp again.",
+    weapon: { class: "blade", damage: 13, range: 1.9, cooldown: 0.4, staminaCost: 6, heavyMultiplier: 2.0, arc: 40, knockback: 0.3, stagger: 0.2, critChance: 0.14, critMultiplier: 1.8 },
+    tags: ["street"],
+    art: art(String.raw`
+  ________________
+ |####|___________\
+ |####|-----------'
+   ''
+`),
+  }),
+  weapon({
+    id: "shebang", name: "Shebang", rarity: "common", glyph: "h", value: 110, weight: 3,
+    description: "A two-shot pipe gun from a Spillway garage. The first line tells it what to run; the second is usually you.",
+    weapon: { class: "shotgun", damage: 6, range: 7, cooldown: 1.0, staminaCost: 0, magazine: 2, ammo: "ammo-shell", reload: 2.2, spread: 0.16, pellets: 6, knockback: 1.4, stagger: 0.4, critChance: 0.03, critMultiplier: 1.5, automatic: 0 },
+    tags: ["street"],
+    art: art(String.raw`
+  #!_______________
+ |___|=============O
+    | |  (tape)
+   /  /
+  /__/
+`),
+  }),
+  weapon({
+    id: "open-paren", name: "Open Paren", rarity: "uncommon", glyph: "(", value: 200, weight: 1.4,
+    description: "A Rain Gardens pruning sickle with a hooked edge. It opens things and never gets round to closing them.",
+    weapon: { class: "blade", damage: 19, range: 2.5, cooldown: 0.48, staminaCost: 9, heavyMultiplier: 2.1, arc: 70, knockback: 0.5, stagger: 0.3, critChance: 0.14, critMultiplier: 1.9 },
+    tags: ["street", "cool"],
+    art: art(String.raw`
+      .--.
+     /    '
+    (
+     \
+      '-.
+        |#|
+        |#|
+        '-'
+`),
+  }),
+  weapon({
+    id: "query", name: "Query", rarity: "uncommon", glyph: "?", value: 210, weight: 3.2,
+    description: "A crowbar bent into a question mark. The answer is usually the door, or whoever is behind it.",
+    weapon: { class: "blunt", damage: 28, range: 2.4, cooldown: 0.7, staminaCost: 13, heavyMultiplier: 2.3, arc: 55, knockback: 1.6, stagger: 0.7, critChance: 0.06, critMultiplier: 1.7 },
+    tags: ["street"],
+    art: art(String.raw`
+    .---.
+   /     \
+         |
+        /
+       |
+       |
+       |
+       V
+`),
+  }),
+  weapon({
+    id: "tab-stop", name: "Tab Stop", rarity: "uncommon", glyph: "T", value: 400, weight: 4,
+    description: "A lever-action carbine from the Foundry gun club. Each pull of the lever moves the target one column to the right.",
+    weapon: { class: "rifle", damage: 30, range: 28, cooldown: 0.8, staminaCost: 0, magazine: 6, ammo: "ammo-rifle", reload: 2.5, spread: 0.012, knockback: 1.0, stagger: 0.35, critChance: 0.18, critMultiplier: 2.0, automatic: 0 },
+    tags: ["cool"],
+    art: art(String.raw`
+  ____________________
+ |TAB  _______________|=
+ |___||
+  /  / \_/
+ /__/
+`),
+  }),
+  weapon({
+    id: "less-than", name: "Less Than", rarity: "rare", glyph: "<", value: 950, weight: 2.6,
+    description: "A cleaver off a Silk Market noodle stall, rebalanced for people. Whatever it hits ends up less than it was.",
+    weapon: { class: "blade", damage: 36, range: 2.3, cooldown: 0.6, staminaCost: 13, heavyMultiplier: 2.4, arc: 65, knockback: 1.2, stagger: 0.6, critChance: 0.16, critMultiplier: 2.0 },
+    tags: ["street"],
+    art: art(String.raw`
+  ____________
+ |            |
+ |   <        |________
+ |____________|=======]
+`),
+  }),
+  weapon({
+    id: "interrupt", name: "Interrupt", rarity: "rare", glyph: "I", value: 1000, weight: 1.9,
+    description: "A CorpSec cattle prod with the safety ground off. It does not stop people so much as pause them mid-thought.",
+    weapon: { class: "baton", damage: 29, range: 2.3, cooldown: 0.5, staminaCost: 11, heavyMultiplier: 2.2, arc: 50, knockback: 1.0, stagger: 1.3, critChance: 0.12, critMultiplier: 1.8 },
+    tags: ["tech"],
+    art: art(String.raw`
+   ^   ^
+   |___|
+    |#|
+   [###]
+    | |
+    | |
+   (___)
+`),
+  }),
+  weapon({
+    id: "fork-bomb", name: "Fork Bomb", rarity: "epic", glyph: "y", value: 3300, weight: 3,
+    description: "A Ghost-built machine pistol on a forked stock. Every trigger pull spawns two more, until something runs out of memory.",
+    weapon: { class: "smg", damage: 9, range: 13, cooldown: 0.1, staminaCost: 0, magazine: 40, ammo: "ammo-pistol", reload: 2.1, spread: 0.07, knockback: 0.2, stagger: 0.1, critChance: 0.1, critMultiplier: 1.8, automatic: 10 },
+    tags: ["tech"],
+    art: art(String.raw`
+   y   y   y
+  _\|/_______________
+ |y  ______  ________|=
+ |__|     |__|
+           ||
+           ||
+`),
+  }),
+  weapon({
+    id: "close-brace", name: "Close Brace", rarity: "legendary", glyph: "}", value: 10000, weight: 7,
+    description: "A tower hammer with a curled steel guard, lifted from the Meridian lobby's display case. It ends every block it enters.",
+    weapon: { class: "blunt", damage: 104, range: 2.8, cooldown: 0.9, staminaCost: 22, heavyMultiplier: 2.6, arc: 85, knockback: 3.4, stagger: 1.2, critChance: 0.1, critMultiplier: 2.0 },
+    tags: ["street", "cool"],
+    art: art(String.raw`
+  .------------.
+  |  } } } } } |
+  '-----.  .---'
+        |  |
+        |  |
+        |  |
+       [____]
+`),
+  }),
+
+  // ---- Rim Line additions: harbour, lock and foundry-gate kit ------------------------------
+  weapon({
+    id: "underscore", name: "Underscore", rarity: "common", glyph: "_", value: 50, weight: 2.2,
+    description: "A Low Tide Gate boat hook with the pole cut down to arm's length. It draws a line under whatever it reaches.",
+    weapon: { class: "blade", damage: 20, range: 2.8, cooldown: 0.62, staminaCost: 9, heavyMultiplier: 2.1, arc: 50, knockback: 0.9, stagger: 0.35, critChance: 0.08, critMultiplier: 1.7 },
+    tags: ["street"],
+    art: art(String.raw`
+     __
+    /  |
+   |   '
+    \_
+      |
+      |
+      |
+  ____|____
+`),
+  }),
+  weapon({
+    id: "carriage-return", name: "Carriage Return", rarity: "uncommon", glyph: "J", value: 260, weight: 4.4,
+    description: "A Rim Line track wrench, a metre of hooked steel. Swing it out and it brings you back to the start of the line.",
+    weapon: { class: "blunt", damage: 30, range: 2.6, cooldown: 0.75, staminaCost: 14, heavyMultiplier: 2.4, arc: 60, knockback: 1.8, stagger: 0.75, critChance: 0.06, critMultiplier: 1.7 },
+    tags: ["street"],
+    art: art(String.raw`
+      ___
+     |   |
+     |   |
+     |  _|
+     | |
+     | |
+  ___| |
+  \____/
+`),
+  }),
+  weapon({
+    id: "full-stop", name: "Full Stop", rarity: "uncommon", glyph: ".", value: 380, weight: 2.4,
+    description: "A Silk Harbour hull riveter rechambered for 11mm. Every shot ends a sentence, usually the other person's.",
+    weapon: { class: "pistol", damage: 27, range: 18, cooldown: 0.66, staminaCost: 0, magazine: 7, ammo: "ammo-pistol", reload: 1.8, spread: 0.03, knockback: 1.1, stagger: 0.4, critChance: 0.12, critMultiplier: 1.9, automatic: 0 },
+    tags: ["street"],
+    art: art(String.raw`
+   _____________
+  |[o]  ________|.
+  |___||
+    | |
+    |_|
+`),
+  }),
+  weapon({
+    id: "modulo", name: "Modulo", rarity: "rare", glyph: "%", value: 1050, weight: 3.6,
+    description: "A Foundry Gate cut-off saw bolted to a short pole. Whatever it goes through, it leaves the remainder.",
+    weapon: { class: "blade", damage: 38, range: 2.4, cooldown: 0.62, staminaCost: 14, heavyMultiplier: 2.3, arc: 75, knockback: 1.1, stagger: 0.6, critChance: 0.14, critMultiplier: 2.0 },
+    tags: ["street", "tech"],
+    art: art(String.raw`
+    .-'''-.
+   / o   / \
+  |     /   |
+   \   /  o/
+    '-+--'
+      |#|
+      |#|
+      '-'
+`),
+  }),
+  weapon({
+    id: "line-feed", name: "Line Feed", rarity: "epic", glyph: "L", value: 3600, weight: 5.2,
+    description: "A Silk Harbour harpoon rifle that fires steel bolts on a reel. It takes a target down to the next line, and drags.",
+    weapon: { class: "rifle", damage: 70, range: 32, cooldown: 0.8, staminaCost: 0, magazine: 3, ammo: "ammo-rifle", reload: 2.8, spread: 0.008, knockback: 2.6, stagger: 0.9, critChance: 0.2, critMultiplier: 2.2, automatic: 0 },
+    tags: ["street", "cool"],
+    art: art(String.raw`
+  ____(@)___________
+ |LF ______________|>--
+ |__||   ~~~
+   / /
+  /_/
+`),
+  }),
 ];
 
 const AMMO: readonly ItemDefinition[] = [
@@ -323,6 +527,24 @@ const ARMOR: readonly ItemDefinition[] = [
   { id: "visor-cap", name: "Visor Cap", kind: "armor", rarity: "common", glyph: "n", value: 45, weight: 0.4, stack: 1, armor: { slot: "head", protection: 0.04 }, tags: ["cool"], description: "A cap with a cracked HUD visor. Mainly it keeps the rain off." },
   { id: "riot-helm", name: "Riot Helm", kind: "armor", rarity: "uncommon", glyph: "Q", value: 280, weight: 1.8, stack: 1, armor: { slot: "head", protection: 0.1 }, tags: ["street"], description: "A scuffed CorpSec riot helmet. Somebody scratched the logo off." },
   { id: "halo-rig", name: "Halo Rig", kind: "armor", rarity: "epic", glyph: "A", value: 3000, weight: 1, stack: 1, armor: { slot: "head", protection: 0.18 }, tags: ["tech", "cool"], description: "A ring of sensor nodes that floats a finger's width above the skull and flinches before you do." },
+  { id: "sandbox-poncho", name: "Sandbox Poncho", kind: "armor", rarity: "common", glyph: "U", value: 70, weight: 1.2, stack: 1, armor: { slot: "body", protection: 0.09 }, tags: ["street"], description: "A rubberised Spillway rain poncho with ceramic chips glued inside. Light, cheap, and better than a hoodie against a knife." },
+  { id: "patch-notes", name: "Patch Notes", kind: "armor", rarity: "uncommon", glyph: "P", value: 300, weight: 3, stack: 1, armor: { slot: "body", protection: 0.17 }, tags: ["street"], description: "A courier's jacket covered in sewn-on armour patches. Each one fixes a different way of getting hurt." },
+  { id: "kernel-plate", name: "Kernel Plate", kind: "armor", rarity: "rare", glyph: "K", value: 1350, weight: 6.5, stack: 1, armor: { slot: "body", protection: 0.3 }, tags: ["street"], description: "A Foundry-forged chest plate stamped KERNEL. It runs at the lowest level and takes the worst of every hit." },
+  {
+    id: "root-kit", name: "Root Kit", kind: "armor", rarity: "epic", glyph: "R", value: 3500, weight: 4, stack: 1, armor: { slot: "body", protection: 0.36 }, tags: ["tech", "cool"],
+    description: "A Ghost-made harness of hidden plates that installs itself over your clothes, hides from scanners, and is very hard to remove.",
+    art: art(String.raw`
+   .--------------.
+   |[]  ~root~  []|
+   |  |========|  |
+   |[]|  ####  |[]|
+   '--'========'--'
+`),
+  },
+  { id: "welders-mask", name: "Welder's Mask", kind: "armor", rarity: "uncommon", glyph: "D", value: 260, weight: 1.4, stack: 1, armor: { slot: "head", protection: 0.11 }, tags: ["street"], description: "A Kiln Nine welding mask with the shade glass swapped for a cheap HUD. You see less, and less of you gets hit." },
+  { id: "null-hood", name: "Null Hood", kind: "armor", rarity: "rare", glyph: "N", value: 1100, weight: 0.6, stack: 1, armor: { slot: "head", protection: 0.14 }, tags: ["tech", "cool"], description: "A hood lined with signal-dead mesh. Ghost Circuit cameras cannot find a face under it. Knives have more luck." },
+  { id: "flood-wall", name: "Flood Wall", kind: "armor", rarity: "rare", glyph: "B", value: 1250, weight: 6, stack: 1, armor: { slot: "body", protection: 0.29 }, tags: ["street"], description: "A lock-keeper's oilskin with riveted plate from the old sea wall sewn into the lining. Built to hold back the tide, rated for rather less." },
+  { id: "port-scanner", name: "Port Scanner", kind: "armor", rarity: "uncommon", glyph: "z", value: 290, weight: 0.9, stack: 1, armor: { slot: "head", protection: 0.1 }, tags: ["tech"], description: "A harbour pilot's hood with a hull scanner scrolling across the brow. Reads every open port on the quay, and the occasional open mouth." },
   {
     id: "daemon-crown", name: "Daemon Crown", kind: "armor", rarity: "legendary", glyph: "V", value: 8000, weight: 1.4, stack: 1, armor: { slot: "head", protection: 0.25 }, tags: ["tech", "cool", "street"],
     description: "A black circlet that runs in the background of your mind. It never sleeps, so neither do its reflexes.",
@@ -354,6 +576,15 @@ const CONSUMABLES: readonly ItemDefinition[] = [
   { id: "haste-inhaler", name: "Haste Inhaler", kind: "consumable", rarity: "uncommon", glyph: "i", value: 110, weight: 0.2, stack: 5, consumable: { stamina: 50, duration: 12, effect: "haste" }, description: "Two puffs and the world runs at a lower clock speed than you do." },
   { id: "focus-chip", name: "Focus Chip", kind: "consumable", rarity: "rare", glyph: "%", value: 150, weight: 0.1, stack: 5, consumable: { duration: 20, effect: "focus" }, tags: ["tech"], description: "A single-use wetware chip. For twenty seconds every weak point in the room is highlighted." },
   { id: "shield-cell", name: "Shield Cell", kind: "consumable", rarity: "rare", glyph: ")", value: 180, weight: 0.3, stack: 5, consumable: { duration: 15, effect: "shield" }, tags: ["tech"], description: "Clips to a belt and throws a thin kinetic field around you for fifteen seconds." },
+  { id: "hana-broth", name: "Hana's Broth", kind: "consumable", rarity: "common", glyph: "v", value: 15, weight: 0.4, stack: 10, consumable: { heal: 40, duration: 20, effect: "regen" }, description: "A paper cup of pork-bone broth from Hana Oduya's noodle cart in the Silk Market. Heals slowly for twenty seconds." },
+  { id: "kiln-coffee", name: "Kiln Coffee", kind: "consumable", rarity: "common", glyph: "m", value: 14, weight: 0.3, stack: 10, consumable: { heal: 10, stamina: 45 }, description: "Foundry night-shift coffee, brewed on a furnace pipe. Restores stamina and a little feeling in the hands." },
+  { id: "sealant-spray", name: "Sealant Spray", kind: "consumable", rarity: "common", glyph: "f", value: 14, weight: 0.2, stack: 10, consumable: { heal: 25 }, description: "A can of wound sealant meant for pipes. Juniper says never to use it on people. Juniper sells it to people." },
+  { id: "defrag-patch", name: "Defrag Patch", kind: "consumable", rarity: "uncommon", glyph: "a", value: 95, weight: 0.05, stack: 5, consumable: { duration: 25, effect: "focus" }, tags: ["tech"], description: "A dermal patch that tidies your attention into one block. Weak points stand out for twenty-five seconds." },
+  { id: "overclock-tab", name: "Overclock Tab", kind: "consumable", rarity: "rare", glyph: "x", value: 160, weight: 0.05, stack: 5, consumable: { stamina: 80, duration: 16, effect: "haste" }, tags: ["tech"], description: "A bitter tab that runs your nerves past spec: a big stamina refill and faster feet for sixteen seconds. Nix sells them by the strip in Ghost Circuit." },
+  { id: "static-jar", name: "Static Jar", kind: "consumable", rarity: "epic", glyph: "j", value: 420, weight: 0.5, stack: 3, consumable: { duration: 22, effect: "shield" }, tags: ["tech"], description: "A jar of Ghost Circuit static. Uncork it and the air around you stiffens into a field for twenty-two seconds." },
+  { id: "moss-poultice", name: "Moss Poultice", kind: "consumable", rarity: "uncommon", glyph: "G", value: 70, weight: 0.2, stack: 5, consumable: { heal: 30, duration: 30, effect: "regen" }, description: "Rain Gardens moss packed in gauze and soaked in something green. Slap it on the wound: some health now, more over thirty seconds." },
+  { id: "glare-drops", name: "Glare Drops", kind: "consumable", rarity: "uncommon", glyph: "E", value: 85, weight: 0.05, stack: 5, consumable: { duration: 18, effect: "focus" }, tags: ["street"], description: "Neon Ward eye drops for sign fitters who stare at tubes all night. For eighteen seconds every weak point stands out like a lit sign." },
+  { id: "harbour-kelp", name: "Harbour Kelp", kind: "consumable", rarity: "common", glyph: "k", value: 16, weight: 0.3, stack: 10, consumable: { heal: 35, stamina: 20, duration: 25, effect: "regen" }, description: "Salted kelp strips sold in paper twists on the Silk Harbour quay. A little breath back at once, then slow healing over twenty-five seconds of chewing." },
 ];
 
 const JUNK: readonly ItemDefinition[] = [
@@ -364,6 +595,19 @@ const JUNK: readonly ItemDefinition[] = [
   { id: "data-shard", name: "Data Shard", kind: "junk", rarity: "uncommon", glyph: "d", value: 60, weight: 0.05, stack: 20, description: "A sliver of crystal storage. Nobody asks what is on it; brokers pay by the gram." },
   { id: "encrypted-drive", name: "Encrypted Drive", kind: "junk", rarity: "rare", glyph: "e", value: 240, weight: 0.2, stack: 10, tags: ["tech"], description: "A locked corp drive. Worth a lot to the right broker, and a lot more to the wrong one." },
   { id: "old-world-watch", name: "Old-World Watch", kind: "junk", rarity: "rare", glyph: "w", value: 350, weight: 0.2, stack: 5, description: "A wind-up wristwatch that still keeps time. Collectors in the Spire love these." },
+  // District trade goods: what each part of town leaves lying around.
+  { id: "foundry-slag", name: "Foundry Slag", kind: "junk", rarity: "common", glyph: "g", value: 9, weight: 0.8, stack: 30, description: "A fist-sized lump of glassy furnace slag. Kiln Nine buys it back to line the moulds." },
+  { id: "afterlight-token", name: "Afterlight Token", kind: "junk", rarity: "common", glyph: "p", value: 5, weight: 0.01, stack: 50, description: "A brass Afterlight Arcade token. Good for one game in the Spillway, or a few credits from a collector." },
+  { id: "river-glass", name: "River Glass", kind: "junk", rarity: "common", glyph: "O", value: 7, weight: 0.05, stack: 30, description: "Bottle glass the Spillway river has worn smooth. Stall keepers string it into charms." },
+  { id: "tea-brick", name: "Tea Brick", kind: "junk", rarity: "common", glyph: "Z", value: 14, weight: 0.4, stack: 20, description: "A pressed brick of Blue Hour's house tea. In the Silk Market it spends almost like money." },
+  { id: "rainfern-seeds", name: "Rainfern Seeds", kind: "junk", rarity: "uncommon", glyph: "r", value: 24, weight: 0.02, stack: 20, description: "A twist of paper holding rainfern seeds from the Rain Gardens. Rooftop growers pay well for them." },
+  { id: "hologram-gel", name: "Hologram Gel", kind: "junk", rarity: "uncommon", glyph: "q", value: 32, weight: 0.3, stack: 20, description: "A projector cartridge from a dead Neon Ward billboard. Sign shops refill them and sell the ads twice." },
+  { id: "antenna-core", name: "Antenna Core", kind: "junk", rarity: "uncommon", glyph: "t", value: 45, weight: 0.4, stack: 20, tags: ["tech"], description: "The ferrite heart of a Ghost Circuit rooftop antenna, still faintly warm. Ghost fixers buy them by the dozen." },
+  { id: "pylon-insulator", name: "Pylon Insulator", kind: "junk", rarity: "uncommon", glyph: "8", value: 38, weight: 0.7, stack: 20, description: "A stack of ceramic discs off one of the offshore power pylons, crusted with salt. Kiln Nine grinds them into mould grit; the Ghosts want the copper core." },
+  // Keepsakes: rare drops tied to the city's stories. Worth more to collectors than to fixers.
+  { id: "choir-tuning-fork", name: "Choir Tuning Fork", kind: "junk", rarity: "rare", glyph: "F", value: 260, weight: 0.2, stack: 5, tags: ["keepsake"], description: "A steel fork stamped with the Hollow Choir's mark. Strike it and anyone from the Choir within earshot turns their head." },
+  { id: "chrome-rosary", name: "Chrome Rosary", kind: "junk", rarity: "rare", glyph: "C", value: 300, weight: 0.3, stack: 5, tags: ["keepsake"], description: "Chrome bearings strung on fibre-optic. Chrome Saints count prayers on it; collectors in the Spire count credits." },
+  { id: "paid-warrant", name: "Paid Warrant", kind: "junk", rarity: "rare", glyph: "X", value: 180, weight: 0.01, stack: 10, tags: ["keepsake"], description: "A bounty warrant off Sable's board, stamped PAID. Fixers frame them. Some frame their own." },
   { id: CREDIT_CHIP, name: "Credit Chip", kind: "junk", rarity: "common", glyph: "$", value: 1, weight: 0, stack: 1_000_000, tags: ["credits"], description: "A bearer credit chip. Picking it up adds its balance to your account." },
 ];
 
@@ -376,5 +620,5 @@ const QUEST_ITEMS: readonly ItemDefinition[] = [
   { id: "warden-sigil", name: "Warden Sigil", kind: "quest", rarity: "epic", glyph: "S", value: 0, weight: 0, stack: 1, tags: ["quest"], description: "A heavy brass seal stamped with the old park wardens' crest." },
 ];
 
-/** The base catalogue: 18 weapons, 3 ammo types, 8 armour pieces, 7 consumables, trade goods and quest placeholders. */
+/** The base catalogue: 32 weapons, 3 ammo types, 16 armour pieces, 16 consumables, trade goods, keepsakes and quest placeholders. */
 export const ITEMS: readonly ItemDefinition[] = [...WEAPONS, ...AMMO, ...ARMOR, ...CONSUMABLES, ...JUNK, ...QUEST_ITEMS];
